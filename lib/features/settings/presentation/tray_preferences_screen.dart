@@ -24,42 +24,20 @@ class TrayPreferencesScreen extends ConsumerWidget {
           _ActionSetting(
             title: context.tr('Left-click action'),
             value: preferences.left,
-            enabled: !linux,
+            actions: linux
+                ? TrayClickAction.values
+                      .where((action) => action != TrayClickAction.showMenu)
+                      .toList()
+                : TrayClickAction.values,
             onChanged: notifier.setLeft,
           ),
           const SizedBox(height: 10),
           _ActionSetting(
             title: context.tr('Right-click action'),
             value: preferences.right,
-            enabled: !linux,
+            actions: TrayClickAction.values,
             onChanged: notifier.setRight,
           ),
-          if (linux) ...[
-            const SizedBox(height: 12),
-            FrostedCard(
-              padding: const EdgeInsets.all(13),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Icon(Icons.info_outline_rounded, size: 17),
-                  const SizedBox(width: 9),
-                  Expanded(
-                    child: Text(
-                      context.tr(
-                        'On Linux, tray click behavior is controlled by the desktop environment. Use the Oculve tray menu for connection and location actions.',
-                      ),
-                      style: TextStyle(
-                        color: Theme.of(context).brightness == Brightness.dark
-                            ? AppTheme.foregroundMuted
-                            : AppTheme.lightForegroundMuted,
-                        fontSize: 11,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
         ],
       ),
     );
@@ -70,13 +48,13 @@ class _ActionSetting extends StatelessWidget {
   const _ActionSetting({
     required this.title,
     required this.value,
-    required this.enabled,
+    required this.actions,
     required this.onChanged,
   });
 
   final String title;
   final TrayClickAction value;
-  final bool enabled;
+  final List<TrayClickAction> actions;
   final ValueChanged<TrayClickAction> onChanged;
 
   @override
@@ -93,10 +71,9 @@ class _ActionSetting extends StatelessWidget {
           key: ValueKey(
             'tray-action-${title.toLowerCase().replaceAll(' ', '-')}',
           ),
-          enabled: enabled,
           initialValue: value,
           onSelected: onChanged,
-          itemBuilder: (context) => TrayClickAction.values
+          itemBuilder: (context) => actions
               .map(
                 (action) => PopupMenuItem(
                   value: action,

@@ -1,8 +1,12 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
+import 'package:dart_xdg_status_notifier_item/dart_xdg_status_notifier_item.dart'
+    as sni;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:screen_retriever/screen_retriever.dart';
 import 'package:tray_manager/tray_manager.dart';
@@ -14,6 +18,7 @@ import '../providers/locale_provider.dart';
 import '../providers/vpn_provider.dart';
 import 'tray_click_preferences.dart';
 import '../../features/auth/data/auth_repository.dart';
+import '../vpn/profile.dart';
 
 const desktopWindowSize = Size(320, 568);
 
@@ -23,9 +28,15 @@ class DesktopTrayController with TrayListener, WindowListener {
   final ProviderContainer container;
   bool _quitting = false;
   bool _ready = false;
+  String _currentIconPath = 'assets/tray_icon_idle.png';
+  sni.StatusNotifierItemClient? _linuxTray;
+  List<String> _linuxMenuServerIds = const [];
+  Future<void> _menuUpdateQueue = Future<void>.value();
   ProviderSubscription<Locale>? _localeSubscription;
   ProviderSubscription<VpnState>? _vpnSubscription;
   ProviderSubscription<AsyncValue<Account?>>? _sessionSubscription;
+  ProviderSubscription<String?>? _selectedServerSubscription;
+  final Map<String, Future<sni.StatusNotifierIconPixmap>> _iconCache = {};
   Timer? _breathingTimer;
   int _breathingFrame = 0;
   int _iconRevision = 0;
@@ -47,12 +58,12 @@ class DesktopTrayController with TrayListener, WindowListener {
 
   Future<void> initialize() async {
     windowManager.addListener(this);
-    trayManager.addListener(this);
+    if (!Platform.isLinux) trayManager.addListener(this);
     try {
       await windowManager.setPreventClose(true);
       await windowManager.setResizable(false);
       await _updateStatusIcon(container.read(vpnProvider));
-      await trayManager.setToolTip('Oculve VPN');
+      if (!Platform.isLinux) await trayManager.setToolTip('Oculve VPN');
       _localeSubscription = container.listen(localeProvider, (_, locale) {
         unawaited(_setContextMenu(locale.languageCode));
       });
@@ -63,15 +74,26 @@ class DesktopTrayController with TrayListener, WindowListener {
       _sessionSubscription = container.listen(sessionProvider, (_, _) {
         unawaited(_setContextMenu(container.read(localeProvider).languageCode));
       });
+      _selectedServerSubscription = container.listen(
+        selectedServerProvider,
+        (_, _) => unawaited(
+          _setContextMenu(container.read(localeProvider).languageCode),
+        ),
+      );
       await _setContextMenu(container.read(localeProvider).languageCode);
       await windowManager.hide();
       _ready = true;
     } catch (_) {
       _disposeSubscriptions();
-      trayManager.removeListener(this);
+      if (!Platform.isLinux) trayManager.removeListener(this);
       windowManager.removeListener(this);
       try {
-        await trayManager.destroy();
+        if (Platform.isLinux) {
+          await _linuxTray?.close();
+          _linuxTray = null;
+        } else {
+          await trayManager.destroy();
+        }
       } catch (_) {}
       await windowManager.setPreventClose(false);
       rethrow;
@@ -115,8 +137,50 @@ class DesktopTrayController with TrayListener, WindowListener {
     int revision, {
     required bool template,
   }) async {
-    await trayManager.setIcon(path, isTemplate: template, iconSize: 18);
+    _currentIconPath = path;
+    if (Platform.isLinux) {
+      final icon = await _iconCache.putIfAbsent(path, () => _loadIcon(path));
+      _linuxTray?.iconPixmap = [icon];
+    } else {
+      await trayManager.setIcon(path, isTemplate: template, iconSize: 18);
+    }
     if (revision != _iconRevision) return;
+  }
+
+  Future<sni.StatusNotifierIconPixmap> _loadIcon(String assetPath) async {
+    final data = await rootBundle.load(assetPath);
+    final codec = await ui.instantiateImageCodec(
+      data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+      targetWidth: 24,
+      targetHeight: 24,
+    );
+    final frame = await codec.getNextFrame();
+    try {
+      final image = frame.image;
+      final rgbaData = await image.toByteData(
+        format: ui.ImageByteFormat.rawRgba,
+      );
+      if (rgbaData == null) throw StateError('Could not decode tray icon.');
+      final rgba = rgbaData.buffer.asUint8List(
+        rgbaData.offsetInBytes,
+        rgbaData.lengthInBytes,
+      );
+      final argb = Uint8List(rgba.length);
+      for (var i = 0; i < rgba.length; i += 4) {
+        argb[i] = rgba[i + 3];
+        argb[i + 1] = rgba[i];
+        argb[i + 2] = rgba[i + 1];
+        argb[i + 3] = rgba[i + 2];
+      }
+      return sni.StatusNotifierIconPixmap(
+        width: image.width,
+        height: image.height,
+        pixels: argb,
+      );
+    } finally {
+      frame.image.dispose();
+      codec.dispose();
+    }
   }
 
   void _disposeSubscriptions() {
@@ -124,16 +188,30 @@ class DesktopTrayController with TrayListener, WindowListener {
     _localeSubscription?.close();
     _vpnSubscription?.close();
     _sessionSubscription?.close();
+    _selectedServerSubscription?.close();
     _localeSubscription = null;
     _vpnSubscription = null;
     _sessionSubscription = null;
+    _selectedServerSubscription = null;
   }
 
   Future<void> _setContextMenu(String languageCode) async {
+    final operation = _menuUpdateQueue.then(
+      (_) => _applyContextMenu(languageCode),
+    );
+    _menuUpdateQueue = operation.catchError((Object _) {});
+    return operation;
+  }
+
+  Future<void> _applyContextMenu(String languageCode) async {
     final state = container.read(vpnProvider);
     final profiles =
         container.read(sessionProvider).valueOrNull?.profiles ?? [];
     final selected = container.read(selectedServerProvider);
+    if (Platform.isLinux) {
+      await _setLinuxContextMenu(languageCode, state, profiles, selected);
+      return;
+    }
     final locations = Menu(
       items: [
         MenuItem(
@@ -182,6 +260,121 @@ class DesktopTrayController with TrayListener, WindowListener {
     );
   }
 
+  Future<void> _setLinuxContextMenu(
+    String languageCode,
+    VpnState state,
+    List<VpnProfile> profiles,
+    String? selected,
+  ) async {
+    final serverIds = [
+      optimalServerId,
+      ...profiles.map((profile) => profile.id),
+    ];
+    final serverItems = <sni.DBusMenuItem>[
+      sni.DBusMenuItem.radio(
+        AppStrings.translate('Optimal', languageCode),
+        state: selected == optimalServerId,
+        onClicked: () => _selectServer(optimalServerId),
+      ),
+      for (final profile in profiles)
+        sni.DBusMenuItem.radio(
+          profile.name,
+          state: selected == profile.id,
+          onClicked: () => _selectServer(profile.id),
+        ),
+    ];
+    final menu = sni.DBusMenuItem(
+      children: [
+        sni.DBusMenuItem(
+          label: AppStrings.translate('Open Oculve', languageCode),
+          onClicked: showWindow,
+        ),
+        sni.DBusMenuItem(
+          label: AppStrings.translate(
+            state == VpnState.connected ? 'Disconnect VPN' : 'Connect VPN',
+            languageCode,
+          ),
+          enabled:
+              state != VpnState.connecting && state != VpnState.disconnecting,
+          onClicked: () => container.read(vpnProvider.notifier).toggle(),
+        ),
+        sni.DBusMenuItem(
+          label: AppStrings.translate('Choose location', languageCode),
+          children: serverItems,
+        ),
+        sni.DBusMenuItem.separator(),
+        sni.DBusMenuItem(
+          label: AppStrings.translate('Quit Oculve', languageCode),
+          onClicked: quit,
+        ),
+      ],
+    );
+
+    final client = _linuxTray;
+    if (client == null || !_sameList(_linuxMenuServerIds, serverIds)) {
+      if (client != null) await client.close();
+      _linuxTray = sni.StatusNotifierItemClient(
+        id: 'oculve-vpn',
+        title: 'Oculve VPN',
+        itemIsMenu: false,
+        iconPixmap: [
+          await _iconCache.putIfAbsent(
+            _currentIconPath,
+            () => _loadIcon(_currentIconPath),
+          ),
+        ],
+        toolTip: sni.StatusNotifierToolTip(
+          iconName: '',
+          iconPixmap: const [],
+          title: 'Oculve VPN',
+          body: AppStrings.translate(
+            state == VpnState.connected ? 'Connected' : 'Disconnected',
+            languageCode,
+          ),
+        ),
+        menu: menu,
+        onActivate: (_, _) async {
+          final action = container.read(trayClickPreferencesProvider).left;
+          await _runClickAction(action);
+        },
+        onContextMenu: (_, _) async {
+          final action = container.read(trayClickPreferencesProvider).right;
+          if (action != TrayClickAction.showMenu) {
+            await _runClickAction(action);
+          }
+        },
+      );
+      _linuxMenuServerIds = serverIds;
+      await _linuxTray!.connect(
+        requireWatcher: true,
+        enableGnomeExtensionCheck: false,
+      );
+      if (!await _linuxTray!.isHostRegistered) {
+        throw StateError('No Linux status notifier host is available.');
+      }
+      return;
+    }
+
+    client.toolTip = sni.StatusNotifierToolTip(
+      iconName: '',
+      iconPixmap: const [],
+      title: 'Oculve VPN',
+      body: AppStrings.translate(
+        state == VpnState.connected ? 'Connected' : 'Disconnected',
+        languageCode,
+      ),
+    );
+    await client.updateMenu(menu);
+  }
+
+  bool _sameList(List<String> left, List<String> right) {
+    if (left.length != right.length) return false;
+    for (var index = 0; index < left.length; index++) {
+      if (left[index] != right[index]) return false;
+    }
+    return true;
+  }
+
   @override
   void onTrayIconMouseDown() {
     final action = container.read(trayClickPreferencesProvider).left;
@@ -203,11 +396,15 @@ class DesktopTrayController with TrayListener, WindowListener {
         await container.read(vpnProvider.notifier).toggle();
         break;
       case TrayClickAction.chooseServer:
-        await _showQuickServers();
+        if (Platform.isLinux) {
+          await showWindow();
+        } else {
+          await _showQuickServers();
+        }
         break;
       case TrayClickAction.showMenu:
         await _setContextMenu(container.read(localeProvider).languageCode);
-        await trayManager.popUpContextMenu();
+        if (!Platform.isLinux) await trayManager.popUpContextMenu();
         break;
       case TrayClickAction.quit:
         await quit();
@@ -340,7 +537,12 @@ class DesktopTrayController with TrayListener, WindowListener {
     trayManager.removeListener(this);
     windowManager.removeListener(this);
     _disposeSubscriptions();
-    await trayManager.destroy();
+    if (Platform.isLinux) {
+      await _linuxTray?.close();
+      _linuxTray = null;
+    } else {
+      await trayManager.destroy();
+    }
     await windowManager.setPreventClose(false);
     await windowManager.destroy();
     container.dispose();

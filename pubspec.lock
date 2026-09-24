@@ -89,6 +89,22 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.0.8"
+  dart_xdg_status_notifier_item:
+    dependency: "direct main"
+    description:
+      name: dart_xdg_status_notifier_item
+      sha256: "797fbf18f9abeba81e20d93fc3f0d28a406f39516a43620930844f47b530c1ad"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.1.0"
+  dbus:
+    dependency: transitive
+    description:
+      name: dbus
+      sha256: a48d5da28e89bd02196e80d81ed8d7954923d00a0f4a68cc20b575038f023383
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.7.15"
   fake_async:
     dependency: transitive
     description:
