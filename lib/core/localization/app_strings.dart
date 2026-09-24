@@ -142,6 +142,7 @@ class AppStrings {
         'No hay servidores disponibles. Revisa tu suscripción.',
     'Optimal': 'Óptimo',
     'Password': 'Contraseña',
+    'Ping': 'Latencia',
     'Passkeys': 'Claves de acceso',
     'Per-user download statistics': 'Estadísticas de descarga por usuario',
     'Per-user online statistics': 'Estadísticas de conexión por usuario',
@@ -184,6 +185,30 @@ class AppStrings {
     'Transport & TLS': 'Transporte y TLS',
     'Transport security': 'Seguridad del transporte',
     'Try again': 'Intentar de nuevo',
+    'DNS': 'DNS',
+    'Choose an encrypted DNS provider and lookup address family.':
+        'Elige un proveedor DNS cifrado y la familia de direcciones para las consultas.',
+    'DNS address family': 'Familia de direcciones DNS',
+    'TLS identity': 'Identidad TLS',
+    'This changes the TLS ClientHello only. Keep the server default unless you need another profile.':
+        'Esto solo cambia el ClientHello de TLS. Mantén el valor predeterminado del servidor salvo que necesites otro perfil.',
+    'Split tunneling': 'Túnel dividido',
+    'Choose domains or apps that use your regular connection.':
+        'Elige los dominios o aplicaciones que usarán tu conexión normal.',
+    'Fragmentation': 'Fragmentación',
+    'Optional TLS hello splitting for supported TCP servers.':
+        'División opcional del saludo TLS para servidores TCP compatibles.',
+    'Choose how much connection information is recorded.':
+        'Elige cuánta información de conexión se registra.',
+    'Access and DNS query logs are disabled.':
+        'Los registros de acceso y de consultas DNS están desactivados.',
+    'TRY AGAIN': 'INTENTAR DE NUEVO',
+    'Your traffic is protected.': 'Tu tráfico está protegido.',
+    'Setting up a secure connection…': 'Preparando una conexión segura…',
+    'Disconnecting securely…': 'Desconectando de forma segura…',
+    'Connection failed. Tap to retry.':
+        'Error de conexión. Toca para intentarlo de nuevo.',
+    'Tap to protect your connection.': 'Toca para proteger tu conexión.',
     'Turkish': 'Turco',
     'UDP/443 behavior': 'Comportamiento UDP/443',
     'Unlimited': 'Ilimitado',
@@ -822,6 +847,7 @@ class AppStrings {
         'Kullanılabilir sunucu yok. Aboneliğini kontrol et.',
     'Optimal': 'En uygun',
     'Password': 'Parola',
+    'Ping': 'Ping',
     'Passkeys': 'Geçiş anahtarları',
     'Per-user download statistics': 'Kullanıcı indirme istatistikleri',
     'Per-user online statistics': 'Kullanıcı çevrimiçi istatistikleri',
@@ -865,6 +891,30 @@ class AppStrings {
     'Transport & TLS': 'Taşıma ve TLS',
     'Transport security': 'Taşıma güvenliği',
     'Try again': 'Tekrar dene',
+    'DNS': 'DNS',
+    'Choose an encrypted DNS provider and lookup address family.':
+        'Şifreli DNS sağlayıcısını ve sorgular için adres ailesini seçin.',
+    'DNS address family': 'DNS adres ailesi',
+    'TLS identity': 'TLS kimliği',
+    'This changes the TLS ClientHello only. Keep the server default unless you need another profile.':
+        'Bu yalnızca TLS ClientHello bilgisini değiştirir. Başka bir profil gerekmiyorsa sunucu varsayılanını kullanın.',
+    'Split tunneling': 'Bölünmüş tünel',
+    'Choose domains or apps that use your regular connection.':
+        'Normal bağlantınızı kullanacak alan adlarını veya uygulamaları seçin.',
+    'Fragmentation': 'Parçalama',
+    'Optional TLS hello splitting for supported TCP servers.':
+        'Desteklenen TCP sunucuları için isteğe bağlı TLS hello bölme.',
+    'Choose how much connection information is recorded.':
+        'Ne kadar bağlantı bilgisinin kaydedileceğini seçin.',
+    'Access and DNS query logs are disabled.':
+        'Erişim ve DNS sorgu kayıtları kapalıdır.',
+    'TRY AGAIN': 'YENİDEN DENE',
+    'Your traffic is protected.': 'Trafiğiniz korunuyor.',
+    'Setting up a secure connection…': 'Güvenli bağlantı hazırlanıyor…',
+    'Disconnecting securely…': 'Güvenli bağlantı kesiliyor…',
+    'Connection failed. Tap to retry.':
+        'Bağlantı başarısız. Yeniden denemek için dokunun.',
+    'Tap to protect your connection.': 'Bağlantınızı korumak için dokunun.',
     'Turkish': 'Türkçe',
     'UDP/443 behavior': 'UDP/443 davranışı',
     'Unlimited': 'Sınırsız',

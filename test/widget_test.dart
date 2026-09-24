@@ -15,6 +15,7 @@ import 'package:oculve/core/vpn/xray_preferences.dart';
 import 'package:oculve/core/vpn/profile.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:oculve/core/theme/app_theme.dart';
+import 'package:oculve/core/theme/app_scroll_behavior.dart';
 import 'package:oculve/core/network/oculve_api.dart';
 import 'package:oculve/features/auth/data/auth_repository.dart';
 import 'profile_test.dart' show testLink;
@@ -93,6 +94,36 @@ class _VlessSession extends SessionController {
 }
 
 void main() {
+  testWidgets('desktop popup overlays never show scrollbars', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData(platform: TargetPlatform.macOS),
+        scrollBehavior: const AppScrollBehavior(),
+        home: Scaffold(
+          body: Center(
+            child: PopupMenuButton<int>(
+              itemBuilder: (context) => List.generate(
+                30,
+                (index) =>
+                    PopupMenuItem(value: index, child: Text('Item $index')),
+              ),
+              child: const Text('Open menu'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Open menu'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byWidgetPredicate((widget) => widget is RawScrollbar),
+      findsNothing,
+    );
+    expect(find.byType(Scrollbar), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('settings place theme options above language', (tester) async {
     await tester.pumpWidget(
       ProviderScope(
@@ -168,14 +199,14 @@ void main() {
       expect(find.byTooltip('Show code'), findsNothing);
       expect(find.text('Export'), findsNothing);
       final blur = find.byType(TweenAnimationBuilder<double>);
-      expect(tester.widget<TweenAnimationBuilder<double>>(blur).tween.end, 6.5);
+      expect(tester.widget<TweenAnimationBuilder<double>>(blur).tween.end, 5);
       expect(find.text('Premium'), findsOneWidget);
       expect(find.text('SUBSCRIPTION LINK'), findsNothing);
       expect(find.textContaining('d remaining'), findsOneWidget);
       expect(find.byType(Scrollable), findsNothing);
       expect(
-        tester.getCenter(find.text('Delete account')).dy,
-        lessThan(tester.getCenter(find.text('Log out')).dy),
+        tester.getCenter(find.text('Log out')).dy,
+        lessThan(tester.getCenter(find.text('Delete account')).dy),
       );
       expect(
         tester
@@ -186,7 +217,7 @@ void main() {
               ),
             )
             .height,
-        greaterThanOrEqualTo(44),
+        greaterThanOrEqualTo(50),
       );
       expect(
         tester
@@ -437,10 +468,11 @@ void main() {
     );
     await tester.pump(const Duration(milliseconds: 500));
 
-    expect(find.text('DNS & IP'), findsOneWidget);
-    expect(find.text('Connection privacy'), findsOneWidget);
-    expect(find.text('Traffic routing'), findsOneWidget);
-    expect(find.text('Advanced'), findsOneWidget);
+    expect(find.text('DNS'), findsOneWidget);
+    expect(find.text('TLS identity'), findsOneWidget);
+    expect(find.text('Split tunneling'), findsOneWidget);
+    expect(find.text('Fragmentation'), findsOneWidget);
+    expect(find.text('Diagnostics'), findsOneWidget);
     for (final removed in [
       'XHTTP transport',
       'Mux and XUDP',
@@ -453,6 +485,8 @@ void main() {
       expect(find.text(removed), findsNothing);
     }
 
+    await tester.tap(find.byKey(const ValueKey('xray-section-DNS')));
+    await tester.pump(const Duration(milliseconds: 250));
     await tester.tap(
       find.byKey(const ValueKey('xray-choice-DNS provider-Google')),
     );
@@ -463,7 +497,7 @@ void main() {
     ]);
 
     await tester.tap(
-      find.byKey(const ValueKey('xray-choice-Address family-IPv6 only')),
+      find.byKey(const ValueKey('xray-choice-DNS address family-IPv6 only')),
     );
     await tester.pump(const Duration(milliseconds: 250));
     expect(
@@ -472,10 +506,10 @@ void main() {
     );
 
     await tester.ensureVisible(
-      find.byKey(const ValueKey('xray-section-Traffic routing')),
+      find.byKey(const ValueKey('xray-section-Split tunneling')),
     );
     await tester.tap(
-      find.byKey(const ValueKey('xray-section-Traffic routing')),
+      find.byKey(const ValueKey('xray-section-Split tunneling')),
     );
     await tester.pump(const Duration(milliseconds: 250));
     final domains = find.byKey(const ValueKey('bypass-domains-field'));
@@ -489,9 +523,9 @@ void main() {
     ]);
 
     await tester.ensureVisible(
-      find.byKey(const ValueKey('xray-section-Advanced')),
+      find.byKey(const ValueKey('xray-section-Fragmentation')),
     );
-    await tester.tap(find.byKey(const ValueKey('xray-section-Advanced')));
+    await tester.tap(find.byKey(const ValueKey('xray-section-Fragmentation')));
     await tester.pump(const Duration(milliseconds: 250));
     final fragmentation = find.byKey(
       const ValueKey('xray-fragmentation-switch'),

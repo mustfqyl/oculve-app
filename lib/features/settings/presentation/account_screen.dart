@@ -125,49 +125,71 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
               child: Text(context.tr(action)),
             );
             if (Platform.isIOS) {
-              return Dialog(
-                backgroundColor: Colors.transparent,
+              return cupertino.CupertinoPopupSurface(
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 360),
-                  child: FrostedCard(
-                    padding: const EdgeInsets.fromLTRB(20, 18, 20, 10),
-                    borderRadius: 20,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          context.tr(title),
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            fontSize: 17,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          context.tr(description),
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: _muted, fontSize: 13),
-                        ),
-                        const SizedBox(height: 12),
-                        Row(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(22, 19, 22, 15),
+                        child: Column(
                           children: [
-                            Expanded(
-                              child: TextButton(
-                                onPressed: cancel.onPressed,
-                                child: cancel.child,
+                            Text(
+                              context.tr(title),
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                fontSize: 17,
+                                fontWeight: FontWeight.w700,
                               ),
                             ),
-                            Expanded(
-                              child: TextButton(
-                                onPressed: confirm.onPressed,
-                                child: confirm.child,
-                              ),
+                            const SizedBox(height: 7),
+                            Text(
+                              context.tr(description),
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: _muted, fontSize: 13),
                             ),
                           ],
                         ),
-                      ],
-                    ),
+                      ),
+                      Container(
+                        height: 1 / MediaQuery.devicePixelRatioOf(context),
+                        color: cupertino.CupertinoColors.separator.resolveFrom(
+                          context,
+                        ),
+                      ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: cupertino.CupertinoButton(
+                              onPressed: cancel.onPressed,
+                              child: cancel.child,
+                            ),
+                          ),
+                          Container(
+                            width: 1 / MediaQuery.devicePixelRatioOf(context),
+                            height: 44,
+                            color: cupertino.CupertinoColors.separator
+                                .resolveFrom(context),
+                          ),
+                          Expanded(
+                            child: cupertino.CupertinoButton(
+                              onPressed: confirm.onPressed,
+                              child: DefaultTextStyle.merge(
+                                style: TextStyle(
+                                  color: title == 'Permanently delete?'
+                                      ? cupertino.CupertinoColors.systemRed
+                                            .resolveFrom(context)
+                                      : cupertino.CupertinoColors.activeBlue
+                                            .resolveFrom(context),
+                                ),
+                                child: confirm.child,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
               );
@@ -1046,32 +1068,28 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
                                     ),
                                     child: TweenAnimationBuilder<double>(
                                       tween: Tween<double>(
-                                        end: _showCode ? 0 : 6.5,
+                                        end: _showCode ? 0 : 5,
                                       ),
                                       duration: const Duration(
                                         milliseconds: 300,
                                       ),
                                       curve: Curves.easeOutCubic,
                                       builder: (context, blur, child) =>
-                                          ClipRRect(
-                                            borderRadius: BorderRadius.circular(
-                                              10,
+                                          ImageFiltered(
+                                            imageFilter: ImageFilter.blur(
+                                              sigmaX: blur,
+                                              sigmaY: blur,
                                             ),
-                                            child: ImageFiltered(
-                                              imageFilter: ImageFilter.blur(
-                                                sigmaX: blur,
-                                                sigmaY: blur,
-                                              ),
-                                              // Give the blur room to fade out
-                                              // before clipping its rounded edge.
-                                              child: Padding(
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                      horizontal: 16,
-                                                      vertical: 8,
-                                                    ),
-                                                child: child,
-                                              ),
+                                            // Leave a transparent falloff around
+                                            // the glyphs; clipping blurred edges
+                                            // was creating the visible corners.
+                                            child: Padding(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 17,
+                                                    vertical: 12,
+                                                  ),
+                                              child: child,
                                             ),
                                           ),
                                       child: ExcludeSemantics(
@@ -1227,35 +1245,11 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    OutlinedButton.icon(
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppTheme.dangerColor,
-                        minimumSize: const Size.fromHeight(48),
-                        side: BorderSide(
-                          color: AppTheme.dangerColor.withValues(alpha: .42),
-                          width: 1.5,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      onPressed: _busy ? null : _deleteAccount,
-                      icon: const Icon(Icons.delete_outline, size: 17),
-                      label: Text(
-                        context.tr('Delete account'),
-                        style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: .1,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 7),
                     FilledButton.icon(
                       style: FilledButton.styleFrom(
-                        minimumSize: const Size.fromHeight(48),
+                        minimumSize: const Size.fromHeight(50),
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(13),
                         ),
                       ),
                       onPressed: _busy
@@ -1270,11 +1264,35 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
                                 );
                               }
                             }),
-                      icon: const Icon(Icons.logout_rounded, size: 17),
+                      icon: const Icon(Icons.logout_rounded, size: 18),
                       label: Text(
                         context.tr('Log out'),
                         style: const TextStyle(
-                          fontSize: 13,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: .1,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppTheme.dangerColor,
+                        minimumSize: const Size.fromHeight(50),
+                        side: BorderSide(
+                          color: AppTheme.dangerColor.withValues(alpha: .48),
+                          width: 1.6,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(13),
+                        ),
+                      ),
+                      onPressed: _busy ? null : _deleteAccount,
+                      icon: const Icon(Icons.delete_outline, size: 18),
+                      label: Text(
+                        context.tr('Delete account'),
+                        style: const TextStyle(
+                          fontSize: 14,
                           fontWeight: FontWeight.w800,
                           letterSpacing: .1,
                         ),
@@ -1375,56 +1393,68 @@ class _DeleteAccountConfirmationDialogState
     );
 
     if (iosStyle) {
-      return Dialog(
-        backgroundColor: Colors.transparent,
+      final separator = cupertino.CupertinoColors.separator.resolveFrom(
+        context,
+      );
+      return cupertino.CupertinoPopupSurface(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 380),
-          child: FrostedCard(
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 10),
-            borderRadius: 20,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  context.tr('Delete account?'),
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                content,
-                const SizedBox(height: 14),
-                Row(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(22, 18, 22, 14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Expanded(
-                      child: TextButton(
-                        onPressed: () => Navigator.pop(context, false),
-                        child: Text(context.tr('Cancel')),
+                    Text(
+                      context.tr('Delete account?'),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: FilledButton(
-                        style: FilledButton.styleFrom(
-                          backgroundColor: AppTheme.dangerColor,
-                          foregroundColor: Colors.white,
-                          minimumSize: const Size.fromHeight(40),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(11),
-                          ),
-                        ),
-                        onPressed: canDelete
-                            ? () => Navigator.pop(context, true)
-                            : null,
-                        child: Text(context.tr('Delete account')),
-                      ),
-                    ),
+                    const SizedBox(height: 12),
+                    content,
                   ],
                 ),
-              ],
-            ),
+              ),
+              Container(
+                height: 1 / MediaQuery.devicePixelRatioOf(context),
+                color: separator,
+              ),
+              Row(
+                children: [
+                  Expanded(
+                    child: cupertino.CupertinoButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      child: Text(context.tr('Cancel')),
+                    ),
+                  ),
+                  Container(
+                    width: 1 / MediaQuery.devicePixelRatioOf(context),
+                    height: 44,
+                    color: separator,
+                  ),
+                  Expanded(
+                    child: cupertino.CupertinoButton(
+                      onPressed: canDelete
+                          ? () => Navigator.pop(context, true)
+                          : null,
+                      child: Text(
+                        context.tr('Delete account'),
+                        style: TextStyle(
+                          color: cupertino.CupertinoColors.systemRed
+                              .resolveFrom(context)
+                              .withValues(alpha: canDelete ? 1 : .45),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
         ),
       );

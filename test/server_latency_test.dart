@@ -591,6 +591,7 @@ void main() {
       find.byTooltip('Sorted by ping. Tap to sort alphabetically.'),
       findsOneWidget,
     );
+    expect(find.byIcon(Icons.sort_by_alpha_rounded), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('server-sort-toggle')));
     await tester.pump(const Duration(milliseconds: 300));
     await tester.pump(const Duration(milliseconds: 350));
@@ -599,6 +600,7 @@ void main() {
       find.byTooltip('Sorted alphabetically. Tap to sort by ping.'),
       findsOneWidget,
     );
+    expect(find.byIcon(Icons.speed_rounded), findsOneWidget);
     expect(
       tester.getTopLeft(find.text('Amsterdam')).dy,
       lessThan(tester.getTopLeft(find.text('Zurich')).dy),

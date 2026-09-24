@@ -9,6 +9,7 @@ import 'core/desktop/desktop_tray_controller.dart';
 import 'core/providers/locale_provider.dart';
 import 'core/localization/localized_text.dart';
 import 'core/theme/app_theme.dart';
+import 'core/theme/app_scroll_behavior.dart';
 import 'core/providers/theme_provider.dart';
 import 'features/auth/data/auth_repository.dart';
 import 'features/auth/presentation/login_screen.dart';
@@ -65,7 +66,7 @@ class MyApp extends ConsumerWidget {
       locale: locale,
       supportedLocales: supportedAppLocales,
       localizationsDelegates: GlobalMaterialLocalizations.delegates,
-      scrollBehavior: const _HiddenScrollbarBehavior(),
+      scrollBehavior: const AppScrollBehavior(),
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
       themeMode: switch (themeMode) {
@@ -76,17 +77,6 @@ class MyApp extends ConsumerWidget {
       home: const SessionGate(),
     );
   }
-}
-
-class _HiddenScrollbarBehavior extends MaterialScrollBehavior {
-  const _HiddenScrollbarBehavior();
-
-  @override
-  Widget buildScrollbar(
-    BuildContext context,
-    Widget child,
-    ScrollableDetails details,
-  ) => child;
 }
 
 class SessionGate extends ConsumerStatefulWidget {

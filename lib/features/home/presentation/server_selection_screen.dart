@@ -75,6 +75,15 @@ class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
     final sortForeground = dark
         ? AppTheme.foregroundMuted
         : AppTheme.lightForegroundMuted;
+    final nextSort = _sort == ServerSort.latency
+        ? ServerSort.alphabetical
+        : ServerSort.latency;
+    final nextSortIcon = nextSort == ServerSort.alphabetical
+        ? Icons.sort_by_alpha_rounded
+        : Icons.speed_rounded;
+    final nextSortLabel = nextSort == ServerSort.alphabetical
+        ? 'A–Z'
+        : context.tr('Ping');
     final latencies = {
       for (final profile in profiles)
         profile.id: ref.watch(serverLatencyProvider(profile.id)),
@@ -165,53 +174,38 @@ class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
                     : ServerSort.latency,
               ),
               child: Container(
-                height: 38,
+                height: 34,
                 padding: const EdgeInsets.symmetric(horizontal: 9),
                 decoration: BoxDecoration(
-                  color: dark
-                      ? Colors.white.withValues(alpha: .045)
-                      : Colors.black.withValues(alpha: .035),
+                  color: Colors.transparent,
                   border: Border.all(
                     color: dark
-                        ? Colors.white.withValues(alpha: .10)
-                        : Colors.black.withValues(alpha: .09),
+                        ? Colors.white.withValues(alpha: .16)
+                        : Colors.black.withValues(alpha: .14),
                   ),
-                  borderRadius: BorderRadius.circular(11),
+                  borderRadius: BorderRadius.circular(10),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(
-                      _sort == ServerSort.latency
-                          ? Icons.sort_by_alpha_rounded
-                          : Icons.speed_rounded,
-                      size: 16,
-                      color: sortForeground,
+                    Icon(Icons.sort_rounded, size: 15, color: sortForeground),
+                    const SizedBox(width: 7),
+                    Container(
+                      width: 1,
+                      height: 16,
+                      color: sortForeground.withValues(alpha: .25),
                     ),
                     const SizedBox(width: 7),
-                    Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          context.tr('SORT'),
-                          style: TextStyle(
-                            color: sortForeground.withValues(alpha: .7),
-                            fontSize: 8,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: .8,
-                          ),
-                        ),
-                        Text(
-                          _sort == ServerSort.latency ? 'PING' : 'A–Z',
-                          style: TextStyle(
-                            color: sortForeground,
-                            fontSize: 10,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: .4,
-                          ),
-                        ),
-                      ],
+                    Icon(nextSortIcon, size: 15, color: sortForeground),
+                    const SizedBox(width: 5),
+                    Text(
+                      nextSortLabel,
+                      style: TextStyle(
+                        color: sortForeground,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: .25,
+                      ),
                     ),
                   ],
                 ),

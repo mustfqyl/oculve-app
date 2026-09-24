@@ -21,7 +21,7 @@ class XrayCoreSettingsScreen extends ConsumerStatefulWidget {
 class _XrayCoreSettingsScreenState
     extends ConsumerState<XrayCoreSettingsScreen> {
   final _bypassController = TextEditingController();
-  final _expanded = <String>{'DNS & IP'};
+  final _expanded = <String>{};
   XrayDnsSettings? _dns;
   RealityFingerprint? _fingerprint;
   XrayLogLevel? _logLevel;
@@ -226,13 +226,13 @@ class _XrayCoreSettingsScreenState
                   const SizedBox(height: 8),
                 ],
                 _GroupCard(
-                  title: 'DNS & IP',
+                  title: 'DNS',
                   subtitle: context.tr(
-                    'Choose a private DNS service and IP family.',
+                    'Choose an encrypted DNS provider and lookup address family.',
                   ),
                   icon: Icons.dns_outlined,
-                  expanded: _expanded.contains('DNS & IP'),
-                  onToggle: () => _toggleGroup('DNS & IP'),
+                  expanded: _expanded.contains('DNS'),
+                  onToggle: () => _toggleGroup('DNS'),
                   children: [
                     _OptionRow<String>(
                       label: context.tr('DNS provider'),
@@ -244,7 +244,7 @@ class _XrayCoreSettingsScreenState
                       onSelected: (server) => _saveDns(server: server),
                     ),
                     _OptionRow<DnsQueryStrategy>(
-                      label: context.tr('Address family'),
+                      label: context.tr('DNS address family'),
                       value: _dns!.queryStrategy,
                       values: DnsQueryStrategy.values,
                       valueLabel: (strategy) => context.tr(switch (strategy) {
@@ -263,13 +263,13 @@ class _XrayCoreSettingsScreenState
                   ],
                 ),
                 _GroupCard(
-                  title: 'Connection privacy',
+                  title: 'TLS identity',
                   subtitle: profile == null
                       ? context.tr('Use the server profile defaults.')
                       : '${profile.name} · ${profile.proxyProtocol?.toUpperCase() ?? context.tr('Server')}',
                   icon: Icons.shield_outlined,
-                  expanded: _expanded.contains('Connection privacy'),
-                  onToggle: () => _toggleGroup('Connection privacy'),
+                  expanded: _expanded.contains('TLS identity'),
+                  onToggle: () => _toggleGroup('TLS identity'),
                   children: [
                     if (!supportsFingerprint)
                       Text(
@@ -293,20 +293,20 @@ class _XrayCoreSettingsScreenState
                       ),
                     Text(
                       context.tr(
-                        'The fingerprint should match your server and takes effect after reconnecting.',
+                        'This changes the TLS ClientHello only. Keep the server default unless you need another profile.',
                       ),
                       style: TextStyle(color: muted, fontSize: 10),
                     ),
                   ],
                 ),
                 _GroupCard(
-                  title: 'Traffic routing',
+                  title: 'Split tunneling',
                   subtitle: context.tr(
-                    'Choose sites that should use your regular connection.',
+                    'Choose domains or apps that use your regular connection.',
                   ),
                   icon: Icons.alt_route_rounded,
-                  expanded: _expanded.contains('Traffic routing'),
-                  onToggle: () => _toggleGroup('Traffic routing'),
+                  expanded: _expanded.contains('Split tunneling'),
+                  onToggle: () => _toggleGroup('Split tunneling'),
                   children: [
                     TextField(
                       key: const ValueKey('bypass-domains-field'),
@@ -348,25 +348,14 @@ class _XrayCoreSettingsScreenState
                   ],
                 ),
                 _GroupCard(
-                  title: 'Advanced',
+                  title: 'Fragmentation',
                   subtitle: context.tr(
-                    'Diagnostics and optional connection behavior.',
+                    'Optional TLS hello splitting for supported TCP servers.',
                   ),
-                  icon: Icons.tune_rounded,
-                  expanded: _expanded.contains('Advanced'),
-                  onToggle: () => _toggleGroup('Advanced'),
+                  icon: Icons.call_split_rounded,
+                  expanded: _expanded.contains('Fragmentation'),
+                  onToggle: () => _toggleGroup('Fragmentation'),
                   children: [
-                    _OptionRow<XrayLogLevel>(
-                      label: context.tr('Diagnostic detail'),
-                      value: _logLevel!,
-                      values: const [
-                        XrayLogLevel.error,
-                        XrayLogLevel.warning,
-                        XrayLogLevel.info,
-                      ],
-                      valueLabel: (level) => context.tr(level.label),
-                      onSelected: _saveLogLevel,
-                    ),
                     if (supportsFragmentation)
                       SwitchListTile.adaptive(
                         key: const ValueKey('xray-fragmentation-switch'),
@@ -388,10 +377,30 @@ class _XrayCoreSettingsScreenState
                         ),
                         style: TextStyle(color: muted, fontSize: 10),
                       ),
+                  ],
+                ),
+                _GroupCard(
+                  title: 'Diagnostics',
+                  subtitle: context.tr(
+                    'Choose how much connection information is recorded.',
+                  ),
+                  icon: Icons.receipt_long_outlined,
+                  expanded: _expanded.contains('Diagnostics'),
+                  onToggle: () => _toggleGroup('Diagnostics'),
+                  children: [
+                    _OptionRow<XrayLogLevel>(
+                      label: context.tr('Diagnostic detail'),
+                      value: _logLevel!,
+                      values: const [
+                        XrayLogLevel.error,
+                        XrayLogLevel.warning,
+                        XrayLogLevel.info,
+                      ],
+                      valueLabel: (level) => context.tr(level.label),
+                      onSelected: _saveLogLevel,
+                    ),
                     Text(
-                      context.tr(
-                        'Only errors, warnings and basic connection information are recorded.',
-                      ),
+                      context.tr('Access and DNS query logs are disabled.'),
                       style: TextStyle(color: muted, fontSize: 10),
                     ),
                   ],

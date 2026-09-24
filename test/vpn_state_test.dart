@@ -147,6 +147,20 @@ void main() {
       expect(container.read(vpnProvider), VpnState.error);
     },
   );
+  testWidgets('repeated native errors do not pin the home error message', (
+    tester,
+  ) async {
+    final controller = container.read(vpnProvider.notifier);
+    await controller.initialize();
+
+    platform.emit(VlessStatus(state: 'ERROR'));
+    expect(container.read(vpnErrorProvider), isNotNull);
+    await tester.pump(const Duration(seconds: 8));
+    platform.emit(VlessStatus(state: 'ERROR'));
+    await tester.pump(const Duration(seconds: 4));
+
+    expect(container.read(vpnErrorProvider), isNull);
+  });
   test(
     'Optimal measures every profile and starts the lowest-latency server',
     () async {

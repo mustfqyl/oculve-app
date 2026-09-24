@@ -31,6 +31,7 @@ class VpnNotifier extends StateNotifier<VpnState> {
   bool _initialized = false;
   bool _busy = false;
   bool _requested = false;
+  bool _runtimeErrorHandled = false;
   Timer? _timeout;
   Timer? _errorTimer;
   final List<String> events = [];
@@ -42,6 +43,11 @@ class VpnNotifier extends StateNotifier<VpnState> {
   void _onStatus(VlessStatus status) {
     if (!mounted) return;
     if (status.state == 'ERROR') {
+      // Native runtimes may report the same error again as the tunnel is
+      // stopping. Replaying _fail would restart the dismiss timer indefinitely
+      // and make a single failure look permanent in the home screen.
+      if (_runtimeErrorHandled) return;
+      _runtimeErrorHandled = true;
       _fail(
         'The VPN runtime failed. Check permissions and connection settings.',
       );
@@ -97,6 +103,7 @@ class VpnNotifier extends StateNotifier<VpnState> {
       return;
     }
     _busy = true;
+    _runtimeErrorHandled = false;
     dismissError();
     state = VpnState.connecting;
     try {
