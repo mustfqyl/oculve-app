@@ -1,0 +1,373 @@
+#!/usr/bin/python3
+"""Privileged Linux tunnel supervisor. Install root-owned; invoked via pkexec.
+Requires iproute2, systemd-resolved, curl and the pinned Xray runtime.
+Accepts a bounded VLESS outbound and builds the privileged TUN config itself.
+"""
+import ipaddress
+import json
+import math
+import os
+import re
+import selectors
+import signal
+import subprocess
+import sys
+import time
+
+TUN = 'oculve0'
+XRAY = '/usr/lib/oculve/xray'
+process = None
+routes = []
+stopping = False
+owns_tun = False
+
+DOMAIN_PATTERN = re.compile(r'^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$')
+VERSION_PATTERN = re.compile(r'^\d+\.\d+\.\d+$')
+NETWORK_SETTINGS = {
+    'tcp': 'tcpSettings', 'raw': 'tcpSettings', 'xhttp': 'xhttpSettings',
+    'grpc': 'grpcSettings', 'ws': 'wsSettings',
+    'httpupgrade': 'httpupgradeSettings', 'kcp': 'kcpSettings',
+    'quic': 'quicSettings',
+}
+
+def validate_config_tree(value, path='Xray settings', depth=0, budget=None):
+    """Keep nested transport options JSON-only and prevent root file sinks."""
+    if budget is None:
+        budget = [0]
+    budget[0] += 1
+    if budget[0] > 2048 or depth > 10:
+        raise ValueError('Xray settings are too complex')
+    if isinstance(value, dict):
+        if len(value) > 256:
+            raise ValueError('Xray settings object is too large')
+        for key, item in value.items():
+            if not isinstance(key, str) or len(key) > 128:
+                raise ValueError('Invalid Xray setting name')
+            normalized = key.lower().replace('_', '').replace('-', '')
+            if normalized in {
+                    'masterkeylog', 'certificatefile', 'privatekeyfile',
+                    'keyfile', 'filepath', 'dialerproxy', 'interface',
+                    'bindtodevice', 'mark', 'listen', 'listenport',
+                    'inbound', 'inbounds', 'outbounds', 'routing', 'log',
+                    'stats', 'api'}:
+                raise ValueError('Unsupported privileged Xray setting')
+            validate_config_tree(item, f'{path}.{key}', depth + 1, budget)
+    elif isinstance(value, list):
+        if len(value) > 512:
+            raise ValueError('Xray settings array is too large')
+        for item in value:
+            validate_config_tree(item, path, depth + 1, budget)
+    elif isinstance(value, str):
+        if len(value) > 8192 or '\x00' in value:
+            raise ValueError('Invalid Xray setting value')
+    elif isinstance(value, float) and not math.isfinite(value):
+        raise ValueError('Invalid Xray setting number')
+    elif value is None or not isinstance(value, (bool, int, float)):
+        raise ValueError('Unsupported Xray setting value')
+    return value
+
+def validate_transport_settings(stream, network, security):
+    if not isinstance(stream, dict):
+        raise ValueError('Invalid Xray transport')
+    setting_key = NETWORK_SETTINGS.get(network)
+    if setting_key is None:
+        raise ValueError('Unsupported transport')
+    allowed_stream_keys = {'network', 'security', 'sockopt', setting_key}
+    if security == 'reality':
+        allowed_stream_keys.add('realitySettings')
+    elif security == 'tls':
+        allowed_stream_keys.add('tlsSettings')
+    elif security != 'none':
+        raise ValueError('Unsupported transport security')
+    if set(stream) - allowed_stream_keys:
+        raise ValueError('Unsupported Xray transport setting')
+
+    if security == 'reality' and network not in ('tcp', 'raw', 'xhttp', 'grpc'):
+        raise ValueError('REALITY is not supported with this transport')
+    if security == 'tls' and network in ('raw', 'tcp', 'xhttp', 'grpc', 'ws',
+                                         'httpupgrade', 'kcp', 'quic'):
+        pass
+    elif security == 'tls' and network != 'none':
+        raise ValueError('TLS is not supported with this transport')
+
+    result = {'network': network, 'security': security}
+    transport_settings = stream.get(setting_key)
+    if transport_settings is not None:
+        if not isinstance(transport_settings, dict):
+            raise ValueError('Invalid Xray transport settings')
+        validate_config_tree(transport_settings)
+        result[setting_key] = transport_settings
+
+    if security == 'reality':
+        reality = stream.get('realitySettings')
+        if not isinstance(reality, dict):
+            raise ValueError('Invalid REALITY settings')
+        allowed = {'serverName', 'fingerprint', 'publicKey', 'password',
+                   'shortId', 'spiderX'}
+        if set(reality) - allowed or any(
+                not isinstance(value, str) or len(value) > 8192
+                for value in reality.values()):
+            raise ValueError('Unsupported REALITY setting')
+        result['realitySettings'] = dict(reality)
+    elif security == 'tls':
+        tls = stream.get('tlsSettings')
+        if tls is None:
+            tls = {}
+        if not isinstance(tls, dict):
+            raise ValueError('Invalid TLS settings')
+        validate_config_tree(tls)
+        result['tlsSettings'] = tls
+
+    source_sockopt = stream.get('sockopt', {})
+    if not isinstance(source_sockopt, dict):
+        raise ValueError('Invalid TCP socket settings')
+    tcp_keys = ('tcpFastOpen', 'tcpKeepAliveIdle', 'tcpKeepAliveInterval')
+    result['sockopt'] = validate_tcp_sockopt({
+        key: source_sockopt[key] for key in tcp_keys if key in source_sockopt
+    })
+    if set(source_sockopt) - set(tcp_keys):
+        raise ValueError('Unsupported TCP socket setting')
+    return result
+
+def validate_bypass_domains(values):
+    if not isinstance(values, list) or len(values) > 32:
+        raise ValueError('Invalid bypass domain list')
+    if any(not isinstance(value, str) or not DOMAIN_PATTERN.fullmatch(value) for value in values):
+        raise ValueError('Invalid bypass domain')
+    return list(dict.fromkeys(values))
+
+def validate_mux(value, flow):
+    if not isinstance(value, dict) or set(value) != {
+            'enabled', 'concurrency', 'xudpConcurrency', 'xudpProxyUDP443'}:
+        raise ValueError('Invalid Mux configuration')
+    enabled = value['enabled']
+    concurrency = value['concurrency']
+    xudp_concurrency = value['xudpConcurrency']
+    udp443 = value['xudpProxyUDP443']
+    if not isinstance(enabled, bool):
+        raise ValueError('Invalid Mux enabled value')
+    if not isinstance(concurrency, int) or isinstance(concurrency, bool) or not 1 <= concurrency <= 128:
+        raise ValueError('Invalid Mux concurrency')
+    if not isinstance(xudp_concurrency, int) or isinstance(xudp_concurrency, bool) or not (
+            xudp_concurrency == -1 or 1 <= xudp_concurrency <= 1024):
+        raise ValueError('Invalid XUDP concurrency')
+    if udp443 not in ('reject', 'allow', 'skip'):
+        raise ValueError('Invalid UDP/443 Mux behavior')
+    if enabled and flow in ('xtls-rprx-vision', 'xtls-rprx-vision-udp443'):
+        raise ValueError('Mux is incompatible with VLESS Vision')
+    return {
+        'enabled': enabled,
+        'concurrency': concurrency,
+        'xudpConcurrency': xudp_concurrency,
+        'xudpProxyUDP443': udp443,
+    }
+
+def validate_tcp_sockopt(value):
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError('Invalid TCP socket settings')
+    allowed = {'tcpFastOpen', 'tcpKeepAliveIdle', 'tcpKeepAliveInterval'}
+    result = {}
+    if 'tcpFastOpen' in value:
+        if not isinstance(value['tcpFastOpen'], bool):
+            raise ValueError('Invalid TCP Fast Open setting')
+        result['tcpFastOpen'] = value['tcpFastOpen']
+    for key in ('tcpKeepAliveIdle', 'tcpKeepAliveInterval'):
+        if key not in value:
+            continue
+        seconds = value[key]
+        if not isinstance(seconds, int) or isinstance(seconds, bool) or not 0 <= seconds <= 86400:
+            raise ValueError('Invalid TCP keepalive setting')
+        result[key] = seconds
+    if set(value) - allowed:
+        raise ValueError('Unsupported TCP socket setting')
+    return result
+
+def validate_log_level(value):
+    if not isinstance(value, str) or value not in ('debug', 'info', 'warning', 'error', 'none'):
+        raise ValueError('Invalid Xray log level')
+    return value
+
+def validate_version_guard(value):
+    if value is None:
+        return None
+    if not isinstance(value, dict) or set(value) - {'min', 'max'}:
+        raise ValueError('Invalid Xray version guard')
+    result = {}
+    for key in ('min', 'max'):
+        version = value.get(key)
+        if version is None or version == '':
+            continue
+        if not isinstance(version, str) or not VERSION_PATTERN.fullmatch(version):
+            raise ValueError('Invalid Xray version guard')
+        result[key] = version
+    if not result:
+        return None
+    if 'min' in result and 'max' in result:
+        minimum = tuple(int(part) for part in result['min'].split('.'))
+        maximum = tuple(int(part) for part in result['max'].split('.'))
+        if minimum > maximum:
+            raise ValueError('Invalid Xray version range')
+    return result
+
+def build_config(outbound, dev, bypass_domains, dns_server, log_level='warning', version=None):
+    log_level = validate_log_level(log_level)
+    version = validate_version_guard(version)
+    rules = [{'type': 'field', 'ip': ['::/0'], 'outboundTag': 'block'}]
+    outbounds = [outbound, {'tag': 'block', 'protocol': 'blackhole'}]
+    if bypass_domains:
+        outbounds.append({'tag': 'direct', 'protocol': 'freedom', 'streamSettings': {
+            'sockopt': {'interface': dev}}})
+        rules.append({'type': 'field', 'domain': ['domain:' + domain for domain in bypass_domains],
+                      'outboundTag': 'direct'})
+    return {**({'version': version} if version is not None else {}),
+            'log': {'loglevel': log_level, 'access': 'none', 'error': 'none', 'dnsLog': False},
+            'inbounds': [{'protocol': 'tun', 'tag': 'tun',
+                          'settings': {'name': TUN, 'MTU': 1500},
+                          'sniffing': {'enabled': True, 'destOverride': ['http', 'tls', 'quic'],
+                                       'routeOnly': True}}],
+            'outbounds': outbounds,
+            'dns': {'servers': ['tcp://' + dns_server], 'queryStrategy': 'UseIPv4',
+                    'disableFallback': True},
+            'routing': {'domainStrategy': 'AsIs', 'rules': rules}}
+
+def command(*args):
+    return subprocess.run(args, check=True, capture_output=True, text=True, timeout=12).stdout
+
+def event(state):
+    print(json.dumps({'state': state}), flush=True)
+
+def stop(*_):
+    global stopping
+    stopping = True
+
+def main():
+    global process, owns_tun
+    if os.geteuid() != 0:
+        raise RuntimeError('Administrator authorization is required.')
+    raw = sys.stdin.buffer.readline(65537)
+    if len(raw) > 65536:
+        raise ValueError('Profile too large')
+    request = json.loads(raw)
+    if not isinstance(request, dict) or set(request) != {'outbound', 'bypassDomains', 'dnsServer', 'logLevel', 'version'}:
+        raise ValueError('Invalid tunnel request')
+    node = request['outbound']
+    bypass_domains = validate_bypass_domains(request['bypassDomains'])
+    if not isinstance(request['dnsServer'], str):
+        raise ValueError('Invalid DNS resolver')
+    dns_server = str(ipaddress.IPv4Address(request['dnsServer']))
+    log_level = validate_log_level(request['logLevel'])
+    version = validate_version_guard(request['version'])
+    # Reconstruct the outbound; never pass logging, routing, extra listeners,
+    # filesystem sinks, or arbitrary root-level settings into the core.
+    if node.get('protocol') != 'vless':
+        raise ValueError('Unsupported protocol')
+    stream = node.get('streamSettings', {})
+    network = stream.get('network', 'tcp')
+    security = stream.get('security', 'none')
+    if not isinstance(network, str) or not isinstance(security, str):
+        raise ValueError('Invalid Xray transport')
+    network = network.lower()
+    security = security.lower()
+    if network == '':
+        network = 'tcp'
+    if security == '':
+        security = 'none'
+    safe_stream = validate_transport_settings(stream, network, security)
+    settings = node.get('settings')
+    servers = settings.get('vnext') if isinstance(settings, dict) else None
+    if not isinstance(servers, list) or not servers or not isinstance(servers[0], dict):
+        raise ValueError('Invalid VLESS server')
+    server = servers[0]
+    import socket
+    if not isinstance(server.get('address'), str) or not server['address']:
+        raise ValueError('Invalid VLESS address')
+    port = server.get('port')
+    if not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= 65535:
+        raise ValueError('Invalid VLESS port')
+    endpoint = socket.getaddrinfo(server['address'], port, socket.AF_INET, socket.SOCK_STREAM)[0][4][0]
+    ipaddress.IPv4Address(endpoint)
+    users = server.get('users')
+    if not isinstance(users, list) or not users or not isinstance(users[0], dict):
+        raise ValueError('Invalid VLESS user')
+    user = users[0]
+    user_id = user.get('id')
+    encryption = user.get('encryption', 'none')
+    if not isinstance(user_id, str) or not user_id or len(user_id) > 4096:
+        raise ValueError('Invalid VLESS user ID')
+    if not isinstance(encryption, str) or not encryption or len(encryption) > 4096:
+        raise ValueError('Invalid VLESS encryption')
+    flow = user.get('flow', '')
+    if flow not in ('', 'xtls-rprx-vision', 'xtls-rprx-vision-udp443'):
+        raise ValueError('Unsupported flow')
+    mux = validate_mux(node.get('mux'), flow)
+    default = json.loads(command('/usr/sbin/ip', '-j', 'route', 'get', endpoint))[0]
+    dev, gateway = default['dev'], default.get('gateway')
+    if dev == TUN:
+        raise RuntimeError('A previous tunnel is still active.')
+    # Fail before route mutation unless DNS integration is available.
+    command('/usr/bin/resolvectl', 'status')
+    if subprocess.run(['/usr/sbin/ip', 'link', 'show', TUN], capture_output=True).returncode == 0:
+        raise RuntimeError('Tunnel interface already exists.')
+    safe_stream['sockopt'] = {'interface': dev, **safe_stream['sockopt']}
+    outbound = {'tag': 'proxy', 'protocol': 'vless', 'settings': {'vnext': [{
+        'address': endpoint, 'port': port, 'users': [{
+            'id': user_id, 'encryption': encryption, 'flow': flow}]}]},
+        'streamSettings': safe_stream, 'mux': mux}
+    cfg = build_config(outbound, dev, bypass_domains, dns_server, log_level, version)
+    event('CONNECTING')
+    process = subprocess.Popen([XRAY, 'run', '-config', 'stdin:'], stdin=subprocess.PIPE,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    process.stdin.write(json.dumps(cfg).encode()); process.stdin.close()
+    for _ in range(50):
+        if process.poll() is not None:
+            raise RuntimeError('Xray failed to start.')
+        if subprocess.run(['/usr/sbin/ip', 'link', 'show', TUN], capture_output=True).returncode == 0:
+            break
+        time.sleep(.1)
+    owns_tun = True
+    command('/usr/sbin/ip', 'addr', 'add', '198.18.0.1/15', 'dev', TUN)
+    command('/usr/sbin/ip', 'link', 'set', TUN, 'up')
+    # Add, never replace, existing routes. Cleanup only records successful adds.
+    endpoint_route = [endpoint + '/32'] + (['via', gateway] if gateway else []) + ['dev', dev]
+    command('/usr/sbin/ip', 'route', 'add', *endpoint_route)
+    routes.append(['route', 'del', *endpoint_route])
+    for cidr in ['0.0.0.0/1', '128.0.0.0/1']:
+        command('/usr/sbin/ip', 'route', 'add', cidr, 'dev', TUN)
+        routes.append(['route', 'del', cidr, 'dev', TUN])
+    for cidr in ['::/1', '8000::/1']:
+        command('/usr/sbin/ip', '-6', 'route', 'add', cidr, 'dev', TUN)
+        routes.append(['-6', 'route', 'del', cidr, 'dev', TUN])
+    command('/usr/bin/resolvectl', 'dns', TUN, dns_server)
+    command('/usr/bin/resolvectl', 'domain', TUN, '~.')
+    command('/usr/bin/resolvectl', 'default-route', TUN, 'yes')
+    # Bind a certificate-verified HTTPS request to TUN before reporting success.
+    command('/usr/bin/curl', '--fail', '--silent', '--max-time', '10', '--interface', TUN,
+            '--resolve', 'cloudflare-dns.com:443:1.1.1.1', 'https://cloudflare-dns.com/cdn-cgi/trace')
+    event('CONNECTED')
+    selector = selectors.DefaultSelector(); selector.register(sys.stdin, selectors.EVENT_READ)
+    while not stopping and process.poll() is None:
+        if selector.select(1):
+            break  # stop command or app exit/EOF
+    if process.poll() is not None and not stopping:
+        raise RuntimeError('Xray stopped unexpectedly.')
+
+if __name__ == '__main__':
+    for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        signal.signal(sig, stop)
+    try:
+        main()
+    except Exception:
+        # Never emit config, URLs, credentials, or raw subprocess output.
+        event('ERROR')
+    finally:
+        if owns_tun:
+            subprocess.run(['/usr/bin/resolvectl', 'revert', TUN], capture_output=True)
+        for route in reversed(routes):
+            subprocess.run(['/usr/sbin/ip', *route], capture_output=True)
+        if process is not None:
+            process.terminate()
+            try: process.wait(timeout=5)
+            except subprocess.TimeoutExpired: process.kill(); process.wait()
+        event('DISCONNECTED')

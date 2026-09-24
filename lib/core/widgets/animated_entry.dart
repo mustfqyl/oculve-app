@@ -10,7 +10,7 @@ class AnimatedEntry extends StatelessWidget {
     super.key,
     required this.child,
     this.index = 0,
-    this.delay = const Duration(milliseconds: 100),
+    this.delay = const Duration(milliseconds: 45),
   });
 
   @override
@@ -22,16 +22,16 @@ class AnimatedEntry extends StatelessWidget {
     return child
         .animate()
         .fadeIn(
-          duration: const Duration(milliseconds: 400),
+          duration: const Duration(milliseconds: 180),
           delay: delay * index,
-          curve: Curves.easeOut,
+          curve: const Cubic(0.2, 0.8, 0.2, 1),
         )
         .slideY(
-          begin: 0.05,
+          begin: 0.018,
           end: 0,
-          duration: const Duration(milliseconds: 400),
+          duration: const Duration(milliseconds: 180),
           delay: delay * index,
-          curve: Curves.easeOutCubic,
+          curve: const Cubic(0.2, 0.8, 0.2, 1),
         );
   }
 }

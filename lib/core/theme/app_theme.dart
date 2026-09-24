@@ -1,7 +1,6 @@
 import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 class AppTheme {
   // === Website dark theme tokens ===
@@ -56,16 +55,31 @@ class AppTheme {
         onSurface: foreground,
         onError: foreground,
       ),
-      textTheme: GoogleFonts.outfitTextTheme(
-        ThemeData.dark().textTheme.apply(
-          bodyColor: foreground,
-          displayColor: foreground,
-        ),
+      textTheme: ThemeData.dark().textTheme.apply(
+        fontFamily: 'Outfit',
+        bodyColor: foreground,
+        displayColor: foreground,
       ),
       appBarTheme: const AppBarTheme(
         backgroundColor: Colors.transparent,
         elevation: 0,
         iconTheme: IconThemeData(color: foreground),
+      ),
+      popupMenuTheme: PopupMenuThemeData(
+        color: const Color(0xFF15191F),
+        surfaceTintColor: Colors.transparent,
+        shadowColor: Colors.black54,
+        elevation: 16,
+        menuPadding: const EdgeInsets.all(6),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(14)),
+          side: BorderSide(color: cardBorder),
+        ),
+        textStyle: const TextStyle(
+          fontFamily: 'Outfit',
+          color: foreground,
+          fontSize: 14,
+        ),
       ),
       iconTheme: const IconThemeData(color: foreground),
     );
@@ -87,16 +101,31 @@ class AppTheme {
         onSurface: lightForeground,
         onError: lightBackground,
       ),
-      textTheme: GoogleFonts.outfitTextTheme(
-        ThemeData.light().textTheme.apply(
-          bodyColor: lightForeground,
-          displayColor: lightForeground,
-        ),
+      textTheme: ThemeData.light().textTheme.apply(
+        fontFamily: 'Outfit',
+        bodyColor: lightForeground,
+        displayColor: lightForeground,
       ),
       appBarTheme: const AppBarTheme(
         backgroundColor: Colors.transparent,
         elevation: 0,
         iconTheme: IconThemeData(color: lightForeground),
+      ),
+      popupMenuTheme: PopupMenuThemeData(
+        color: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        shadowColor: Colors.black26,
+        elevation: 12,
+        menuPadding: const EdgeInsets.all(6),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(14)),
+          side: BorderSide(color: lightCardBorder),
+        ),
+        textStyle: const TextStyle(
+          fontFamily: 'Outfit',
+          color: lightForeground,
+          fontSize: 14,
+        ),
       ),
       iconTheme: const IconThemeData(color: lightForeground),
     );
@@ -104,7 +133,7 @@ class AppTheme {
 }
 
 // ============================================================
-// PREMIUM BACKGROUND – Exact Website Replica
+// PREMIUM BACKGROUND – Website background geometry and colors
 // Dark: Cyber Neon | Light: Premium Studio
 // ============================================================
 class PremiumBackground extends StatefulWidget {
@@ -118,27 +147,25 @@ class PremiumBackground extends StatefulWidget {
 class _PremiumBackgroundState extends State<PremiumBackground>
     with TickerProviderStateMixin {
   late AnimationController _driftCtrl;
-  late AnimationController _floatCtrl;
+  late AnimationController _nodeCtrl;
 
   @override
   void initState() {
     super.initState();
-    // For Orbs drifting
     _driftCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 20),
+      duration: const Duration(seconds: 44),
     )..repeat(reverse: true);
-    // For Nodes floating
-    _floatCtrl = AnimationController(
+    _nodeCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 15),
+      duration: const Duration(seconds: 12),
     )..repeat();
   }
 
   @override
   void dispose() {
     _driftCtrl.dispose();
-    _floatCtrl.dispose();
+    _nodeCtrl.dispose();
     super.dispose();
   }
 
@@ -155,54 +182,21 @@ class _PremiumBackgroundState extends State<PremiumBackground>
       child: Stack(
         fit: StackFit.expand,
         children: [
-          // ── Layer 1: Background Image (bg-neon-white.png) ──
-          // Dark: Contrast 1.05, Brightness 0.8
-          // Light: Saturate 0.2, Brightness 1.4, Opacity 0.08
-          Positioned.fill(
-            child: Opacity(
-              opacity: isDark ? 1.0 : 0.08,
-              child: ColorFiltered(
-                colorFilter: isDark
-                    ? const ColorFilter.matrix([
-                        // Contrast 1.05 & Brightness 0.8 (approx)
-                        1.05, 0, 0, 0, -20,
-                        0, 1.05, 0, 0, -20,
-                        0, 0, 1.05, 0, -20,
-                        0, 0, 0, 1, 0,
-                      ])
-                    : const ColorFilter.matrix([
-                        // Saturate 0.2 & Brightness 1.4
-                        0.3, 0.6, 0.1, 0, 40,
-                        0.3, 0.6, 0.1, 0, 40,
-                        0.3, 0.6, 0.1, 0, 40,
-                        0, 0, 0, 1, 0,
-                      ]),
-                child: Image.asset(
-                  'assets/bg-neon-white.png',
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => const SizedBox(),
-                ),
-              ),
-            ),
-          ),
-
-          // ── Layer 2: Radial Gradient Overlay ──
-          // Dark: Center black(0.3) -> bg
-          // Light: Center white(0.1) -> bg
+          // Website .bg-glow layer, above the page background.
           Positioned.fill(
             child: DecoratedBox(
               decoration: BoxDecoration(
                 gradient: RadialGradient(
-                  center: Alignment.center,
-                  radius: 1.0,
+                  center: const Alignment(0, -1.4),
+                  radius: 1.25,
                   colors: isDark
                       ? [
-                          const Color(0xFF020202).withValues(alpha: 0.3),
-                          AppTheme.backgroundColor,
+                          Colors.white.withValues(alpha: 0.048),
+                          Colors.transparent,
                         ]
                       : [
-                          Colors.white.withValues(alpha: 0.1),
-                          AppTheme.lightBackground.withValues(alpha: 0.9),
+                          Colors.black.withValues(alpha: 0.024),
+                          Colors.transparent,
                         ],
                   stops: const [0.0, 1.0],
                 ),
@@ -210,23 +204,28 @@ class _PremiumBackgroundState extends State<PremiumBackground>
             ),
           ),
 
-          // ── Layer 4: Animated Orbs ──
+          // Website BackgroundEffects' dark neon and light studio orbs.
           AnimatedBuilder(
-            animation: _driftCtrl,
+            animation: Listenable.merge([_driftCtrl, _nodeCtrl]),
             builder: (context, _) {
               final t = _driftCtrl.value;
+              final nodeOne = (_nodeCtrl.value * 1.5) % 1;
+              final nodeTwo = 1 - _nodeCtrl.value;
               return Stack(
                 clipBehavior: Clip.none,
                 children: [
                   if (isDark) ...[
-                    // Dark Mode: Neon Orbs (White & Blue)
+                    Positioned.fill(
+                      child: CustomPaint(painter: _WebsiteMeshPainter()),
+                    ),
+                    // Same base geometry as .neon-1 and .neon-2 on the site.
                     Positioned(
-                      top: -sz.height * 0.1 + math.cos(t * math.pi) * 30,
-                      right: -sz.width * 0.1 + math.sin(t * math.pi) * 40,
+                      top: -200 + math.cos(t * math.pi) * 30,
+                      right: -100 + math.sin(t * math.pi) * 40,
                       child: _BlurredOrb(
-                        size: 500,
+                        size: 600,
                         color: Colors.white,
-                        opacity: 0.10, // slightly more visible
+                        opacity: 0.15,
                         blur: 100,
                       ),
                     ),
@@ -240,25 +239,39 @@ class _PremiumBackgroundState extends State<PremiumBackground>
                         blur: 100,
                       ),
                     ),
+                    Positioned(
+                      top: sz.height * .2 - 100 * nodeOne,
+                      left: sz.width * .15 + 20 * nodeOne,
+                      child: _FloatingNode(
+                        opacity: math.sin(math.pi * nodeOne) * .3,
+                      ),
+                    ),
+                    Positioned(
+                      bottom: sz.height * .3 + 100 * nodeTwo,
+                      right: sz.width * .1 - 20 * nodeTwo,
+                      child: _FloatingNode(
+                        opacity: math.sin(math.pi * nodeTwo) * .3,
+                      ),
+                    ),
                   ] else ...[
-                    // Light Mode: Studio Orbs (Indigo, Violet, Cyan)
+                    // Website .studio-1, .studio-2 and .studio-3.
                     Positioned(
                       top: sz.height * 0.1,
-                      left: -sz.width * 0.2 + math.sin(t * math.pi) * 30,
+                      left: -100 + math.sin(t * math.pi) * 30,
                       child: _BlurredOrb(
                         size: 500,
                         color: const Color(0xFF6366F1), // Indigo
-                        opacity: 0.08,
+                        opacity: 0.12,
                         blur: 80,
                       ),
                     ),
                     Positioned(
-                      bottom: sz.height * 0.1,
-                      right: -sz.width * 0.1 - math.cos(t * math.pi) * 30,
+                      bottom: sz.height * 0.2,
+                      right: -50 - math.cos(t * math.pi) * 30,
                       child: _BlurredOrb(
                         size: 400,
                         color: const Color(0xFF8B5CF6), // Violet
-                        opacity: 0.08,
+                        opacity: 0.12,
                         blur: 80,
                       ),
                     ),
@@ -268,7 +281,7 @@ class _PremiumBackgroundState extends State<PremiumBackground>
                       child: _BlurredOrb(
                         size: 300,
                         color: const Color(0xFF06B6D4), // Cyan
-                        opacity: 0.08,
+                        opacity: 0.12,
                         blur: 80,
                       ),
                     ),
@@ -278,36 +291,7 @@ class _PremiumBackgroundState extends State<PremiumBackground>
             },
           ),
 
-          // ── Layer 5: Floating Pulse Nodes (Dark Only) ──
-          if (isDark)
-            AnimatedBuilder(
-              animation: _floatCtrl,
-              builder: (context, _) {
-                final t = _floatCtrl.value;
-                return Stack(
-                  children: [
-                    // Node 1
-                    Positioned(
-                      top: sz.height * 0.2 - (t * 100) % 200, // Move Up
-                      left: sz.width * 0.15 + math.sin(t * math.pi * 2) * 20,
-                      child: _PulseNode(
-                        opacity: (math.sin(t * math.pi * 4) + 1) / 2 * 0.3,
-                      ),
-                    ),
-                    // Node 2
-                    Positioned(
-                      bottom: sz.height * 0.3 + (t * 80) % 200, // Move Down
-                      right: sz.width * 0.1 + math.cos(t * math.pi * 2) * 20,
-                      child: _PulseNode(
-                        opacity: (math.cos(t * math.pi * 4) + 1) / 2 * 0.3,
-                      ),
-                    ),
-                  ],
-                );
-              },
-            ),
-
-          // ── Layer 6: Content ──
+          // Content
           widget.child,
         ],
       ),
@@ -332,43 +316,60 @@ class _BlurredOrb extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: color.withValues(alpha: opacity),
-      ),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
-        child: Container(color: Colors.transparent),
+    return ImageFiltered(
+      imageFilter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: color.withValues(alpha: opacity),
+        ),
       ),
     );
   }
 }
 
-class _PulseNode extends StatelessWidget {
+class _FloatingNode extends StatelessWidget {
+  const _FloatingNode({required this.opacity});
   final double opacity;
-  const _PulseNode({required this.opacity});
 
   @override
-  Widget build(BuildContext context) {
-    return Container(
+  Widget build(BuildContext context) => Opacity(
+    opacity: opacity.clamp(0, 1),
+    child: Container(
       width: 4,
       height: 4,
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: opacity),
+      decoration: const BoxDecoration(
         shape: BoxShape.circle,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.white.withValues(alpha: opacity),
-            blurRadius: 15,
-            spreadRadius: 2,
-          ),
-        ],
+        color: Colors.white,
+        boxShadow: [BoxShadow(color: Colors.white, blurRadius: 15)],
       ),
-    );
+    ),
+  );
+}
+
+class _WebsiteMeshPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final bounds = Offset.zero & size;
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1
+      ..shader = const RadialGradient(
+        colors: [Color(0x02FFFFFF), Colors.transparent],
+        stops: [0.3, 0.7],
+      ).createShader(bounds);
+    for (double x = 0; x < size.width; x += 80) {
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
+    }
+    for (double y = 0; y < size.height; y += 80) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
+    }
   }
+
+  @override
+  bool shouldRepaint(covariant _WebsiteMeshPainter oldDelegate) => false;
 }
 
 // ============================================================
@@ -407,7 +408,7 @@ class FrostedCard extends StatelessWidget {
             borderRadius: BorderRadius.circular(borderRadius),
             border: Border.all(color: borderColor, width: 0.5),
           ),
-          child: child,
+          child: Material(type: MaterialType.transparency, child: child),
         ),
       ),
     );
@@ -445,6 +446,7 @@ class FrostedCircle extends StatelessWidget {
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: blurAmount, sigmaY: blurAmount),
         child: Container(
+          alignment: Alignment.center,
           width: size,
           height: size,
           decoration: BoxDecoration(

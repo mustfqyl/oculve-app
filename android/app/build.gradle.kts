@@ -6,7 +6,7 @@ plugins {
 }
 
 android {
-    namespace = "com.securevpn.mobile_flutter"
+    namespace = "com.oculve.app"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -19,9 +19,11 @@ android {
         jvmTarget = JavaVersion.VERSION_17.toString()
     }
 
+    packaging { jniLibs { useLegacyPackaging = true } }
+
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.securevpn.mobile_flutter"
+        applicationId = "com.oculve.app"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion

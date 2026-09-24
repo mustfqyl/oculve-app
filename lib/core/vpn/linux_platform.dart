@@ -1,0 +1,162 @@
+import 'dart:async';
+import 'dart:collection';
+import 'dart:convert';
+import 'dart:io';
+import 'package:flutter_vless/flutter_vless.dart';
+import 'xray_preferences.dart';
+
+/// Linux uses Xray's native TUN inbound, supervised by a root-owned helper.
+/// The UI remains unprivileged; polkit requests authorization for the helper.
+class LinuxXrayPlatform extends VlessPlatform {
+  Process? _process;
+  void Function(VlessStatus)? _status;
+  final Queue<String> _events = Queue<String>();
+
+  void _record(String state) {
+    _events.add('${DateTime.now().toUtc().toIso8601String()} $state');
+    if (_events.length > 100) _events.removeFirst();
+  }
+
+  @override
+  Future<void> initializeVless({
+    required void Function(VlessStatus) onStatusChanged,
+    required String notificationIconResourceType,
+    required String notificationIconResourceName,
+    required String providerBundleIdentifier,
+    required String groupIdentifier,
+    String? keychainAccessGroup,
+  }) async {
+    _status = onStatusChanged;
+  }
+
+  @override
+  Future<bool> requestPermission() async =>
+      File('/usr/lib/oculve/oculve-tunnel').existsSync();
+
+  @override
+  Future<String> getCoreVersion() async {
+    const binary = '/usr/lib/oculve/xray';
+    if (!await File(binary).exists()) return 'Unavailable';
+    try {
+      final result = await Process.run(binary, [
+        'version',
+      ]).timeout(const Duration(seconds: 3));
+      if (result.exitCode != 0) return 'Unavailable';
+      return RegExp(
+            r'Xray\s+([0-9]+\.[0-9]+\.[0-9]+)',
+          ).firstMatch(result.stdout.toString())?.group(1) ??
+          'Unknown';
+    } catch (_) {
+      return 'Unavailable';
+    }
+  }
+
+  @override
+  Future<String> getProviderDebugSnapshot() async => _events.join('\n');
+  @override
+  Future<void> startVless({
+    required String remark,
+    required String config,
+    required String notificationDisconnectButtonName,
+    List<String>? blockedApps,
+    List<String>? bypassSubnets,
+    bool proxyOnly = false,
+    String? geoAssetsDirectory,
+    AndroidDnsPolicy androidDnsPolicy = AndroidDnsPolicy.config,
+    String? androidDnsProxyOutboundTag,
+  }) async {
+    if (_process != null) throw StateError('A tunnel is already running.');
+    if (proxyOnly) throw UnsupportedError('Linux supports tunnel mode only.');
+    final parsed = jsonDecode(config) as Map<String, dynamic>;
+    final outbounds = (parsed['outbounds'] as List)
+        .cast<Map<String, dynamic>>();
+    final node = outbounds.firstWhere((n) => n['protocol'] == 'vless');
+    final logSettings = parsed['log'] as Map<String, dynamic>?;
+    final logLevel = logSettings?['loglevel'];
+    if (logLevel is! String ||
+        !const {
+          'debug',
+          'info',
+          'warning',
+          'error',
+          'none',
+        }.contains(logLevel)) {
+      throw const FormatException('A supported Xray log level is required.');
+    }
+    final routing = parsed['routing'] as Map<String, dynamic>?;
+    final rules = (routing?['rules'] as List?) ?? const [];
+    final bypass = <String>[];
+    for (final rule in rules) {
+      if (rule is! Map || rule['outboundTag'] != 'direct') continue;
+      final values = rule['domain'];
+      if (values is! List) continue;
+      for (final value in values) {
+        if (value is! String || !value.startsWith('domain:')) {
+          throw const FormatException('Unsupported bypass rule.');
+        }
+        bypass.add(value.substring('domain:'.length));
+      }
+    }
+    final domains = XrayPreferences.normalizeDomains(bypass);
+    final dns = parsed['dns'] as Map<String, dynamic>?;
+    final dnsServers = dns?['servers'] as List?;
+    if (dnsServers == null ||
+        dnsServers.length != 1 ||
+        dnsServers.first is! String ||
+        !(dnsServers.first as String).startsWith('tcp://')) {
+      throw const FormatException('A supported VPN DNS resolver is required.');
+    }
+    final dnsServer = (dnsServers.first as String).substring('tcp://'.length);
+    if (InternetAddress.tryParse(dnsServer)?.type != InternetAddressType.IPv4) {
+      throw const FormatException('VPN DNS must be an IPv4 address.');
+    }
+    final process = await Process.start('/usr/bin/pkexec', [
+      '--action-id',
+      'com.oculve.client.tunnel',
+      '/usr/lib/oculve/oculve-tunnel',
+    ]);
+    _process = process;
+    process.stdout
+        .transform(utf8.decoder)
+        .transform(const LineSplitter())
+        .listen((line) {
+          try {
+            final state = jsonDecode(line)['state'] as String;
+            _record(state);
+            _status?.call(VlessStatus(state: state));
+          } catch (_) {
+            /* Ignore non-protocol polkit output. */
+          }
+        });
+    process.stderr.drain<void>();
+    process.stdin.writeln(
+      jsonEncode({
+        'outbound': node,
+        'bypassDomains': domains,
+        'dnsServer': dnsServer,
+        'logLevel': logLevel,
+        'version': parsed['version'],
+      }),
+    );
+    await process.stdin.flush();
+    unawaited(
+      process.exitCode.then((_) {
+        if (_process == process) {
+          _process = null;
+          _record('DISCONNECTED');
+          _status?.call(VlessStatus());
+        }
+      }),
+    );
+  }
+
+  @override
+  Future<void> stopVless() async {
+    final process = _process;
+    if (process == null) return;
+    process.stdin.writeln('stop');
+    await process.stdin.close();
+    await process.exitCode.timeout(const Duration(seconds: 20));
+    _process = null;
+  }
+}

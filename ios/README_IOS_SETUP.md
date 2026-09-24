@@ -1,20 +1,30 @@
-# iOS Configuration
+# iOS setup
 
-To complete the iOS setup, you **MUST** perform the following manual steps in Xcode:
+Oculve uses Xray through an iOS Packet Tunnel extension. The project already contains the XrayTunnel target and its provider source; do not add a second Network Extension target.
 
-1.  **Open Workspace**: Open `apps/mobile_flutter/ios/Runner.xcworkspace`.
-2.  **Add Target**: File -> New -> Target -> Network Extension.
-    -   Name: `NetworkExtension`
-    -   Language: Swift
-    -   Provider Type: Packet Tunnel
-3.  **Delete Generated Files**: Remove the automatically created `PacketTunnelProvider.swift` in the *new target group*.
-4.  **Add Source**: Drag and drop `apps/mobile_flutter/ios/NetworkExtension/PacketTunnelProvider.swift` into the `NetworkExtension` group in Xcode. Ensure "Target Membership" checks `NetworkExtension`.
-5.  **Entitlements**:
-    -   Add "App Groups" capability to BOTH `Runner` and `NetworkExtension` targets. Use group ID `group.com.securevpn`.
-    -   Add "Network Extension" capability to `Runner` target with "Packet Tunnel".
-6.  **Frameworks**:
-    -   Link `SingBox.xcframework` (download from releases) to `NetworkExtension` target.
-    -   Ensure "Embed & Sign" is selected.
-7.  **Bundle ID**: ensure `protocolConfiguration.providerBundleIdentifier` in `SingboxNativePlugin.swift` matches the bundle ID of your extension target.
+## Prepare the Flutter and Xcode projects
 
-**Note**: The Flutter plugin assumes the extension bundle ID is `$(PRODUCT_BUNDLE_IDENTIFIER).NetworkExtension`. Adjust if necessary.
+From the repository root, run:
+
+    flutter pub get
+    flutter build ios --simulator --debug --config-only
+    ./tool/prepare_ios_vpn.sh
+    cd ios
+    pod install
+    open Runner.xcworkspace
+
+The preparation script updates Flutter's generated Swift package to the Xray runtime's iOS 15 minimum. Run it again after flutter pub get regenerates those files.
+
+## Signing and capabilities
+
+Use these identifiers:
+
+- App: **com.oculve.app**
+- Packet Tunnel: **com.oculve.app.XrayTunnel**
+- App Group: **group.com.oculve.app**
+
+A device VPN build requires a paid Apple Developer membership and matching provisioning profiles. Enable the Network Extension capability with Packet Tunnel for the XrayTunnel target. Enable the App Groups capability for both Runner and XrayTunnel, using the App Group above. Keep the bundle IDs and entitlements consistent with the project files.
+
+## Build
+
+Select the Runner scheme, configure the Apple Development team and provisioning profiles, then build for a connected iPhone. Simulator builds can check app compilation, but they do not validate a signed, device-level VPN tunnel.

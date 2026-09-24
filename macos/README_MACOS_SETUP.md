@@ -1,20 +1,32 @@
-# macOS Configuration
+# macOS setup
 
-To complete the macOS setup, you **MUST** perform the following manual steps in Xcode:
+Oculve uses Xray through a macOS Packet Tunnel extension. The project already contains the XrayTunnel target and provider source; do not add a second Network Extension target.
 
-1.  **Open Workspace**: Open `apps/mobile_flutter/macos/Runner.xcworkspace`.
-2.  **Add Target**: File -> New -> Target -> Network Extension.
-    -   Name: `NetworkExtension`
-    -   Language: Swift
-    -   Provider Type: Packet Tunnel
-3.  **Delete Generated Files**: Remove the automatically created `PacketTunnelProvider.swift` in the *new target group*.
-4.  **Add Source**: Drag and drop `apps/mobile_flutter/ios/NetworkExtension/PacketTunnelProvider.swift` (shared with iOS) into the `NetworkExtension` group in Xcode. Ensure "Target Membership" checks `NetworkExtension`.
-5.  **Entitlements**:
-    -   Add "App Groups" capability to BOTH `Runner` and `NetworkExtension` targets. Use group ID `group.com.securevpn`.
-    -   Add "Network Extension" capability to `Runner` target with "Packet Tunnel".
-6.  **Frameworks**:
-    -   Link `SingBox.xcframework` (download from releases) to `NetworkExtension` target.
-    -   Ensure "Embed & Sign" is selected.
-7.  **Bundle ID**: ensure `protocolConfiguration.providerBundleIdentifier` in `SingboxNativePlugin.swift` matches the bundle ID of your extension target.
+## Prepare the Flutter and Xcode projects
 
-**Note**: The Flutter plugin assumes the extension bundle ID is `$(PRODUCT_BUNDLE_IDENTIFIER).NetworkExtension`. Adjust if necessary.
+From the repository root, run:
+
+    flutter pub get
+    flutter build macos --debug --config-only
+    ./tool/prepare_macos_vpn.sh
+    cd macos
+    pod install
+    open Runner.xcworkspace
+
+The preparation script creates the extension wiring and aligns Flutter's generated Swift package with the Xray runtime's macOS 13 minimum. Run it again after flutter pub get regenerates those files.
+
+## Signing and capabilities
+
+Use these identifiers:
+
+- App: **com.oculve.app**
+- Packet Tunnel: **com.oculve.app.XrayTunnel**
+- App Group: **group.com.oculve.app**
+
+A signed system VPN requires Apple Developer provisioning with Network Extension and App Groups enabled. Assign the App Group to both Runner and XrayTunnel, and make sure the extension identifier matches the app's extension bundle identifier.
+
+## Build
+
+Select the Runner scheme and configure the Apple Development team and provisioning profiles to run the signed app. An unsigned local debug build can be compiled with:
+
+    xcodebuild -workspace macos/Runner.xcworkspace -scheme Runner -configuration Debug -derivedDataPath build/macos-unsigned CODE_SIGNING_ALLOWED=NO build

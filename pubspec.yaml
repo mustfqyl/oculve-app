@@ -1,5 +1,5 @@
-name: mobile_flutter
-description: "A new Flutter project."
+name: oculve
+description: "Oculve VPN client."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -36,16 +36,31 @@ dependencies:
   cupertino_icons: ^1.0.8
   flutter_riverpod: ^2.5.1
   go_router: ^17.1.0
-  google_fonts: ^8.0.1
   flutter_svg: ^2.2.3
   lottie: ^3.3.2
   shared_preferences: ^2.5.4
   gap: ^3.0.1
-  singbox_native:
-    path: ../../packages/singbox_native
+  flutter_vless:
+    path: vendor/flutter_vless
+  flutter_secure_storage: ^9.2.4
+  crypto: ^3.0.6
   flutter_animate: ^4.5.2
   window_manager: ^0.5.1
   url_launcher: ^6.3.2
+  tray_manager: 0.5.3
+  screen_retriever: 0.2.2
+  file_selector: ^1.1.0
+  share_plus: 11.1.0
+
+dependency_overrides:
+  flutter_vless_android:
+    path: vendor/flutter_vless/packages/flutter_vless_android
+  flutter_vless_macos:
+    path: vendor/flutter_vless/packages/flutter_vless_macos
+  flutter_vless_platform_interface:
+    path: vendor/flutter_vless/packages/flutter_vless_platform_interface
+  flutter_vless_windows:
+    path: vendor/flutter_vless/packages/flutter_vless_windows
 
 dev_dependencies:
   flutter_test:
@@ -67,9 +82,20 @@ flutter:
   # The following line ensures that the Material Icons font is
   # included with your application, so that you # can use the icons in
   # the material Icons class.
+  fonts:
+    - family: Outfit
+      fonts:
+        - asset: assets/fonts/Outfit.ttf
   uses-material-design: true
   assets:
     - assets/bg-neon-white.png
+    - assets/oculve-logo.svg
+    - assets/oculve-logo-light.svg
+    - assets/oculve-logo-navbar.svg
+    - assets/flags/
+    - assets/tray_icon_macos.png
+    - assets/tray_icon_windows.ico
+    - assets/tray_icon_linux.png
 
   # To add assets to your application, add an assets section, like this:
   # assets:

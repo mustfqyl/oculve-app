@@ -50,6 +50,7 @@ migrate_working_dir/
 /ios/Pods/
 /ios/Runner/GeneratedPluginRegistrant.*
 /ios/Runner/Assets.xcassets/AppIcon.appiconset/Contents.json
+/macos/build/
 
 # Environment files
 .env*
@@ -59,3 +60,12 @@ app.*.symbols
 
 # Obfuscation related
 app.*.map.json
+
+# Downloaded native artifacts (reproducible through tool/runtime-lock.json)
+/windows/xray/
+/linux/xray/
+/native/linux/__pycache__/
+/tool/__pycache__/
+
+# Vendored dependency build output
+/vendor/**/build/

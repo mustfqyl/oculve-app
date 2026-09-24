@@ -1,10 +1,10 @@
 # Project-level configuration.
 cmake_minimum_required(VERSION 3.14)
-project(mobile_flutter LANGUAGES CXX)
+project(oculve LANGUAGES CXX)
 
 # The name of the executable created for the application. Change this to change
 # the on-disk name of your application.
-set(BINARY_NAME "mobile_flutter")
+set(BINARY_NAME "oculve")
 
 # Explicitly opt in to modern CMake behaviors to avoid warnings with recent
 # versions of CMake.
@@ -106,3 +106,12 @@ install(DIRECTORY "${PROJECT_BUILD_DIR}/${FLUTTER_ASSET_DIR_NAME}"
 install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   CONFIGURATIONS Profile;Release
   COMPONENT Runtime)
+
+# Runtime provisioning is explicit and checksum-verified before packaging.
+foreach(XRAY_FILE xray.exe tun2socks.exe wintun.dll)
+  if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/xray/${XRAY_FILE}")
+    message(FATAL_ERROR "Run python tool/prepare_desktop.py windows before building")
+  endif()
+endforeach()
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/xray/"
+  DESTINATION "${CMAKE_INSTALL_PREFIX}/xray" COMPONENT Runtime)

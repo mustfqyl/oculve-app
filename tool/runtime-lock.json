@@ -1,0 +1,18 @@
+{
+  "xray-windows": {
+    "url": "https://github.com/XTLS/Xray-core/releases/download/v26.9.9/Xray-windows-64.zip",
+    "sha256": "244deaba2098c2964e49bba90df3707777e5f5f428a82d2f29604015f24beec2"
+  },
+  "xray-linux": {
+    "url": "https://github.com/XTLS/Xray-core/releases/download/v26.9.9/Xray-linux-64.zip",
+    "sha256": "1eb9175d0f0a8f8149c9230a7fc5ae66ce332ed20a53155ce61fe62e3f58b7df"
+  },
+  "tun2socks-windows": {
+    "url": "https://github.com/xjasonlyu/tun2socks/releases/download/v2.6.0/tun2socks-windows-amd64.zip",
+    "sha256": "1429e2e3b1ea09052da2c65e5005538b5730d63da37e304f4ad6fd2698a66695"
+  },
+  "wintun": {
+    "url": "https://www.wintun.net/builds/wintun-0.14.1.zip",
+    "sha256": "07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51"
+  }
+}

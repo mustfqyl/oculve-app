@@ -1,219 +1,156 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import '../../../../core/theme/app_theme.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:oculve/features/auth/data/auth_repository.dart';
+import 'package:oculve/core/providers/vpn_provider.dart';
+import 'package:oculve/core/models/vpn_state.dart';
+import 'package:oculve/core/theme/app_theme.dart';
+import 'package:oculve/core/widgets/app_page.dart';
+import 'package:oculve/core/vpn/server_latency.dart';
+import 'widgets/country_icon.dart';
+import 'widgets/latency_label.dart';
 
-class ServerSelectionScreen extends StatefulWidget {
+enum ServerSort { latency, alphabetical }
+
+class ServerSelectionScreen extends ConsumerStatefulWidget {
   const ServerSelectionScreen({super.key});
 
   @override
-  State<ServerSelectionScreen> createState() => _ServerSelectionScreenState();
+  ConsumerState<ServerSelectionScreen> createState() =>
+      _ServerSelectionScreenState();
 }
 
-class _ServerSelectionScreenState extends State<ServerSelectionScreen> {
-  final List<Map<String, dynamic>> _servers = [
-    {'name': 'Optimal Location', 'ping': 'Auto', 'isOptimal': true},
-    {'name': 'United States', 'ping': '45ms', 'flag': 'us'},
-    {'name': 'United Kingdom', 'ping': '112ms', 'flag': 'gb'},
-    {'name': 'Germany', 'ping': '140ms', 'flag': 'de'},
-    {'name': 'France', 'ping': '145ms', 'flag': 'fr'},
-    {'name': 'Japan', 'ping': '190ms', 'flag': 'jp'},
-    {'name': 'Singapore', 'ping': '210ms', 'flag': 'sg'},
-  ];
-
-  String _selectedServer = 'Optimal Location';
+class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
+  ServerSort _sort = ServerSort.latency;
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final fg = isDark ? AppTheme.foreground : AppTheme.lightForeground;
-    final fgMuted = isDark
-        ? AppTheme.foregroundMuted
-        : AppTheme.lightForegroundMuted;
-
-    return Scaffold(
-      extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        systemOverlayStyle: isDark
-            ? SystemUiOverlayStyle.light
-            : SystemUiOverlayStyle.dark,
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: IconButton(
-          icon: Icon(Icons.close, color: fg, size: 24),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: Text(
-          'Select Server',
-          style: TextStyle(
-            color: fg,
-            fontWeight: FontWeight.w600,
-            fontSize: 17,
+    final profiles = ref.watch(sessionProvider).valueOrNull?.profiles ?? [];
+    final selected = ref.watch(selectedServerProvider);
+    final vpn = ref.watch(vpnProvider);
+    final enabled = vpn == VpnState.disconnected || vpn == VpnState.error;
+    final latencies = {
+      for (final profile in profiles)
+        profile.id: ref.watch(serverLatencyProvider(profile.id)),
+    };
+    final measured = {
+      for (final entry in latencies.entries) entry.key: entry.value.valueOrNull,
+    };
+    // Wait until measurements finish before moving rows under the pointer.
+    final ordered = _sort == ServerSort.alphabetical
+        ? sortProfilesAlphabetically(profiles)
+        : latencies.values.any((value) => value.isLoading)
+        ? profiles
+        : sortProfilesByLatency(profiles, measured);
+    return AppPage(
+      title: 'Locations',
+      action: PopupMenuButton<ServerSort>(
+        tooltip: 'Sort servers',
+        icon: const Icon(Icons.sort, size: 20),
+        color: Theme.of(context).brightness == Brightness.dark
+            ? const Color(0xFF15191F)
+            : Colors.white,
+        surfaceTintColor: Colors.transparent,
+        elevation: 16,
+        shadowColor: Colors.black.withValues(alpha: .35),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: BorderSide(
+            color: Theme.of(context).brightness == Brightness.dark
+                ? AppTheme.cardBorder
+                : AppTheme.lightCardBorder,
           ),
         ),
-        centerTitle: true,
+        menuPadding: const EdgeInsets.all(6),
+        position: PopupMenuPosition.under,
+        initialValue: _sort,
+        onSelected: (value) => setState(() => _sort = value),
+        itemBuilder: (_) => [
+          PopupMenuItem(
+            value: ServerSort.latency,
+            child: _SortMenuItem(
+              icon: Icons.bolt_rounded,
+              label: 'Best ping',
+              selected: _sort == ServerSort.latency,
+            ),
+          ),
+          PopupMenuItem(
+            value: ServerSort.alphabetical,
+            child: _SortMenuItem(
+              icon: Icons.sort_by_alpha_rounded,
+              label: 'Alphabetical',
+              selected: _sort == ServerSort.alphabetical,
+            ),
+          ),
+        ],
       ),
-      body: PremiumBackground(
-        child: SafeArea(
-          child: Column(
-            children: [
-              // Search Bar
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 12,
-                ),
-                child: FrostedCard(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  borderRadius: 14,
-                  child: TextField(
-                    style: TextStyle(color: fg),
-                    decoration: InputDecoration(
-                      border: InputBorder.none,
-                      hintText: 'Search locations...',
-                      hintStyle: TextStyle(color: fgMuted, fontSize: 15),
-                      icon: Icon(Icons.search, color: fgMuted, size: 20),
-                    ),
+      child: ListView(
+        padding: const EdgeInsets.all(24),
+        children: [
+          if (!enabled)
+            const Padding(
+              padding: EdgeInsets.only(bottom: 16),
+              child: Text('Disconnect before changing location.'),
+            ),
+          if (profiles.isEmpty)
+            const Text('No servers available. Check your subscription.'),
+          ...ordered.map(
+            (p) => Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: FrostedCard(
+                padding: EdgeInsets.zero,
+                child: ListTile(
+                  leading: FrostedCircle(
+                    size: 34,
+                    blurAmount: 15,
+                    child: CountryIcon(flag: p.flag, size: 24),
                   ),
-                ),
-              ),
-
-              // Server List
-              Expanded(
-                child: ListView.builder(
-                  padding: const EdgeInsets.only(
-                    left: 24,
-                    right: 24,
-                    bottom: 24,
+                  title: Text(p.name),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      LatencyLabel(latency: latencies[p.id]!),
+                      if (selected == p.id) ...[
+                        const SizedBox(width: 8),
+                        const Icon(Icons.check, size: 18),
+                      ],
+                    ],
                   ),
-                  itemCount: _servers.length,
-                  itemBuilder: (context, index) {
-                    final server = _servers[index];
-                    final isOptimal = server['isOptimal'] == true;
-                    final isSelected = _selectedServer == server['name'];
-
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 8.0),
-                      child: GestureDetector(
-                        onTap: () {
-                          setState(
-                            () => _selectedServer = server['name'] as String,
-                          );
-                          Navigator.pop(context, {
-                            'name': server['name'] as String,
-                            'flag': server['flag'] as String?,
-                            'ping': server['ping'] as String?,
-                          });
-                        },
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 200),
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: isSelected
-                                ? (isDark
-                                      ? Colors.white.withValues(alpha: 0.15)
-                                      : Colors.black.withValues(alpha: 0.08))
-                                : (isDark
-                                      ? Colors.white.withValues(alpha: 0.05)
-                                      : Colors.black.withValues(alpha: 0.03)),
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(
-                              color: isSelected
-                                  ? AppTheme.successColor.withValues(alpha: 0.5)
-                                  : Colors.transparent,
-                              width: 1,
-                            ),
-                          ),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 32,
-                                height: 32,
-                                decoration: BoxDecoration(
-                                  color: isOptimal
-                                      ? AppTheme.successColor.withValues(
-                                          alpha: 0.2,
-                                        )
-                                      : Colors.transparent,
-                                  shape: BoxShape.circle,
-                                ),
-                                child: isOptimal
-                                    ? const Icon(
-                                        Icons.flash_on,
-                                        color: AppTheme.successColor,
-                                        size: 16,
-                                      )
-                                    : Center(
-                                        child: Text(
-                                          _getFlagEmoji(
-                                            server['flag'] as String? ?? '',
-                                          ),
-                                          style: const TextStyle(fontSize: 20),
-                                        ),
-                                      ),
-                              ),
-                              const SizedBox(width: 16),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      server['name'] as String,
-                                      style: TextStyle(
-                                        color: fg,
-                                        fontSize: 15,
-                                        fontWeight: isSelected
-                                            ? FontWeight.w700
-                                            : FontWeight.w500,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      isOptimal
-                                          ? 'Fastest available server'
-                                          : '${server['ping']} ping',
-                                      style: TextStyle(
-                                        color: isOptimal
-                                            ? AppTheme.successColor
-                                            : fgMuted,
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              if (isSelected)
-                                const Icon(
-                                  Icons.check_circle,
-                                  color: AppTheme.successColor,
-                                  size: 24,
-                                )
-                              else
-                                Icon(
-                                  Icons.circle_outlined,
-                                  color: fgMuted.withValues(alpha: 0.5),
-                                  size: 24,
-                                ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    );
+                  enabled: enabled,
+                  onTap: () {
+                    ref.read(selectedServerProvider.notifier).state = p.id;
+                    Navigator.pop(context);
                   },
                 ),
               ),
-            ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
+}
 
-  String _getFlagEmoji(String countryCode) {
-    if (countryCode.isEmpty) return '🌍';
-    final int firstLetter =
-        countryCode.toUpperCase().codeUnitAt(0) - 0x41 + 0x1F1E6;
-    final int secondLetter =
-        countryCode.toUpperCase().codeUnitAt(1) - 0x41 + 0x1F1E6;
-    return String.fromCharCode(firstLetter) + String.fromCharCode(secondLetter);
-  }
+class _SortMenuItem extends StatelessWidget {
+  const _SortMenuItem({
+    required this.icon,
+    required this.label,
+    required this.selected,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    children: [
+      Icon(icon, size: 17, color: selected ? AppTheme.successColor : null),
+      const SizedBox(width: 10),
+      Expanded(child: Text(label)),
+      if (selected) ...[
+        const SizedBox(width: 10),
+        const Icon(Icons.check_rounded, size: 16, color: AppTheme.successColor),
+      ],
+    ],
+  );
 }

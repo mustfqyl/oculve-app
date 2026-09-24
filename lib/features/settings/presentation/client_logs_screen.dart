@@ -1,91 +1,99 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import '../../../../core/theme/app_theme.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_vless/flutter_vless.dart';
+import 'package:oculve/core/providers/vpn_provider.dart';
+import 'package:oculve/core/vpn/server_latency.dart';
+import 'package:oculve/core/widgets/app_page.dart';
 
-class ClientLogsScreen extends StatelessWidget {
+class ClientLogsScreen extends ConsumerStatefulWidget {
   const ClientLogsScreen({super.key});
 
   @override
+  ConsumerState<ClientLogsScreen> createState() => _ClientLogsScreenState();
+}
+
+class _ClientLogsScreenState extends ConsumerState<ClientLogsScreen> {
+  late Future<String> _nativeDiagnostics;
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+  }
+
+  void _refresh() {
+    _nativeDiagnostics = () async {
+      try {
+        await ref.read(vpnProvider.notifier).initialize();
+        return await VlessPlatform.instance.getProviderDebugSnapshot();
+      } catch (_) {
+        return '';
+      }
+    }();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final fg = isDark ? AppTheme.foreground : AppTheme.lightForeground;
-    final fgMuted = isDark
-        ? AppTheme.foregroundMuted
-        : AppTheme.lightForegroundMuted;
-
-    final mockLogs = [
-      '[10:45:12] Initializing VPN Engine connection...',
-      '[10:45:12] Loading configuration for Optimal Location...',
-      '[10:45:13] Resolving host address (us-east.securevpn.cx)...',
-      '[10:45:14] Establishing TLS connection...',
-      '[10:45:15] Authentication successful. Negotiating ciphers...',
-      '[10:45:15] Cipher CHACHA20-POLY1305 negotiated.',
-      '[10:45:16] Assigning virtual IP 10.8.0.42...',
-      '[10:45:16] Route established. Connection active.',
-      '[10:46:00] Keepalive signal sent.',
-      '[10:47:00] Keepalive signal sent.',
-    ];
-
-    return Scaffold(
-      extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        systemOverlayStyle: isDark
-            ? SystemUiOverlayStyle.light
-            : SystemUiOverlayStyle.dark,
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back_ios_new, color: fg, size: 20),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: Text(
-          'Client Logs',
-          style: TextStyle(
-            color: fg,
-            fontWeight: FontWeight.w600,
-            fontSize: 17,
+    ref.watch(vpnProvider);
+    final events = ref.read(vpnProvider.notifier).events;
+    final pingDiagnostics = ref.watch(serverLatencyDiagnosticsProvider);
+    return AppPage(
+      title: 'Connection events',
+      action: IconButton(
+        tooltip: 'Refresh diagnostics',
+        icon: const Icon(Icons.refresh),
+        onPressed: () => setState(_refresh),
+      ),
+      child: ListView(
+        padding: const EdgeInsets.all(24),
+        children: [
+          const Text(
+            'APP EVENTS',
+            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
           ),
-        ),
-        centerTitle: true,
-        actions: [
-          IconButton(
-            icon: Icon(Icons.copy, color: fg, size: 20),
-            onPressed: () {
-              Clipboard.setData(ClipboardData(text: mockLogs.join('\n')));
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Logs copied to clipboard')),
+          const SizedBox(height: 12),
+          if (events.isEmpty) const Text('No connection attempts yet.'),
+          ...events.reversed.map(
+            (event) => Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: SelectableText(event),
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'TCP PING CHECKS',
+            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 12),
+          if (pingDiagnostics.isEmpty)
+            const Text('No server ping checks have been recorded.'),
+          ...pingDiagnostics.map(
+            (diagnostic) => Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: SelectableText(diagnostic),
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'XRAY DIAGNOSTICS',
+            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 12),
+          FutureBuilder<String>(
+            future: _nativeDiagnostics,
+            builder: (context, snapshot) {
+              if (!snapshot.hasData) {
+                return const LinearProgressIndicator(minHeight: 2);
+              }
+              final diagnostics = snapshot.data!.trim();
+              return SelectableText(
+                diagnostics.isEmpty
+                    ? 'No native diagnostics have been recorded.'
+                    : diagnostics,
               );
             },
           ),
         ],
-      ),
-      body: PremiumBackground(
-        child: SafeArea(
-          child: ListView.builder(
-            padding: const EdgeInsets.all(24),
-            itemCount: mockLogs.length,
-            itemBuilder: (context, index) {
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 8.0),
-                child: Text(
-                  mockLogs[index],
-                  style: TextStyle(
-                    fontFamily: 'monospace',
-                    color:
-                        index == mockLogs.length - 1 ||
-                            index == mockLogs.length - 2
-                        ? fgMuted
-                        : (mockLogs[index].contains('successful') ||
-                                  mockLogs[index].contains('active')
-                              ? AppTheme.successColor
-                              : fg),
-                    fontSize: 12,
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
       ),
     );
   }

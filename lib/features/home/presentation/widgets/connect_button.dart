@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:mobile_flutter/core/theme/app_theme.dart';
-import 'package:mobile_flutter/core/providers/vpn_provider.dart';
-import 'package:mobile_flutter/core/models/vpn_state.dart';
+import 'package:oculve/core/theme/app_theme.dart';
+import 'package:oculve/core/providers/vpn_provider.dart';
+import 'package:oculve/core/models/vpn_state.dart';
 
 class ConnectButton extends ConsumerWidget {
   const ConnectButton({super.key});
@@ -12,6 +12,7 @@ class ConnectButton extends ConsumerWidget {
     final vpnState = ref.watch(vpnProvider);
     final isConnected = vpnState == VpnState.connected;
     final isConnecting = vpnState == VpnState.connecting;
+    final isDisconnecting = vpnState == VpnState.disconnecting;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     // Connected = white glow/text (not green)
@@ -22,7 +23,7 @@ class ConnectButton extends ConsumerWidget {
 
     return GestureDetector(
       onTap: () {
-        if (!isConnecting) {
+        if (!isConnecting && !isDisconnecting) {
           ref.read(vpnProvider.notifier).toggle();
         }
       },
@@ -31,10 +32,10 @@ class ConnectButton extends ConsumerWidget {
         children: [
           // Outer ring
           AnimatedContainer(
-            duration: const Duration(milliseconds: 600),
-            curve: Curves.easeOutCubic,
-            width: 170, // Reverted slightly from 150
-            height: 170, // Reverted slightly from 150
+            duration: const Duration(milliseconds: 280),
+            curve: const Cubic(0.2, 0.8, 0.2, 1),
+            width: 148,
+            height: 148,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               border: Border.all(
@@ -48,8 +49,8 @@ class ConnectButton extends ConsumerWidget {
             ),
             child: Center(
               child: FrostedCircle(
-                size: 130, // Reduced from 150
-                blurAmount: 40,
+                size: 114,
+                blurAmount: 28,
                 color: isConnected
                     ? activeColor.withValues(alpha: isDark ? 0.12 : 0.08)
                     : (isDark
@@ -60,8 +61,8 @@ class ConnectButton extends ConsumerWidget {
                     color: isConnected
                         ? activeColor.withValues(alpha: 0.20)
                         : Colors.transparent,
-                    blurRadius: isConnected ? 60 : 0,
-                    spreadRadius: isConnected ? 5 : 0,
+                    blurRadius: isConnected ? 36 : 0,
+                    spreadRadius: isConnected ? 2 : 0,
                   ),
                 ],
                 child: Center(
@@ -81,12 +82,16 @@ class ConnectButton extends ConsumerWidget {
                           children: [
                             Icon(
                               Icons.power_settings_new,
-                              size: 48,
+                              size: 42,
                               color: isConnected ? activeColor : mutedColor,
                             ),
-                            const SizedBox(height: 10),
+                            const SizedBox(height: 8),
                             Text(
-                              isConnected ? 'CONNECTED' : 'CONNECT',
+                              isConnected
+                                  ? 'CONNECTED'
+                                  : vpnState == VpnState.disconnecting
+                                  ? 'STOPPING'
+                                  : 'CONNECT',
                               style: TextStyle(
                                 color: isConnected ? activeColor : mutedColor,
                                 fontWeight: FontWeight.w700,

@@ -12,3 +12,8 @@ GeneratedPluginRegistrant.java
 key.properties
 **/*.keystore
 **/*.jks
+
+# Keep the Gradle wrapper in version control so fresh clones can build.
+!gradle-wrapper.jar
+!/gradlew
+!/gradlew.bat

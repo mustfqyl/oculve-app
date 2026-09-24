@@ -1,0 +1,29 @@
+# Vendored xray-mobile source
+
+This directory vendors the small Go wrapper that `gomobile bind` uses to build
+the iOS and macOS `XRay.xcframework` artifacts.
+
+The Go module path intentionally remains:
+
+```text
+github.com/EbrahimTahernejad/xray-mobile
+```
+
+Generated Objective-C headers and existing Swift bindings expose that package
+name, so changing it would be an ABI/API change for the native artifacts.
+
+The source is based on `EbrahimTahernejad/xray-mobile` `1.8.1`, with local
+changes needed by `flutter_vless`:
+
+- Xray-core dependency updated to the 26.x release line used by this package.
+- Xray-core pinned to release `v26.9.9` commit `52a412d9e2f5c2a5142b1b4e2ab3771dacb8b120` for the `1.1.6` release train.
+- `GetVersion`, `MeasureDelay`, and `MeasureOutboundDelay` exported for the
+  Flutter platform layer.
+- `QueryStats` exported for macOS traffic counters.
+- `SetAssetLocation` exported so Apple runtimes can select an App Group asset
+  directory from inside Go before Xray reads `geoip.dat` and `geosite.dat`.
+- `Stop` handles a nil or already-stopped core instance.
+
+Build scripts copy this directory into a temporary build directory before
+running `go get` and `go mod tidy`, so release builds do not mutate the tracked
+vendored source.

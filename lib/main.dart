@@ -1,33 +1,50 @@
 import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:window_manager/window_manager.dart';
+
+import 'core/desktop/desktop_tray_controller.dart';
 import 'core/theme/app_theme.dart';
 import 'core/providers/theme_provider.dart';
-import 'features/splash/presentation/loading_screen.dart';
-import 'package:window_manager/window_manager.dart';
+import 'features/auth/data/auth_repository.dart';
+import 'features/auth/presentation/login_screen.dart';
+import 'features/home/presentation/home_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  final container = ProviderContainer();
 
   if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
     await windowManager.ensureInitialized();
+    final trayPlatform = Platform.isWindows || Platform.isMacOS;
 
-    WindowOptions windowOptions = const WindowOptions(
-      size: Size(515, 480),
+    final windowOptions = WindowOptions(
+      size: desktopWindowSize,
       center: true,
       backgroundColor: Colors.transparent,
-      skipTaskbar: false,
-      titleBarStyle: TitleBarStyle.hidden, // Transparent/Merged title bar
+      skipTaskbar: trayPlatform,
+      titleBarStyle: TitleBarStyle.hidden,
+      windowButtonVisibility: !Platform.isMacOS,
     );
 
     windowManager.waitUntilReadyToShow(windowOptions, () async {
+      if (trayPlatform) {
+        try {
+          await DesktopTrayController(container).initialize();
+          return;
+        } catch (_) {
+          // Leave the UI reachable if tray creation fails on this machine.
+          await windowManager.setSkipTaskbar(false);
+        }
+      }
+      await windowManager.setResizable(false);
       await windowManager.show();
       await windowManager.focus();
-      await windowManager.setResizable(false); // "sabitle" -> fixed size
     });
   }
 
-  runApp(const ProviderScope(child: MyApp()));
+  runApp(UncontrolledProviderScope(container: container, child: const MyApp()));
 }
 
 class MyApp extends ConsumerWidget {
@@ -38,7 +55,7 @@ class MyApp extends ConsumerWidget {
     final themeMode = ref.watch(themeProvider);
 
     return MaterialApp(
-      title: 'SecureVPN',
+      title: 'Oculve',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
@@ -47,7 +64,58 @@ class MyApp extends ConsumerWidget {
         AppThemeMode.light => ThemeMode.light,
         AppThemeMode.dark => ThemeMode.dark,
       },
-      home: const LoadingScreen(),
+      home: const SessionGate(),
     );
   }
+}
+
+class SessionGate extends ConsumerStatefulWidget {
+  const SessionGate({super.key});
+  @override
+  ConsumerState<SessionGate> createState() => _SessionGateState();
+}
+
+class _SessionGateState extends ConsumerState<SessionGate> {
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(() => ref.read(sessionProvider.notifier).restore());
+  }
+
+  @override
+  Widget build(BuildContext context) => ref
+      .watch(sessionProvider)
+      .when(
+        loading: () =>
+            const Scaffold(body: Center(child: CircularProgressIndicator())),
+        error: (error, _) => Scaffold(
+          body: PremiumBackground(
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(error.toString(), textAlign: TextAlign.center),
+                    TextButton(
+                      onPressed: () =>
+                          ref.read(sessionProvider.notifier).restore(),
+                      child: const Text('Retry'),
+                    ),
+                    TextButton(
+                      onPressed: () async {
+                        await ref.read(apiProvider).clear();
+                        await ref.read(sessionProvider.notifier).restore();
+                      },
+                      child: const Text('Sign in again'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+        data: (account) =>
+            account == null ? const LoginScreen() : const HomeScreen(),
+      );
 }
