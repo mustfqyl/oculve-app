@@ -12,6 +12,10 @@ import '../../features/auth/data/auth_repository.dart';
 final selectedServerProvider = StateProvider<String?>((ref) => null);
 const optimalServerId = '__oculve_optimal__';
 final vpnErrorProvider = StateProvider<String?>((ref) => null);
+
+/// True until the native tunnel has confirmed that it stopped. Direct TCP
+/// measurements must not accidentally run through an active VPN route.
+final vpnTunnelMayBeActiveProvider = StateProvider<bool>((ref) => false);
 final trafficProvider = StateProvider<VlessStatus?>((ref) => null);
 final vpnProvider = StateNotifierProvider<VpnNotifier, VpnState>(
   (ref) => VpnNotifier(ref),
@@ -28,6 +32,7 @@ class VpnNotifier extends StateNotifier<VpnState> {
   bool _busy = false;
   bool _requested = false;
   Timer? _timeout;
+  Timer? _errorTimer;
   final List<String> events = [];
   void _record(String text) {
     events.add('${DateTime.now().toIso8601String()} $text');
@@ -40,6 +45,7 @@ class VpnNotifier extends StateNotifier<VpnState> {
       _fail(
         'The VPN runtime failed. Check permissions and connection settings.',
       );
+      unawaited(_stopAfterRuntimeError());
       return;
     }
     if (!_requested &&
@@ -58,6 +64,9 @@ class VpnNotifier extends StateNotifier<VpnState> {
     };
     if (next == VpnState.connected || next == VpnState.disconnected) {
       _timeout?.cancel();
+    }
+    if (next == VpnState.disconnected) {
+      ref.read(vpnTunnelMayBeActiveProvider.notifier).state = false;
     }
     if (next == VpnState.disconnected && _requested) {
       _requested = false;
@@ -83,8 +92,12 @@ class VpnNotifier extends StateNotifier<VpnState> {
     if (_busy || state == VpnState.connected || state == VpnState.connecting) {
       return;
     }
+    if (ref.read(vpnTunnelMayBeActiveProvider)) {
+      await disconnect();
+      return;
+    }
     _busy = true;
-    ref.read(vpnErrorProvider.notifier).state = null;
+    dismissError();
     state = VpnState.connecting;
     try {
       // Revalidate account status without downloading the subscription again.
@@ -131,6 +144,7 @@ class VpnNotifier extends StateNotifier<VpnState> {
       final blockedApps = Platform.isAndroid
           ? await XrayPreferences.blockedApps()
           : const <String>[];
+      ref.read(vpnTunnelMayBeActiveProvider.notifier).state = true;
       await _engine.startVless(
         remark: profile.name,
         config: XrayPreferences.configure(
@@ -169,9 +183,16 @@ class VpnNotifier extends StateNotifier<VpnState> {
       }
     } catch (error) {
       _requested = false;
+      var tunnelStopped = !_initialized;
       try {
-        if (_initialized) await _engine.stopVless();
+        if (_initialized) {
+          await _engine.stopVless();
+          tunnelStopped = true;
+        }
       } catch (_) {}
+      if (tunnelStopped && mounted) {
+        ref.read(vpnTunnelMayBeActiveProvider.notifier).state = false;
+      }
       _fail(
         error is FormatException
             ? error.message.toString()
@@ -195,9 +216,31 @@ class VpnNotifier extends StateNotifier<VpnState> {
   void _fail(String message) {
     if (!mounted) return;
     _requested = false;
+    _errorTimer?.cancel();
     ref.read(vpnErrorProvider.notifier).state = message;
+    _errorTimer = Timer(const Duration(seconds: 12), () {
+      if (mounted && ref.read(vpnErrorProvider) == message) {
+        ref.read(vpnErrorProvider.notifier).state = null;
+      }
+    });
     _record(message);
     state = VpnState.error;
+  }
+
+  void dismissError() {
+    _errorTimer?.cancel();
+    _errorTimer = null;
+    if (mounted) ref.read(vpnErrorProvider.notifier).state = null;
+  }
+
+  Future<void> _stopAfterRuntimeError() async {
+    try {
+      if (_initialized) await _engine.stopVless();
+      if (!mounted) return;
+      ref.read(vpnTunnelMayBeActiveProvider.notifier).state = false;
+    } catch (_) {
+      // Keep direct probes disabled when native tunnel shutdown is uncertain.
+    }
   }
 
   Future<void> disconnect() async {
@@ -206,6 +249,7 @@ class VpnNotifier extends StateNotifier<VpnState> {
     state = VpnState.disconnecting;
     try {
       if (_initialized) await _engine.stopVless();
+      ref.read(vpnTunnelMayBeActiveProvider.notifier).state = false;
       state = VpnState.disconnected;
     } catch (_) {
       _fail('The VPN could not be stopped. Check the system VPN settings.');
@@ -225,6 +269,7 @@ class VpnNotifier extends StateNotifier<VpnState> {
   @override
   void dispose() {
     _timeout?.cancel();
+    _errorTimer?.cancel();
     super.dispose();
   }
 }

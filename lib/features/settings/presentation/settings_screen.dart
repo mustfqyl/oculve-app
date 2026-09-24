@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart' hide Text;
 import 'package:oculve/core/localization/localized_text.dart';
 import 'package:oculve/core/localization/app_strings.dart';
@@ -11,6 +13,7 @@ import 'package:oculve/core/widgets/app_route.dart';
 import 'client_logs_screen.dart';
 import 'usage_statistics_screen.dart';
 import 'xray_core_settings_screen.dart';
+import 'tray_preferences_screen.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -30,9 +33,9 @@ class SettingsScreen extends ConsumerWidget {
           // Theme Section
           _SectionHeader(title: context.tr('Appearance'), color: fgMuted),
           const SizedBox(height: 12),
-          const _LanguageSelector(),
-          const SizedBox(height: 10),
           const _ThemeSelector(),
+          const SizedBox(height: 10),
+          const _LanguageSelector(),
           const SizedBox(height: 24),
 
           _SectionHeader(title: context.tr('Connection'), color: fgMuted),
@@ -46,6 +49,20 @@ class SettingsScreen extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: 24),
+
+          if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) ...[
+            _SectionHeader(title: context.tr('Desktop'), color: fgMuted),
+            const SizedBox(height: 12),
+            _SettingsTile(
+              icon: Icons.desktop_windows_outlined,
+              title: 'Tray & menu bar',
+              onTap: () => Navigator.push(
+                context,
+                appRoute(const TrayPreferencesScreen()),
+              ),
+            ),
+            const SizedBox(height: 24),
+          ],
 
           // Diagnostics Section
           _SectionHeader(title: context.tr('Diagnostics'), color: fgMuted),

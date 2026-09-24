@@ -162,43 +162,83 @@ class _UsageStatisticsScreenState extends ConsumerState<UsageStatisticsScreen> {
                           ),
                         ],
                       ),
+                      const SizedBox(height: 8),
+                      Divider(height: 1, color: muted.withValues(alpha: .2)),
+                      const SizedBox(height: 7),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _metric(
+                              context,
+                              context.tr('Downloaded'),
+                              '${((traffic?.download ?? 0) / 1048576).toStringAsFixed(2)} MB',
+                            ),
+                          ),
+                          Expanded(
+                            child: _metric(
+                              context,
+                              context.tr('Uploaded'),
+                              '${((traffic?.upload ?? 0) / 1048576).toStringAsFixed(2)} MB',
+                            ),
+                          ),
+                          Text(
+                            context.tr('Current VPN session'),
+                            style: TextStyle(color: muted, fontSize: 9),
+                          ),
+                        ],
+                      ),
                     ],
                   ),
                 ),
                 const SizedBox(height: 8),
                 _compactCard(
                   context,
-                  title: context.tr('Last 30 days'),
-                  child: _barChart(daily, 'date', dailyMax, height: 34),
-                ),
-                if (monthly.isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  _compactCard(
-                    context,
-                    title: context.tr('Last 12 months'),
-                    child: _barChart(monthly, 'month', monthlyMax, height: 27),
-                  ),
-                ],
-                const SizedBox(height: 8),
-                _compactCard(
-                  context,
-                  title: context.tr('Current VPN session'),
-                  child: Row(
+                  title: context.tr('Usage history'),
+                  child: Column(
                     children: [
-                      Expanded(
-                        child: _metric(
-                          context,
-                          context.tr('Downloaded'),
-                          '${((traffic?.download ?? 0) / 1048576).toStringAsFixed(2)} MB',
-                        ),
+                      Row(
+                        children: [
+                          SizedBox(
+                            width: 86,
+                            child: Text(
+                              context.tr('Last 30 days'),
+                              style: TextStyle(color: muted, fontSize: 9),
+                            ),
+                          ),
+                          Expanded(
+                            child: _barChart(
+                              daily,
+                              'date',
+                              dailyMax,
+                              height: 23,
+                            ),
+                          ),
+                        ],
                       ),
-                      Expanded(
-                        child: _metric(
-                          context,
-                          context.tr('Uploaded'),
-                          '${((traffic?.upload ?? 0) / 1048576).toStringAsFixed(2)} MB',
+                      if (monthly.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Divider(height: 1, color: muted.withValues(alpha: .2)),
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            SizedBox(
+                              width: 86,
+                              child: Text(
+                                context.tr('Last 12 months'),
+                                style: TextStyle(color: muted, fontSize: 9),
+                              ),
+                            ),
+                            Expanded(
+                              child: _barChart(
+                                monthly,
+                                'month',
+                                monthlyMax,
+                                height: 23,
+                              ),
+                            ),
+                          ],
                         ),
-                      ),
+                      ],
                     ],
                   ),
                 ),

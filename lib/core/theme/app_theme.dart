@@ -55,6 +55,12 @@ class AppTheme {
         onSurface: foreground,
         onError: foreground,
       ),
+      scrollbarTheme: const ScrollbarThemeData(
+        thumbColor: WidgetStatePropertyAll(Colors.transparent),
+        trackColor: WidgetStatePropertyAll(Colors.transparent),
+        trackVisibility: WidgetStatePropertyAll(false),
+        interactive: false,
+      ),
       textTheme: ThemeData.dark().textTheme.apply(
         fontFamily: 'Outfit',
         bodyColor: foreground,
@@ -100,6 +106,12 @@ class AppTheme {
         onSecondary: lightBackground,
         onSurface: lightForeground,
         onError: lightBackground,
+      ),
+      scrollbarTheme: const ScrollbarThemeData(
+        thumbColor: WidgetStatePropertyAll(Colors.transparent),
+        trackColor: WidgetStatePropertyAll(Colors.transparent),
+        trackVisibility: WidgetStatePropertyAll(false),
+        interactive: false,
       ),
       textTheme: ThemeData.light().textTheme.apply(
         fontFamily: 'Outfit',

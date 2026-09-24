@@ -1,118 +1,114 @@
 import 'package:flutter/material.dart' hide Text;
-import 'package:oculve/core/localization/localized_text.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:oculve/core/theme/app_theme.dart';
-import 'package:oculve/core/providers/vpn_provider.dart';
-import 'package:oculve/core/models/vpn_state.dart';
 import 'package:oculve/core/localization/app_strings.dart';
+import 'package:oculve/core/localization/localized_text.dart';
+import 'package:oculve/core/models/vpn_state.dart';
+import 'package:oculve/core/providers/vpn_provider.dart';
+import 'package:oculve/core/theme/app_theme.dart';
 
 class ConnectButton extends ConsumerWidget {
   const ConnectButton({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final vpnState = ref.watch(vpnProvider);
-    final isConnected = vpnState == VpnState.connected;
-    final isConnecting = vpnState == VpnState.connecting;
-    final isDisconnecting = vpnState == VpnState.disconnecting;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final state = ref.watch(vpnProvider);
+    final connected = state == VpnState.connected;
+    final busy =
+        state == VpnState.connecting || state == VpnState.disconnecting;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final foreground = connected
+        ? Colors.white
+        : dark
+        ? AppTheme.backgroundColor
+        : Colors.white;
+    final fill = connected
+        ? const Color(0xFF168D6A)
+        : dark
+        ? Colors.white
+        : AppTheme.lightForeground;
+    final label = switch (state) {
+      VpnState.connected => context.tr('DISCONNECT'),
+      VpnState.connecting => context.tr('CONNECTING'),
+      VpnState.disconnecting => context.tr('STOPPING'),
+      _ => context.tr('CONNECT'),
+    };
+    final icon = state == VpnState.error
+        ? Icons.refresh_rounded
+        : Icons.power_settings_new_rounded;
 
-    // Connected = white glow/text (not green)
-    final activeColor = isDark ? Colors.white : AppTheme.lightAccent;
-    final mutedColor = isDark
-        ? AppTheme.foregroundMuted
-        : AppTheme.lightForegroundMuted;
-
-    return GestureDetector(
-      onTap: () {
-        if (!isConnecting && !isDisconnecting) {
-          ref.read(vpnProvider.notifier).toggle();
-        }
-      },
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Outer ring
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 280),
-            curve: const Cubic(0.2, 0.8, 0.2, 1),
-            width: 136,
-            height: 136,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: isConnected
-                  ? activeColor.withValues(alpha: .035)
-                  : (isDark
-                        ? Colors.white.withValues(alpha: .018)
-                        : Colors.black.withValues(alpha: .018)),
-              border: Border.all(
-                color: isConnected
-                    ? activeColor.withValues(alpha: 0.25)
-                    : (isDark
-                          ? Colors.white.withValues(alpha: 0.06)
-                          : Colors.black.withValues(alpha: 0.06)),
-                width: isConnected ? 1.25 : .75,
-              ),
+    return Semantics(
+      button: true,
+      enabled: !busy,
+      label: connected
+          ? context.tr('Connected. Tap to disconnect.')
+          : busy
+          ? context.tr('VPN connection in progress')
+          : context.tr('Tap to connect to the VPN'),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+        width: 206,
+        height: 58,
+        decoration: BoxDecoration(
+          color: fill,
+          borderRadius: BorderRadius.circular(17),
+          border: Border.all(
+            color: connected
+                ? const Color(0xFF42C99C).withValues(alpha: .42)
+                : (dark ? Colors.white : Colors.black).withValues(alpha: .1),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: (connected ? const Color(0xFF168D6A) : Colors.black)
+                  .withValues(alpha: dark ? .18 : .10),
+              blurRadius: connected ? 18 : 12,
+              offset: const Offset(0, 5),
             ),
+          ],
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            customBorder: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(17),
+            ),
+            onTap: busy ? null : () => ref.read(vpnProvider.notifier).toggle(),
             child: Center(
-              child: FrostedCircle(
-                size: 104,
-                blurAmount: 28,
-                color: isConnected
-                    ? activeColor.withValues(alpha: isDark ? 0.12 : 0.08)
-                    : (isDark
-                          ? Colors.white.withValues(alpha: 0.06)
-                          : Colors.black.withValues(alpha: 0.04)),
-                boxShadow: [
-                  BoxShadow(
-                    color: isConnected
-                        ? activeColor.withValues(alpha: 0.20)
-                        : Colors.transparent,
-                    blurRadius: isConnected ? 36 : 0,
-                    spreadRadius: isConnected ? 2 : 0,
-                  ),
-                ],
-                child: Center(
-                  child: isConnecting
-                      ? SizedBox(
-                          width: 36,
-                          height: 36,
-                          child: CircularProgressIndicator(
-                            color: isDark
-                                ? AppTheme.foreground
-                                : AppTheme.lightForeground,
-                            strokeWidth: 2,
-                          ),
-                        )
-                      : Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.power_settings_new,
-                              size: 38,
-                              color: isConnected ? activeColor : mutedColor,
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              isConnected
-                                  ? context.tr('CONNECTED')
-                                  : vpnState == VpnState.disconnecting
-                                  ? 'STOPPING'
-                                  : context.tr('CONNECT'),
-                              style: TextStyle(
-                                color: isConnected ? activeColor : mutedColor,
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: 2.5,
-                                fontSize: 11,
-                              ),
-                            ),
-                          ],
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 160),
+                switchInCurve: Curves.easeOut,
+                switchOutCurve: Curves.easeIn,
+                child: Row(
+                  key: ValueKey(state),
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (busy)
+                      SizedBox(
+                        width: 17,
+                        height: 17,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: foreground,
                         ),
+                      )
+                    else
+                      Icon(icon, size: 19, color: foreground),
+                    const SizedBox(width: 10),
+                    Text(
+                      label,
+                      style: TextStyle(
+                        color: foreground,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 1.15,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
           ),
-        ],
+        ),
       ),
     );
   }

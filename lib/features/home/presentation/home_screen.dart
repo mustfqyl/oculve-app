@@ -80,17 +80,55 @@ class HomeScreen extends ConsumerWidget {
               ),
               if (error != null)
                 Positioned(
-                  left: 24,
-                  right: 24,
-                  bottom: 16,
-                  child: Text(
-                    error,
-                    textAlign: TextAlign.center,
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: AppTheme.errorColor,
-                      fontSize: 12,
+                  left: 18,
+                  right: 18,
+                  bottom: 12,
+                  child: Container(
+                    padding: const EdgeInsets.fromLTRB(11, 6, 4, 6),
+                    decoration: BoxDecoration(
+                      color: AppTheme.errorColor.withValues(alpha: .10),
+                      border: Border.all(
+                        color: AppTheme.errorColor.withValues(alpha: .20),
+                      ),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.info_outline_rounded,
+                          color: AppTheme.errorColor,
+                          size: 16,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            context.tr(error),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: AppTheme.errorColor,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: context.tr('Dismiss'),
+                          visualDensity: VisualDensity.compact,
+                          constraints: const BoxConstraints.tightFor(
+                            width: 30,
+                            height: 30,
+                          ),
+                          padding: EdgeInsets.zero,
+                          onPressed: ref
+                              .read(vpnProvider.notifier)
+                              .dismissError,
+                          icon: const Icon(
+                            Icons.close_rounded,
+                            size: 16,
+                            color: AppTheme.errorColor,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),

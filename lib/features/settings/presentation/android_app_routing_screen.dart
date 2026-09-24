@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart' hide Text;
 import 'package:oculve/core/localization/localized_text.dart';
+import 'package:oculve/core/localization/app_strings.dart';
 import 'package:oculve/core/theme/app_theme.dart';
 import 'package:oculve/core/vpn/android_app_catalog.dart';
 import 'package:oculve/core/vpn/xray_preferences.dart';
@@ -73,7 +74,7 @@ class _AndroidAppRoutingScreenState extends State<AndroidAppRoutingScreen> {
             child: Padding(
               padding: const EdgeInsets.all(24),
               child: Text(
-                'Could not load installed apps. ${snapshot.error}',
+                context.tr('Could not load installed apps.'),
                 textAlign: TextAlign.center,
                 style: const TextStyle(color: AppTheme.errorColor),
               ),

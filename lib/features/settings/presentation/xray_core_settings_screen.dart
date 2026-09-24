@@ -110,6 +110,7 @@ class _XrayCoreSettingsScreenState
   XraySniffingSettings? _sniffingSettings;
   String? _sniffingError;
   bool _savingSniffing = false;
+  final Set<String> _expandedXraySections = <String>{};
 
   @override
   void initState() {
@@ -905,191 +906,1264 @@ class _XrayCoreSettingsScreenState
       child: ListView(
         key: const ValueKey('xray-core-settings-list'),
         padding: const EdgeInsets.fromLTRB(18, 8, 18, 24),
-        children: [
-          _categoryHeader(context.tr('Protocol & identity')),
-          const SizedBox(height: 8),
-          FrostedCard(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'ClientHello fingerprint',
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 7),
-                Text(
-                  'Applies to TLS and Reality profiles on the next connection.',
-                  style: TextStyle(color: muted, fontSize: 12),
-                ),
-                const SizedBox(height: 14),
-                if (_fingerprint == null)
-                  const Center(child: CircularProgressIndicator())
-                else
-                  _DropdownMenuField<RealityFingerprint>(
-                    key: ValueKey(_selectionRevision),
-                    title: 'Fingerprint',
-                    value: _fingerprint!,
-                    values: RealityFingerprint.values,
-                    label: (fingerprint) => fingerprint.label,
-                    onSelected: _save,
+        children: _groupXraySettings(
+          context,
+          [
+            _categoryHeader('Protocol & identity'),
+            const SizedBox(height: 8),
+            FrostedCard(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'ClientHello fingerprint',
+                    style: TextStyle(fontWeight: FontWeight.w700),
                   ),
-                if (_error != null) ...[
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 7),
                   Text(
-                    _error!,
-                    style: const TextStyle(
-                      color: AppTheme.errorColor,
-                      fontSize: 12,
-                    ),
+                    'Applies to TLS and Reality profiles on the next connection.',
+                    style: TextStyle(color: muted, fontSize: 12),
                   ),
-                ],
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-          _categoryHeader(context.tr('Protocol & identity')),
-          const SizedBox(height: 8),
-          FrostedCard(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'VLESS Encryption',
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  selectedProfile?.proxyProtocol == 'vless'
-                      ? 'Applies only to ${selectedProfile!.name}. Its VLESS inbound must use the matching authentication parameter and options.'
-                      : 'Select a VLESS location to configure its server-specific encryption parameters.',
-                  style: TextStyle(color: muted, fontSize: 12),
-                ),
-                if (selectedProfile?.proxyProtocol != 'vless')
-                  const SizedBox.shrink()
-                else if (_loadingVlessEncryption ||
-                    _vlessEncryptionDraft == null)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 14),
-                    child: Center(child: CircularProgressIndicator()),
-                  )
-                else ...[
-                  const SizedBox(height: 12),
-                  SwitchListTile.adaptive(
-                    key: const ValueKey('vless-encryption-enabled'),
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Enable for this location'),
-                    subtitle: const Text(
-                      'Uses the hybrid ML-KEM-768 + X25519 handshake.',
+                  const SizedBox(height: 14),
+                  if (_fingerprint == null)
+                    const Center(child: CircularProgressIndicator())
+                  else
+                    _DropdownMenuField<RealityFingerprint>(
+                      key: ValueKey(_selectionRevision),
+                      title: 'Fingerprint',
+                      value: _fingerprint!,
+                      values: RealityFingerprint.values,
+                      label: (fingerprint) => fingerprint.label,
+                      onSelected: _save,
                     ),
-                    value: _vlessEncryptionEnabled,
-                    onChanged: _savingVlessEncryption
-                        ? null
-                        : (enabled) {
-                            if (enabled) {
-                              setState(() {
-                                _vlessEncryptionEnabled = true;
-                                _vlessEncryptionError = null;
-                              });
-                            } else {
-                              _clearVlessEncryption();
-                            }
-                          },
-                  ),
-                  if (_vlessEncryptionEnabled) ...[
+                  if (_error != null) ...[
                     const SizedBox(height: 8),
-                    const Text(
-                      'Handshake method',
-                      style: TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                    const SizedBox(height: 3),
                     Text(
-                      'ML-KEM-768 + X25519 (Xray hybrid post-quantum handshake)',
-                      style: TextStyle(color: muted, fontSize: 12),
+                      _error!,
+                      style: const TextStyle(
+                        color: AppTheme.errorColor,
+                        fontSize: 12,
+                      ),
                     ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            _categoryHeader('Protocol & identity'),
+            const SizedBox(height: 8),
+            FrostedCard(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'VLESS Encryption',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    selectedProfile?.proxyProtocol == 'vless'
+                        ? 'Applies only to ${selectedProfile!.name}. Its VLESS inbound must use the matching authentication parameter and options.'
+                        : 'Select a VLESS location to configure its server-specific encryption parameters.',
+                    style: TextStyle(color: muted, fontSize: 12),
+                  ),
+                  if (selectedProfile?.proxyProtocol != 'vless')
+                    const SizedBox.shrink()
+                  else if (_loadingVlessEncryption ||
+                      _vlessEncryptionDraft == null)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 14),
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  else ...[
                     const SizedBox(height: 12),
-                    _MuxDropdown<XrayVlessTrafficAppearance>(
-                      title: 'Traffic appearance',
-                      subtitle: 'Must match the server inbound.',
-                      value: _vlessEncryptionDraft!.trafficAppearance,
-                      values: XrayVlessTrafficAppearance.values,
+                    SwitchListTile.adaptive(
+                      key: const ValueKey('vless-encryption-enabled'),
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Enable for this location'),
+                      subtitle: const Text(
+                        'Uses the hybrid ML-KEM-768 + X25519 handshake.',
+                      ),
+                      value: _vlessEncryptionEnabled,
+                      onChanged: _savingVlessEncryption
+                          ? null
+                          : (enabled) {
+                              if (enabled) {
+                                setState(() {
+                                  _vlessEncryptionEnabled = true;
+                                  _vlessEncryptionError = null;
+                                });
+                              } else {
+                                _clearVlessEncryption();
+                              }
+                            },
+                    ),
+                    if (_vlessEncryptionEnabled) ...[
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Handshake method',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        'ML-KEM-768 + X25519 (Xray hybrid post-quantum handshake)',
+                        style: TextStyle(color: muted, fontSize: 12),
+                      ),
+                      const SizedBox(height: 12),
+                      _MuxDropdown<XrayVlessTrafficAppearance>(
+                        title: 'Traffic appearance',
+                        subtitle: 'Must match the server inbound.',
+                        value: _vlessEncryptionDraft!.trafficAppearance,
+                        values: XrayVlessTrafficAppearance.values,
+                        label: (value) => value.label,
+                        onChanged: (value) => setState(() {
+                          _vlessEncryptionDraft = _vlessEncryptionDraft!
+                              .copyWith(trafficAppearance: value);
+                        }),
+                      ),
+                      const SizedBox(height: 12),
+                      _MuxDropdown<XrayVlessResumption>(
+                        title: 'Session resumption',
+                        subtitle: '0-RTT is faster when the server permits it.',
+                        value: _vlessEncryptionDraft!.resumption,
+                        values: XrayVlessResumption.values,
+                        label: (value) => value.value.toUpperCase(),
+                        onChanged: (value) => setState(() {
+                          _vlessEncryptionDraft = _vlessEncryptionDraft!
+                              .copyWith(resumption: value);
+                        }),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        key: const ValueKey('vless-encryption-auth-field'),
+                        controller: _vlessAuthenticationController,
+                        autocorrect: false,
+                        enableSuggestions: false,
+                        minLines: 2,
+                        maxLines: 4,
+                        decoration: InputDecoration(
+                          labelText: context.tr(
+                            'Server authentication parameter',
+                          ),
+                          hintText:
+                              'Paste the client parameter from xray mlkem768',
+                          helperText: context.tr(
+                            'This value is specific to the server. The client cannot create a matching server parameter by itself.',
+                          ),
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        key: const ValueKey('vless-encryption-padding-field'),
+                        controller: _vlessPaddingController,
+                        autocorrect: false,
+                        enableSuggestions: false,
+                        decoration: InputDecoration(
+                          labelText: context.tr(
+                            'Padding and delay pattern (optional)',
+                          ),
+                          hintText: '100-111-1111.75-0-111.50-0-3333',
+                          helperText: context.tr(
+                            'Use dot-separated probability-min-max blocks; leave empty for Xray defaults.',
+                          ),
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      if (_vlessEncryptionError != null) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          _vlessEncryptionError!,
+                          style: const TextStyle(
+                            color: AppTheme.errorColor,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          key: const ValueKey('save-vless-encryption'),
+                          onPressed: _savingVlessEncryption
+                              ? null
+                              : _saveVlessEncryption,
+                          icon: _savingVlessEncryption
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.save_outlined, size: 17),
+                          label: const Text('Save for this location'),
+                        ),
+                      ),
+                    ],
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            _categoryHeader('Transport & TLS'),
+            const SizedBox(height: 8),
+            FrostedCard(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'XHTTP transport',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    'These controls are applied only to subscription profiles using XHTTP. Save from the page header; reconnect to apply.',
+                    style: TextStyle(color: muted, fontSize: 12),
+                  ),
+                  if (_xhttpSettings == null)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 12),
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  else ...[
+                    const SizedBox(height: 14),
+                    _MuxDropdown<XrayXhttpMode>(
+                      title: 'Mode',
+                      subtitle: 'Choose how XHTTP carries upload and download.',
+                      value: _xhttpSettings!.mode,
+                      values: XrayXhttpMode.values,
                       label: (value) => value.label,
-                      onChanged: (value) => setState(() {
-                        _vlessEncryptionDraft = _vlessEncryptionDraft!.copyWith(
-                          trafficAppearance: value,
-                        );
-                      }),
-                    ),
-                    const SizedBox(height: 12),
-                    _MuxDropdown<XrayVlessResumption>(
-                      title: 'Session resumption',
-                      subtitle: '0-RTT is faster when the server permits it.',
-                      value: _vlessEncryptionDraft!.resumption,
-                      values: XrayVlessResumption.values,
-                      label: (value) => value.value.toUpperCase(),
-                      onChanged: (value) => setState(() {
-                        _vlessEncryptionDraft = _vlessEncryptionDraft!.copyWith(
-                          resumption: value,
-                        );
-                      }),
+                      onChanged: (value) => _saveXhttpSettings(
+                        _xhttpSettings!.copyWith(mode: value),
+                      ),
                     ),
                     const SizedBox(height: 12),
                     TextField(
-                      key: const ValueKey('vless-encryption-auth-field'),
-                      controller: _vlessAuthenticationController,
+                      key: const ValueKey('xhttp-host-field'),
+                      controller: _xhttpHostController,
                       autocorrect: false,
                       enableSuggestions: false,
-                      minLines: 2,
-                      maxLines: 4,
                       decoration: InputDecoration(
-                        labelText: context.tr(
-                          'Server authentication parameter',
-                        ),
-                        hintText:
-                            'Paste the client parameter from xray mlkem768',
-                        helperText: context.tr(
-                          'This value is specific to the server. The client cannot create a matching server parameter by itself.',
-                        ),
+                        labelText: context.tr('HTTP host override (optional)'),
+                        hintText: 'cdn.example.com',
                         border: OutlineInputBorder(),
                       ),
                     ),
                     const SizedBox(height: 10),
                     TextField(
-                      key: const ValueKey('vless-encryption-padding-field'),
-                      controller: _vlessPaddingController,
+                      key: const ValueKey('xhttp-path-field'),
+                      controller: _xhttpPathController,
                       autocorrect: false,
                       enableSuggestions: false,
                       decoration: InputDecoration(
-                        labelText: context.tr(
-                          'Padding and delay pattern (optional)',
-                        ),
-                        hintText: '100-111-1111.75-0-111.50-0-3333',
-                        helperText: context.tr(
-                          'Use dot-separated probability-min-max blocks; leave empty for Xray defaults.',
-                        ),
+                        labelText: context.tr('Path override (optional)'),
+                        hintText: '/tunnel',
                         border: OutlineInputBorder(),
                       ),
                     ),
-                    if (_vlessEncryptionError != null) ...[
+                    ExpansionTile(
+                      tilePadding: EdgeInsets.zero,
+                      childrenPadding: EdgeInsets.zero,
+                      maintainState: true,
+                      title: const Text(
+                        'Advanced XHTTP and XMUX',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      subtitle: Text(
+                        'Padding, request behavior, reuse and split download',
+                        style: TextStyle(color: muted, fontSize: 12),
+                      ),
+                      children: [
+                        const SizedBox(height: 10),
+                        TextField(
+                          key: const ValueKey('xhttp-headers-field'),
+                          controller: _xhttpHeadersController,
+                          autocorrect: false,
+                          enableSuggestions: false,
+                          minLines: 1,
+                          maxLines: 4,
+                          decoration: InputDecoration(
+                            labelText: context.tr(
+                              'Custom HTTP headers (JSON object)',
+                            ),
+                            hintText: '{"X-Client":"Oculve"}',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        TextField(
+                          key: const ValueKey('xhttp-padding-field'),
+                          controller: _xhttpPaddingController,
+                          autocorrect: false,
+                          enableSuggestions: false,
+                          decoration: InputDecoration(
+                            labelText: context.tr('Header padding bytes'),
+                            hintText: '100-1000',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        _MuxDropdown<XrayBooleanOverride>(
+                          title: 'gRPC header disguise',
+                          subtitle:
+                              'Client option used by stream-up and stream-one.',
+                          value: _xhttpSettings!.noGrpcHeader,
+                          values: XrayBooleanOverride.values,
+                          label: (value) => switch (value) {
+                            XrayBooleanOverride.profileDefault =>
+                              'Profile default',
+                            XrayBooleanOverride.enabled => 'Suppress header',
+                            XrayBooleanOverride.disabled => 'Send header',
+                          },
+                          onChanged: (value) => _saveXhttpSettings(
+                            _xhttpSettings!.copyWith(noGrpcHeader: value),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        TextField(
+                          key: const ValueKey('xhttp-max-post-field'),
+                          controller: _xhttpMaxPostController,
+                          keyboardType: TextInputType.number,
+                          decoration: InputDecoration(
+                            labelText: context.tr('Maximum POST body bytes'),
+                            hintText: '1000000',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        TextField(
+                          key: const ValueKey('xhttp-post-interval-field'),
+                          controller: _xhttpPostIntervalController,
+                          keyboardType: TextInputType.number,
+                          decoration: InputDecoration(
+                            labelText: context.tr('Minimum POST interval (ms)'),
+                            hintText: '30',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        const Text(
+                          'XMUX connection limits',
+                          style: TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        const SizedBox(height: 8),
+                        TextField(
+                          key: const ValueKey('xhttp-max-concurrency-field'),
+                          controller: _xhttpMaxConcurrencyController,
+                          decoration: InputDecoration(
+                            labelText: context.tr(
+                              'Maximum concurrent requests',
+                            ),
+                            hintText: '16-32',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        TextField(
+                          key: const ValueKey('xhttp-max-connections-field'),
+                          controller: _xhttpMaxConnectionsController,
+                          decoration: InputDecoration(
+                            labelText: context.tr('Maximum connections'),
+                            hintText: 'Leave blank unless using this limit',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        TextField(
+                          key: const ValueKey('xhttp-reuse-limit-field'),
+                          controller: _xhttpReuseLimitController,
+                          decoration: InputDecoration(
+                            labelText: context.tr('Connection reuse limit'),
+                            hintText: '0 means core default',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        TextField(
+                          key: const ValueKey('xhttp-request-count-field'),
+                          controller: _xhttpRequestCountController,
+                          decoration: InputDecoration(
+                            labelText: context.tr('Maximum HTTP request count'),
+                            hintText: '600-900',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        TextField(
+                          key: const ValueKey('xhttp-reusable-seconds-field'),
+                          controller: _xhttpReusableSecondsController,
+                          decoration: InputDecoration(
+                            labelText: context.tr('Maximum reusable seconds'),
+                            hintText: '1800-3000',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        TextField(
+                          key: const ValueKey('xhttp-keepalive-field'),
+                          controller: _xhttpKeepAliveController,
+                          keyboardType: TextInputType.number,
+                          decoration: InputDecoration(
+                            labelText: context.tr(
+                              'HTTP keepalive period (seconds)',
+                            ),
+                            hintText: '0 uses core default; -1 disables',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          key: const ValueKey('xhttp-download-field'),
+                          controller: _xhttpDownloadController,
+                          autocorrect: false,
+                          enableSuggestions: false,
+                          minLines: 2,
+                          maxLines: 8,
+                          decoration: InputDecoration(
+                            labelText: context.tr(
+                              'Separate download settings (JSON)',
+                            ),
+                            hintText:
+                                '{"address":"download.example","port":443,"network":"xhttp","security":"tls","tlsSettings":{"serverName":"download.example"},"xhttpSettings":{"path":"/tunnel"}}',
+                            helperText: context.tr(
+                              'The upload and download sides can use different IPs, domains, transports or security.',
+                            ),
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        TextField(
+                          key: const ValueKey('xhttp-extra-field'),
+                          controller: _xhttpExtraController,
+                          autocorrect: false,
+                          enableSuggestions: false,
+                          minLines: 1,
+                          maxLines: 6,
+                          decoration: InputDecoration(
+                            labelText: context.tr(
+                              'Additional client extra settings (JSON)',
+                            ),
+                            hintText: '{"xPaddingBytes":"100-1000"}',
+                            helperText: context.tr(
+                              'Client-supported XHTTP fields only. SSE response options and buffered-post limits are server-side.',
+                            ),
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        if (_xhttpError != null) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            _xhttpError!,
+                            style: const TextStyle(
+                              color: AppTheme.errorColor,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    if (_xhttpError != null) ...[
                       const SizedBox(height: 8),
                       Text(
-                        _vlessEncryptionError!,
+                        _xhttpError!,
                         style: const TextStyle(
                           color: AppTheme.errorColor,
                           fontSize: 12,
                         ),
                       ),
                     ],
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            _categoryHeader('Transport & TLS'),
+            const SizedBox(height: 8),
+            FrostedCard(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Transport security',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    'TLS-only controls apply to TLS profiles. SNI and the ClientHello fingerprint also apply to Reality. Changes take effect after reconnecting.',
+                    style: TextStyle(color: muted, fontSize: 12),
+                  ),
+                  if (_tlsSettings == null)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 12),
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  else ...[
                     const SizedBox(height: 12),
-                    SizedBox(
-                      width: double.infinity,
-                      child: FilledButton.icon(
-                        key: const ValueKey('save-vless-encryption'),
-                        onPressed: _savingVlessEncryption
-                            ? null
-                            : _saveVlessEncryption,
-                        icon: _savingVlessEncryption
+                    TextField(
+                      key: const ValueKey('tls-server-name-field'),
+                      controller: _tlsServerNameController,
+                      autocorrect: false,
+                      enableSuggestions: false,
+                      decoration: InputDecoration(
+                        labelText: context.tr('SNI / server name'),
+                        hintText: 'server.example.com',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    ExpansionTile(
+                      tilePadding: EdgeInsets.zero,
+                      childrenPadding: EdgeInsets.zero,
+                      maintainState: true,
+                      title: const Text(
+                        'Advanced TLS',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      subtitle: Text(
+                        'Certificate checks, ALPN, ECH, key logging and curves',
+                        style: TextStyle(color: muted, fontSize: 12),
+                      ),
+                      children: [
+                        const SizedBox(height: 10),
+                        TextField(
+                          key: const ValueKey('tls-native-fingerprint-field'),
+                          controller: _tlsClientHelloController,
+                          autocorrect: false,
+                          enableSuggestions: false,
+                          decoration: InputDecoration(
+                            labelText: context.tr(
+                              'Native uTLS Hello profile (optional)',
+                            ),
+                            hintText: 'HelloChrome_120',
+                            helperText: context.tr(
+                              'Overrides the browser preset above. Use a Hello name supported by this Xray core.',
+                            ),
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        TextField(
+                          key: const ValueKey('tls-verify-name-field'),
+                          controller: _tlsVerifyNameController,
+                          autocorrect: false,
+                          enableSuggestions: false,
+                          decoration: InputDecoration(
+                            labelText: context.tr(
+                              'Certificate verification name',
+                            ),
+                            hintText: 'example.com,backup.example.com',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        _DnsSwitch(
+                          title: 'Allow invalid certificates',
+                          subtitle:
+                              'Disables certificate verification and is unsafe on public networks.',
+                          value: _tlsSettings!.allowInsecure,
+                          onChanged: (enabled) => _saveTlsSettings(
+                            _tlsSettings!.copyWith(allowInsecure: enabled),
+                          ),
+                        ),
+                        TextField(
+                          key: const ValueKey('tls-alpn-field'),
+                          controller: _tlsAlpnController,
+                          autocorrect: false,
+                          enableSuggestions: false,
+                          decoration: InputDecoration(
+                            labelText: context.tr('ALPN'),
+                            hintText: 'h2,http/1.1',
+                            helperText: context.tr(
+                              'Comma-separated protocol names.',
+                            ),
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        _MuxDropdown<String>(
+                          title: 'Minimum TLS version',
+                          subtitle: 'Leave on Core default unless required.',
+                          value: _tlsSettings!.minVersion,
+                          values: const ['', '1.0', '1.1', '1.2', '1.3'],
+                          label: (version) =>
+                              version.isEmpty ? 'Core default' : 'TLS $version',
+                          onChanged: (version) => _saveTlsSettings(
+                            _tlsSettings!.copyWith(minVersion: version),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        _MuxDropdown<String>(
+                          title: 'Maximum TLS version',
+                          subtitle: 'Leave on Core default unless required.',
+                          value: _tlsSettings!.maxVersion,
+                          values: const ['', '1.0', '1.1', '1.2', '1.3'],
+                          label: (version) =>
+                              version.isEmpty ? 'Core default' : 'TLS $version',
+                          onChanged: (version) => _saveTlsSettings(
+                            _tlsSettings!.copyWith(maxVersion: version),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        TextField(
+                          key: const ValueKey('tls-cipher-suites-field'),
+                          controller: _tlsCipherSuitesController,
+                          autocorrect: false,
+                          enableSuggestions: false,
+                          decoration: InputDecoration(
+                            labelText: context.tr('Cipher suites (optional)'),
+                            hintText: 'TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256',
+                            helperText: context.tr(
+                              'Separate Go cipher suite names with colons.',
+                            ),
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        TextField(
+                          key: const ValueKey('tls-curves-field'),
+                          controller: _tlsCurvesController,
+                          autocorrect: false,
+                          enableSuggestions: false,
+                          decoration: InputDecoration(
+                            labelText: context.tr('Curve preferences'),
+                            hintText: 'X25519,X25519MLKEM768',
+                            helperText: context.tr(
+                              'Supported: CurveP256, CurveP384, CurveP521, X25519 and ML-KEM hybrids.',
+                            ),
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        TextField(
+                          key: const ValueKey('tls-certificate-pin-field'),
+                          controller: _tlsCertificatePinController,
+                          autocorrect: false,
+                          enableSuggestions: false,
+                          minLines: 1,
+                          maxLines: 2,
+                          decoration: InputDecoration(
+                            labelText: context.tr('Certificate SHA-256 pin(s)'),
+                            hintText:
+                                '64 hex characters; multiple separated by commas',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        _DnsSwitch(
+                          title: 'Disable system CA roots',
+                          subtitle:
+                              'Trust only CA certificates present in this profile or below.',
+                          value: _tlsSettings!.disableSystemRoot,
+                          onChanged: (enabled) => _saveTlsSettings(
+                            _tlsSettings!.copyWith(disableSystemRoot: enabled),
+                          ),
+                        ),
+                        TextField(
+                          key: const ValueKey('tls-custom-ca-field'),
+                          controller: _tlsCertificateController,
+                          autocorrect: false,
+                          enableSuggestions: false,
+                          minLines: 2,
+                          maxLines: 5,
+                          decoration: InputDecoration(
+                            labelText: context.tr(
+                              'Custom CA certificate (PEM)',
+                            ),
+                            hintText: '-----BEGIN CERTIFICATE-----',
+                            helperText: context.tr(
+                              'Adding a custom CA makes Xray trust only this CA for TLS verification.',
+                            ),
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        _DnsSwitch(
+                          title: 'TLS session resumption',
+                          subtitle:
+                              'Requires server support; this does not enable TLS 0-RTT.',
+                          value: _tlsSettings!.enableSessionResumption,
+                          onChanged: (enabled) => _saveTlsSettings(
+                            _tlsSettings!.copyWith(
+                              enableSessionResumption: enabled,
+                            ),
+                          ),
+                        ),
+                        TextField(
+                          key: const ValueKey('tls-ech-field'),
+                          controller: _tlsEchConfigController,
+                          autocorrect: false,
+                          enableSuggestions: false,
+                          minLines: 1,
+                          maxLines: 2,
+                          decoration: InputDecoration(
+                            labelText: context.tr(
+                              'ECH config or DNS lookup URL',
+                            ),
+                            hintText: 'https://1.1.1.1/dns-query',
+                            helperText: context.tr(
+                              'Paste a static ECHConfig or use udp://, https:// or h2c://.',
+                            ),
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        TextField(
+                          key: const ValueKey('tls-key-log-field'),
+                          controller: _tlsMasterKeyLogController,
+                          autocorrect: false,
+                          enableSuggestions: false,
+                          decoration: InputDecoration(
+                            labelText: context.tr('TLS key log file path'),
+                            helperText: context.tr(
+                              'For Wireshark diagnostics only. Anyone with this file can decrypt captured traffic.',
+                            ),
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        if (_tlsError != null) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            _tlsError!,
+                            style: const TextStyle(
+                              color: AppTheme.errorColor,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    if (_tlsError != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        _tlsError!,
+                        style: const TextStyle(
+                          color: AppTheme.errorColor,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            _categoryHeader('Network behavior'),
+            const SizedBox(height: 8),
+            FrostedCard(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'TCP connection',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    'These Xray socket settings apply to the next connection.',
+                    style: TextStyle(color: muted, fontSize: 12),
+                  ),
+                  if (_tcpSettings == null)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 12),
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  else ...[
+                    const SizedBox(height: 14),
+                    _MuxDropdown<TcpFastOpenMode>(
+                      title: 'TCP Fast Open',
+                      subtitle:
+                          'Reduce a TCP handshake when the network allows it',
+                      value: _tcpSettings!.fastOpenMode,
+                      values: TcpFastOpenMode.values,
+                      label: (mode) => switch (mode) {
+                        TcpFastOpenMode.coreDefault => 'Core default',
+                        TcpFastOpenMode.enabled => 'Enabled',
+                        TcpFastOpenMode.disabled => 'Disabled',
+                      },
+                      onChanged: (mode) =>
+                          _saveTcp(_tcpSettings!.copyWith(fastOpenMode: mode)),
+                    ),
+                    const SizedBox(height: 14),
+                    _MuxDropdown<int>(
+                      title: 'Keepalive idle',
+                      subtitle:
+                          'Seconds before an idle TCP connection is checked',
+                      value: _tcpSettings!.keepAliveIdle,
+                      values: const [0, 15, 30, 60, 120, 300, 600, 1800, 3600],
+                      label: (seconds) =>
+                          seconds == 0 ? 'Core default' : '$seconds seconds',
+                      onChanged: (seconds) => _saveTcp(
+                        _tcpSettings!.copyWith(keepAliveIdle: seconds),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    _MuxDropdown<int>(
+                      title: 'Keepalive interval',
+                      subtitle: 'Seconds between TCP keepalive probes',
+                      value: _tcpSettings!.keepAliveInterval,
+                      values: const [0, 5, 10, 15, 30, 60, 120, 300],
+                      label: (seconds) =>
+                          seconds == 0 ? 'Core default' : '$seconds seconds',
+                      onChanged: (seconds) => _saveTcp(
+                        _tcpSettings!.copyWith(keepAliveInterval: seconds),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    TextField(
+                      key: const ValueKey('tcp-interface-field'),
+                      controller: _tcpInterfaceController,
+                      textInputAction: TextInputAction.done,
+                      onSubmitted: (value) => _saveTcp(
+                        _tcpSettings!.copyWith(interfaceName: value.trim()),
+                      ),
+                      decoration: InputDecoration(
+                        labelText: context.tr('Network interface'),
+                        helperText: context.tr(
+                          'Optional. Empty lets Xray choose the network.',
+                        ),
+                        border: const OutlineInputBorder(),
+                        suffixIcon: IconButton(
+                          tooltip: context.tr('Save interface'),
+                          onPressed: () => _saveTcp(
+                            _tcpSettings!.copyWith(
+                              interfaceName: _tcpInterfaceController.text
+                                  .trim(),
+                            ),
+                          ),
+                          icon: const Icon(Icons.check_rounded),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      key: const ValueKey('tcp-send-through-field'),
+                      controller: _tcpSendThroughController,
+                      keyboardType: TextInputType.url,
+                      textInputAction: TextInputAction.done,
+                      onSubmitted: (value) => _saveTcp(
+                        _tcpSettings!.copyWith(
+                          sendThroughAddress: value.trim(),
+                        ),
+                      ),
+                      decoration: InputDecoration(
+                        labelText: context.tr('Send through local IP'),
+                        helperText: context.tr(
+                          'Optional source address; leave empty for automatic binding.',
+                        ),
+                        border: const OutlineInputBorder(),
+                        suffixIcon: IconButton(
+                          tooltip: context.tr('Save source address'),
+                          onPressed: () => _saveTcp(
+                            _tcpSettings!.copyWith(
+                              sendThroughAddress: _tcpSendThroughController.text
+                                  .trim(),
+                            ),
+                          ),
+                          icon: const Icon(Icons.check_rounded),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    _MuxDropdown<XrayOutboundDomainStrategy>(
+                      title: 'Proxy server DNS strategy',
+                      subtitle:
+                          'Controls how Xray resolves the proxy server domain.',
+                      value: _tcpSettings!.domainStrategy,
+                      values: XrayOutboundDomainStrategy.values,
+                      label: (strategy) => switch (strategy) {
+                        XrayOutboundDomainStrategy.asIs => 'System default',
+                        XrayOutboundDomainStrategy.useIp => 'Use IP',
+                        XrayOutboundDomainStrategy.useIPv4 => 'IPv4 only',
+                        XrayOutboundDomainStrategy.useIPv6 => 'IPv6 only',
+                        XrayOutboundDomainStrategy.useIPv4v6 =>
+                          'IPv4, then IPv6',
+                        XrayOutboundDomainStrategy.useIPv6v4 =>
+                          'IPv6, then IPv4',
+                        XrayOutboundDomainStrategy.forceIp => 'Force IP',
+                        XrayOutboundDomainStrategy.forceIPv4 => 'Force IPv4',
+                        XrayOutboundDomainStrategy.forceIPv6 => 'Force IPv6',
+                        XrayOutboundDomainStrategy.forceIPv4v6 =>
+                          'Force IPv4, then IPv6',
+                        XrayOutboundDomainStrategy.forceIPv6v4 =>
+                          'Force IPv6, then IPv4',
+                      },
+                      onChanged: (strategy) => _saveTcp(
+                        _tcpSettings!.copyWith(
+                          domainStrategy: strategy,
+                          happyEyeballs:
+                              strategy == XrayOutboundDomainStrategy.asIs
+                              ? false
+                              : _tcpSettings!.happyEyeballs,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    _MuxDropdown<XrayAddressPortStrategy>(
+                      title: 'Server address discovery',
+                      subtitle:
+                          'Optional SRV/TXT lookup for proxy domains. Uses system DNS.',
+                      value: _tcpSettings!.addressPortStrategy,
+                      values: XrayAddressPortStrategy.values,
+                      label: (strategy) => switch (strategy) {
+                        XrayAddressPortStrategy.none => 'Disabled',
+                        XrayAddressPortStrategy.srvPortOnly => 'SRV: port only',
+                        XrayAddressPortStrategy.srvAddressOnly =>
+                          'SRV: address only',
+                        XrayAddressPortStrategy.srvPortAndAddress =>
+                          'SRV: address and port',
+                        XrayAddressPortStrategy.txtPortOnly => 'TXT: port only',
+                        XrayAddressPortStrategy.txtAddressOnly =>
+                          'TXT: address only',
+                        XrayAddressPortStrategy.txtPortAndAddress =>
+                          'TXT: address and port',
+                      },
+                      onChanged: (strategy) => _saveTcp(
+                        _tcpSettings!.copyWith(addressPortStrategy: strategy),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    _DnsSwitch(
+                      key: const ValueKey('happy-eyeballs-switch'),
+                      title: 'Happy Eyeballs',
+                      subtitle:
+                          'Races IPv4 and IPv6 TCP addresses. Requires an IP DNS strategy.',
+                      value: _tcpSettings!.happyEyeballs,
+                      onChanged: (enabled) => _saveTcp(
+                        _tcpSettings!.copyWith(
+                          happyEyeballs: enabled,
+                          domainStrategy:
+                              enabled &&
+                                  _tcpSettings!.domainStrategy ==
+                                      XrayOutboundDomainStrategy.asIs
+                              ? XrayOutboundDomainStrategy.useIp
+                              : _tcpSettings!.domainStrategy,
+                        ),
+                      ),
+                    ),
+                    if (_tcpSettings!.happyEyeballs) ...[
+                      _MuxDropdown<int>(
+                        title: 'Address race delay',
+                        subtitle: 'Delay before trying the next IP family.',
+                        value: _tcpSettings!.happyEyeballsDelayMs,
+                        values: const [100, 200, 250, 350, 500, 750, 1000],
+                        label: (milliseconds) => '$milliseconds ms',
+                        onChanged: (milliseconds) => _saveTcp(
+                          _tcpSettings!.copyWith(
+                            happyEyeballsDelayMs: milliseconds,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      _DnsSwitch(
+                        key: const ValueKey('happy-eyeballs-ipv6-first-switch'),
+                        title: 'Prefer IPv6',
+                        subtitle: 'Try IPv6 addresses before IPv4.',
+                        value: _tcpSettings!.prioritizeIPv6,
+                        onChanged: (enabled) => _saveTcp(
+                          _tcpSettings!.copyWith(prioritizeIPv6: enabled),
+                        ),
+                      ),
+                      _MuxDropdown<int>(
+                        title: 'Address interleave',
+                        subtitle: 'Mix IPv4 and IPv6 addresses while racing.',
+                        value: _tcpSettings!.addressInterleave,
+                        values: const [1, 2, 3, 4],
+                        onChanged: (count) => _saveTcp(
+                          _tcpSettings!.copyWith(addressInterleave: count),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      _MuxDropdown<int>(
+                        title: 'Maximum concurrent attempts',
+                        subtitle: 'Limit parallel TCP connection attempts.',
+                        value: _tcpSettings!.maxConcurrentAddressAttempts,
+                        values: const [1, 2, 4, 6, 8, 16, 32],
+                        onChanged: (count) => _saveTcp(
+                          _tcpSettings!.copyWith(
+                            maxConcurrentAddressAttempts: count,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                    ],
+                    _MuxDropdown<int>(
+                      title: 'TCP maximum segment size',
+                      subtitle: 'Optional MSS for TCP packets.',
+                      value: _tcpSettings!.maxSegmentBytes,
+                      values: const [0, 1200, 1360, 1400, 1440, 1460],
+                      label: (bytes) =>
+                          bytes == 0 ? 'Core default' : '$bytes B',
+                      onChanged: (bytes) => _saveTcp(
+                        _tcpSettings!.copyWith(maxSegmentBytes: bytes),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    _MuxDropdown<int>(
+                      title: 'TCP user timeout',
+                      subtitle: 'How long unacknowledged data may remain.',
+                      value: _tcpSettings!.userTimeoutMs,
+                      values: const [
+                        0,
+                        5000,
+                        10000,
+                        20000,
+                        30000,
+                        60000,
+                        120000,
+                      ],
+                      label: (milliseconds) => milliseconds == 0
+                          ? 'Core default'
+                          : '$milliseconds ms',
+                      onChanged: (milliseconds) => _saveTcp(
+                        _tcpSettings!.copyWith(userTimeoutMs: milliseconds),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    _MuxDropdown<XrayTcpCongestionControl>(
+                      title: 'TCP congestion control',
+                      subtitle:
+                          'BBR, CUBIC and Reno are applied on Linux only.',
+                      value: _tcpSettings!.congestionControl,
+                      values: XrayTcpCongestionControl.values,
+                      label: (mode) => switch (mode) {
+                        XrayTcpCongestionControl.coreDefault =>
+                          'System default',
+                        XrayTcpCongestionControl.bbr => 'BBR',
+                        XrayTcpCongestionControl.cubic => 'CUBIC',
+                        XrayTcpCongestionControl.reno => 'Reno',
+                      },
+                      onChanged: (mode) => _saveTcp(
+                        _tcpSettings!.copyWith(congestionControl: mode),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    _MuxDropdown<int>(
+                      title: 'TCP receive window clamp',
+                      subtitle: 'Optional maximum advertised TCP window.',
+                      value: _tcpSettings!.windowClampBytes,
+                      values: const [0, 65536, 131072, 262144, 524288, 1048576],
+                      label: (bytes) =>
+                          bytes == 0 ? 'Core default' : '${bytes ~/ 1024} KB',
+                      onChanged: (bytes) => _saveTcp(
+                        _tcpSettings!.copyWith(windowClampBytes: bytes),
+                      ),
+                    ),
+                    if (Platform.isLinux)
+                      _DnsSwitch(
+                        key: const ValueKey('tcp-mptcp-switch'),
+                        title: 'Multipath TCP',
+                        subtitle: 'Linux kernel 5.6 or later.',
+                        value: _tcpSettings!.multipathTcp,
+                        onChanged: (enabled) => _saveTcp(
+                          _tcpSettings!.copyWith(multipathTcp: enabled),
+                        ),
+                      ),
+                    if (_tcpError != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        _tcpError!,
+                        style: const TextStyle(
+                          color: AppTheme.errorColor,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            _categoryHeader('Core behavior & statistics'),
+            const SizedBox(height: 8),
+            FrostedCard(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Connection policy',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    'Xray level 0 timeouts and request buffer. Values apply after reconnecting; leave buffer empty to use the platform default.',
+                    style: TextStyle(color: muted, fontSize: 12),
+                  ),
+                  if (_policySettings == null)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 12),
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  else ...[
+                    const SizedBox(height: 12),
+                    TextField(
+                      key: const ValueKey('policy-handshake-field'),
+                      controller: _policyHandshakeController,
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(
+                        labelText: context.tr('Handshake timeout (seconds)'),
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      key: const ValueKey('policy-idle-field'),
+                      controller: _policyIdleController,
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(
+                        labelText: context.tr(
+                          'Connection idle timeout (seconds)',
+                        ),
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      key: const ValueKey('policy-uplink-field'),
+                      controller: _policyUplinkController,
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(
+                        labelText: context.tr('Uplink-only timeout (seconds)'),
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      key: const ValueKey('policy-downlink-field'),
+                      controller: _policyDownlinkController,
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(
+                        labelText: context.tr(
+                          'Downlink-only timeout (seconds)',
+                        ),
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      key: const ValueKey('policy-buffer-field'),
+                      controller: _policyBufferController,
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(
+                        labelText: context.tr('Request buffer (KB)'),
+                        helperText: context.tr(
+                          'Optional; Xray defaults depend on device architecture.',
+                        ),
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    SwitchListTile.adaptive(
+                      key: const ValueKey('policy-user-upload-switch'),
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: const Text('Per-user upload statistics'),
+                      subtitle: const Text(
+                        'Requires an Xray inbound user with an email identity.',
+                      ),
+                      value: _policySettings!.statsUserUplink,
+                      onChanged: (enabled) => setState(() {
+                        _policySettings = _policySettings!.copyWith(
+                          statsUserUplink: enabled,
+                        );
+                      }),
+                    ),
+                    SwitchListTile.adaptive(
+                      key: const ValueKey('policy-user-download-switch'),
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: const Text('Per-user download statistics'),
+                      subtitle: const Text(
+                        'Requires an Xray inbound user with an email identity.',
+                      ),
+                      value: _policySettings!.statsUserDownlink,
+                      onChanged: (enabled) => setState(() {
+                        _policySettings = _policySettings!.copyWith(
+                          statsUserDownlink: enabled,
+                        );
+                      }),
+                    ),
+                    SwitchListTile.adaptive(
+                      key: const ValueKey('policy-user-online-switch'),
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: const Text('Per-user online statistics'),
+                      subtitle: const Text(
+                        'Counts named users active within the last 20 seconds.',
+                      ),
+                      value: _policySettings!.statsUserOnline,
+                      onChanged: (enabled) => setState(() {
+                        _policySettings = _policySettings!.copyWith(
+                          statsUserOnline: enabled,
+                        );
+                      }),
+                    ),
+                    _DnsSwitch(
+                      key: const ValueKey(
+                        'policy-system-inbound-upload-switch',
+                      ),
+                      title: 'Inbound upload statistics',
+                      subtitle:
+                          'Record traffic received by local Xray inbounds.',
+                      value: _policySettings!.statsInboundUplink,
+                      onChanged: (enabled) => setState(() {
+                        _policySettings = _policySettings!.copyWith(
+                          statsInboundUplink: enabled,
+                        );
+                      }),
+                    ),
+                    _DnsSwitch(
+                      key: const ValueKey(
+                        'policy-system-inbound-download-switch',
+                      ),
+                      title: 'Inbound download statistics',
+                      subtitle: 'Record traffic sent by local Xray inbounds.',
+                      value: _policySettings!.statsInboundDownlink,
+                      onChanged: (enabled) => setState(() {
+                        _policySettings = _policySettings!.copyWith(
+                          statsInboundDownlink: enabled,
+                        );
+                      }),
+                    ),
+                    _DnsSwitch(
+                      key: const ValueKey(
+                        'policy-system-outbound-upload-switch',
+                      ),
+                      title: 'Outbound upload statistics',
+                      subtitle: 'Record traffic sent by Xray outbounds.',
+                      value: _policySettings!.statsOutboundUplink,
+                      onChanged: (enabled) => setState(() {
+                        _policySettings = _policySettings!.copyWith(
+                          statsOutboundUplink: enabled,
+                        );
+                      }),
+                    ),
+                    _DnsSwitch(
+                      key: const ValueKey(
+                        'policy-system-outbound-download-switch',
+                      ),
+                      title: 'Outbound download statistics',
+                      subtitle: 'Record traffic received by Xray outbounds.',
+                      value: _policySettings!.statsOutboundDownlink,
+                      onChanged: (enabled) => setState(() {
+                        _policySettings = _policySettings!.copyWith(
+                          statsOutboundDownlink: enabled,
+                        );
+                      }),
+                    ),
+                    const SizedBox(height: 6),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton.icon(
+                        key: const ValueKey('save-policy-settings'),
+                        onPressed: _savingPolicy ? null : _savePolicySettings,
+                        icon: _savingPolicy
                             ? const SizedBox(
                                 width: 16,
                                 height: 16,
@@ -1098,1675 +2172,482 @@ class _XrayCoreSettingsScreenState
                                 ),
                               )
                             : const Icon(Icons.save_outlined, size: 17),
-                        label: const Text('Save for this location'),
+                        label: Text(_savingPolicy ? 'Saving…' : 'Save policy'),
                       ),
                     ),
-                  ],
-                ],
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-          _categoryHeader(context.tr('Transport & TLS')),
-          const SizedBox(height: 8),
-          FrostedCard(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'XHTTP transport',
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  'These controls are applied only to subscription profiles using XHTTP. Save from the page header; reconnect to apply.',
-                  style: TextStyle(color: muted, fontSize: 12),
-                ),
-                if (_xhttpSettings == null)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 12),
-                    child: Center(child: CircularProgressIndicator()),
-                  )
-                else ...[
-                  const SizedBox(height: 14),
-                  _MuxDropdown<XrayXhttpMode>(
-                    title: 'Mode',
-                    subtitle: 'Choose how XHTTP carries upload and download.',
-                    value: _xhttpSettings!.mode,
-                    values: XrayXhttpMode.values,
-                    label: (value) => value.label,
-                    onChanged: (value) => _saveXhttpSettings(
-                      _xhttpSettings!.copyWith(mode: value),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    key: const ValueKey('xhttp-host-field'),
-                    controller: _xhttpHostController,
-                    autocorrect: false,
-                    enableSuggestions: false,
-                    decoration: InputDecoration(
-                      labelText: context.tr('HTTP host override (optional)'),
-                      hintText: 'cdn.example.com',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    key: const ValueKey('xhttp-path-field'),
-                    controller: _xhttpPathController,
-                    autocorrect: false,
-                    enableSuggestions: false,
-                    decoration: InputDecoration(
-                      labelText: context.tr('Path override (optional)'),
-                      hintText: '/tunnel',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  ExpansionTile(
-                    tilePadding: EdgeInsets.zero,
-                    childrenPadding: EdgeInsets.zero,
-                    maintainState: true,
-                    title: const Text(
-                      'Advanced XHTTP and XMUX',
-                      style: TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                    subtitle: Text(
-                      'Padding, request behavior, reuse and split download',
-                      style: TextStyle(color: muted, fontSize: 12),
-                    ),
-                    children: [
-                      const SizedBox(height: 10),
-                      TextField(
-                        key: const ValueKey('xhttp-headers-field'),
-                        controller: _xhttpHeadersController,
-                        autocorrect: false,
-                        enableSuggestions: false,
-                        minLines: 1,
-                        maxLines: 4,
-                        decoration: InputDecoration(
-                          labelText: context.tr(
-                            'Custom HTTP headers (JSON object)',
-                          ),
-                          hintText: '{"X-Client":"Oculve"}',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      TextField(
-                        key: const ValueKey('xhttp-padding-field'),
-                        controller: _xhttpPaddingController,
-                        autocorrect: false,
-                        enableSuggestions: false,
-                        decoration: InputDecoration(
-                          labelText: context.tr('Header padding bytes'),
-                          hintText: '100-1000',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      _MuxDropdown<XrayBooleanOverride>(
-                        title: 'gRPC header disguise',
-                        subtitle:
-                            'Client option used by stream-up and stream-one.',
-                        value: _xhttpSettings!.noGrpcHeader,
-                        values: XrayBooleanOverride.values,
-                        label: (value) => switch (value) {
-                          XrayBooleanOverride.profileDefault =>
-                            'Profile default',
-                          XrayBooleanOverride.enabled => 'Suppress header',
-                          XrayBooleanOverride.disabled => 'Send header',
-                        },
-                        onChanged: (value) => _saveXhttpSettings(
-                          _xhttpSettings!.copyWith(noGrpcHeader: value),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      TextField(
-                        key: const ValueKey('xhttp-max-post-field'),
-                        controller: _xhttpMaxPostController,
-                        keyboardType: TextInputType.number,
-                        decoration: InputDecoration(
-                          labelText: context.tr('Maximum POST body bytes'),
-                          hintText: '1000000',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      TextField(
-                        key: const ValueKey('xhttp-post-interval-field'),
-                        controller: _xhttpPostIntervalController,
-                        keyboardType: TextInputType.number,
-                        decoration: InputDecoration(
-                          labelText: context.tr('Minimum POST interval (ms)'),
-                          hintText: '30',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      const Text(
-                        'XMUX connection limits',
-                        style: TextStyle(fontWeight: FontWeight.w600),
-                      ),
+                    if (_policyError != null) ...[
                       const SizedBox(height: 8),
-                      TextField(
-                        key: const ValueKey('xhttp-max-concurrency-field'),
-                        controller: _xhttpMaxConcurrencyController,
-                        decoration: InputDecoration(
-                          labelText: context.tr('Maximum concurrent requests'),
-                          hintText: '16-32',
-                          border: OutlineInputBorder(),
+                      Text(
+                        _policyError!,
+                        style: const TextStyle(
+                          color: AppTheme.errorColor,
+                          fontSize: 12,
                         ),
                       ),
-                      const SizedBox(height: 10),
-                      TextField(
-                        key: const ValueKey('xhttp-max-connections-field'),
-                        controller: _xhttpMaxConnectionsController,
-                        decoration: InputDecoration(
-                          labelText: context.tr('Maximum connections'),
-                          hintText: 'Leave blank unless using this limit',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      TextField(
-                        key: const ValueKey('xhttp-reuse-limit-field'),
-                        controller: _xhttpReuseLimitController,
-                        decoration: InputDecoration(
-                          labelText: context.tr('Connection reuse limit'),
-                          hintText: '0 means core default',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      TextField(
-                        key: const ValueKey('xhttp-request-count-field'),
-                        controller: _xhttpRequestCountController,
-                        decoration: InputDecoration(
-                          labelText: context.tr('Maximum HTTP request count'),
-                          hintText: '600-900',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      TextField(
-                        key: const ValueKey('xhttp-reusable-seconds-field'),
-                        controller: _xhttpReusableSecondsController,
-                        decoration: InputDecoration(
-                          labelText: context.tr('Maximum reusable seconds'),
-                          hintText: '1800-3000',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      TextField(
-                        key: const ValueKey('xhttp-keepalive-field'),
-                        controller: _xhttpKeepAliveController,
-                        keyboardType: TextInputType.number,
-                        decoration: InputDecoration(
-                          labelText: context.tr(
-                            'HTTP keepalive period (seconds)',
-                          ),
-                          hintText: '0 uses core default; -1 disables',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        key: const ValueKey('xhttp-download-field'),
-                        controller: _xhttpDownloadController,
-                        autocorrect: false,
-                        enableSuggestions: false,
-                        minLines: 2,
-                        maxLines: 8,
-                        decoration: InputDecoration(
-                          labelText: context.tr(
-                            'Separate download settings (JSON)',
-                          ),
-                          hintText:
-                              '{"address":"download.example","port":443,"network":"xhttp","security":"tls","tlsSettings":{"serverName":"download.example"},"xhttpSettings":{"path":"/tunnel"}}',
-                          helperText: context.tr(
-                            'The upload and download sides can use different IPs, domains, transports or security.',
-                          ),
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      TextField(
-                        key: const ValueKey('xhttp-extra-field'),
-                        controller: _xhttpExtraController,
-                        autocorrect: false,
-                        enableSuggestions: false,
-                        minLines: 1,
-                        maxLines: 6,
-                        decoration: InputDecoration(
-                          labelText: context.tr(
-                            'Additional client extra settings (JSON)',
-                          ),
-                          hintText: '{"xPaddingBytes":"100-1000"}',
-                          helperText: context.tr(
-                            'Client-supported XHTTP fields only. SSE response options and buffered-post limits are server-side.',
-                          ),
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      if (_xhttpError != null) ...[
-                        const SizedBox(height: 8),
-                        Text(
-                          _xhttpError!,
-                          style: const TextStyle(
-                            color: AppTheme.errorColor,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
                     ],
-                  ),
-                  if (_xhttpError != null) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      _xhttpError!,
-                      style: const TextStyle(
-                        color: AppTheme.errorColor,
-                        fontSize: 12,
-                      ),
-                    ),
                   ],
-                ],
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-          _categoryHeader(context.tr('Transport & TLS')),
-          const SizedBox(height: 8),
-          FrostedCard(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Transport security',
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  'TLS-only controls apply to TLS profiles. SNI and the ClientHello fingerprint also apply to Reality. Changes take effect after reconnecting.',
-                  style: TextStyle(color: muted, fontSize: 12),
-                ),
-                if (_tlsSettings == null)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 12),
-                    child: Center(child: CircularProgressIndicator()),
-                  )
-                else ...[
-                  const SizedBox(height: 12),
-                  TextField(
-                    key: const ValueKey('tls-server-name-field'),
-                    controller: _tlsServerNameController,
-                    autocorrect: false,
-                    enableSuggestions: false,
-                    decoration: InputDecoration(
-                      labelText: context.tr('SNI / server name'),
-                      hintText: 'server.example.com',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  ExpansionTile(
-                    tilePadding: EdgeInsets.zero,
-                    childrenPadding: EdgeInsets.zero,
-                    maintainState: true,
-                    title: const Text(
-                      'Advanced TLS',
-                      style: TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                    subtitle: Text(
-                      'Certificate checks, ALPN, ECH, key logging and curves',
-                      style: TextStyle(color: muted, fontSize: 12),
-                    ),
-                    children: [
-                      const SizedBox(height: 10),
-                      TextField(
-                        key: const ValueKey('tls-native-fingerprint-field'),
-                        controller: _tlsClientHelloController,
-                        autocorrect: false,
-                        enableSuggestions: false,
-                        decoration: InputDecoration(
-                          labelText: context.tr(
-                            'Native uTLS Hello profile (optional)',
-                          ),
-                          hintText: 'HelloChrome_120',
-                          helperText: context.tr(
-                            'Overrides the browser preset above. Use a Hello name supported by this Xray core.',
-                          ),
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      TextField(
-                        key: const ValueKey('tls-verify-name-field'),
-                        controller: _tlsVerifyNameController,
-                        autocorrect: false,
-                        enableSuggestions: false,
-                        decoration: InputDecoration(
-                          labelText: context.tr(
-                            'Certificate verification name',
-                          ),
-                          hintText: 'example.com,backup.example.com',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      _DnsSwitch(
-                        title: 'Allow invalid certificates',
-                        subtitle:
-                            'Disables certificate verification and is unsafe on public networks.',
-                        value: _tlsSettings!.allowInsecure,
-                        onChanged: (enabled) => _saveTlsSettings(
-                          _tlsSettings!.copyWith(allowInsecure: enabled),
-                        ),
-                      ),
-                      TextField(
-                        key: const ValueKey('tls-alpn-field'),
-                        controller: _tlsAlpnController,
-                        autocorrect: false,
-                        enableSuggestions: false,
-                        decoration: InputDecoration(
-                          labelText: context.tr('ALPN'),
-                          hintText: 'h2,http/1.1',
-                          helperText: context.tr(
-                            'Comma-separated protocol names.',
-                          ),
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      _MuxDropdown<String>(
-                        title: 'Minimum TLS version',
-                        subtitle: 'Leave on Core default unless required.',
-                        value: _tlsSettings!.minVersion,
-                        values: const ['', '1.0', '1.1', '1.2', '1.3'],
-                        label: (version) =>
-                            version.isEmpty ? 'Core default' : 'TLS $version',
-                        onChanged: (version) => _saveTlsSettings(
-                          _tlsSettings!.copyWith(minVersion: version),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      _MuxDropdown<String>(
-                        title: 'Maximum TLS version',
-                        subtitle: 'Leave on Core default unless required.',
-                        value: _tlsSettings!.maxVersion,
-                        values: const ['', '1.0', '1.1', '1.2', '1.3'],
-                        label: (version) =>
-                            version.isEmpty ? 'Core default' : 'TLS $version',
-                        onChanged: (version) => _saveTlsSettings(
-                          _tlsSettings!.copyWith(maxVersion: version),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      TextField(
-                        key: const ValueKey('tls-cipher-suites-field'),
-                        controller: _tlsCipherSuitesController,
-                        autocorrect: false,
-                        enableSuggestions: false,
-                        decoration: InputDecoration(
-                          labelText: context.tr('Cipher suites (optional)'),
-                          hintText: 'TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256',
-                          helperText: context.tr(
-                            'Separate Go cipher suite names with colons.',
-                          ),
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      TextField(
-                        key: const ValueKey('tls-curves-field'),
-                        controller: _tlsCurvesController,
-                        autocorrect: false,
-                        enableSuggestions: false,
-                        decoration: InputDecoration(
-                          labelText: context.tr('Curve preferences'),
-                          hintText: 'X25519,X25519MLKEM768',
-                          helperText: context.tr(
-                            'Supported: CurveP256, CurveP384, CurveP521, X25519 and ML-KEM hybrids.',
-                          ),
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      TextField(
-                        key: const ValueKey('tls-certificate-pin-field'),
-                        controller: _tlsCertificatePinController,
-                        autocorrect: false,
-                        enableSuggestions: false,
-                        minLines: 1,
-                        maxLines: 2,
-                        decoration: InputDecoration(
-                          labelText: context.tr('Certificate SHA-256 pin(s)'),
-                          hintText:
-                              '64 hex characters; multiple separated by commas',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      _DnsSwitch(
-                        title: 'Disable system CA roots',
-                        subtitle:
-                            'Trust only CA certificates present in this profile or below.',
-                        value: _tlsSettings!.disableSystemRoot,
-                        onChanged: (enabled) => _saveTlsSettings(
-                          _tlsSettings!.copyWith(disableSystemRoot: enabled),
-                        ),
-                      ),
-                      TextField(
-                        key: const ValueKey('tls-custom-ca-field'),
-                        controller: _tlsCertificateController,
-                        autocorrect: false,
-                        enableSuggestions: false,
-                        minLines: 2,
-                        maxLines: 5,
-                        decoration: InputDecoration(
-                          labelText: context.tr('Custom CA certificate (PEM)'),
-                          hintText: '-----BEGIN CERTIFICATE-----',
-                          helperText: context.tr(
-                            'Adding a custom CA makes Xray trust only this CA for TLS verification.',
-                          ),
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      _DnsSwitch(
-                        title: 'TLS session resumption',
-                        subtitle:
-                            'Requires server support; this does not enable TLS 0-RTT.',
-                        value: _tlsSettings!.enableSessionResumption,
-                        onChanged: (enabled) => _saveTlsSettings(
-                          _tlsSettings!.copyWith(
-                            enableSessionResumption: enabled,
-                          ),
-                        ),
-                      ),
-                      TextField(
-                        key: const ValueKey('tls-ech-field'),
-                        controller: _tlsEchConfigController,
-                        autocorrect: false,
-                        enableSuggestions: false,
-                        minLines: 1,
-                        maxLines: 2,
-                        decoration: InputDecoration(
-                          labelText: context.tr('ECH config or DNS lookup URL'),
-                          hintText: 'https://1.1.1.1/dns-query',
-                          helperText: context.tr(
-                            'Paste a static ECHConfig or use udp://, https:// or h2c://.',
-                          ),
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      TextField(
-                        key: const ValueKey('tls-key-log-field'),
-                        controller: _tlsMasterKeyLogController,
-                        autocorrect: false,
-                        enableSuggestions: false,
-                        decoration: InputDecoration(
-                          labelText: context.tr('TLS key log file path'),
-                          helperText: context.tr(
-                            'For Wireshark diagnostics only. Anyone with this file can decrypt captured traffic.',
-                          ),
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      if (_tlsError != null) ...[
-                        const SizedBox(height: 8),
-                        Text(
-                          _tlsError!,
-                          style: const TextStyle(
-                            color: AppTheme.errorColor,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                  if (_tlsError != null) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      _tlsError!,
-                      style: const TextStyle(
-                        color: AppTheme.errorColor,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ],
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-          _categoryHeader(context.tr('Network behavior')),
-          const SizedBox(height: 8),
-          FrostedCard(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'TCP connection',
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  'These Xray socket settings apply to the next connection.',
-                  style: TextStyle(color: muted, fontSize: 12),
-                ),
-                if (_tcpSettings == null)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 12),
-                    child: Center(child: CircularProgressIndicator()),
-                  )
-                else ...[
-                  const SizedBox(height: 14),
-                  _MuxDropdown<TcpFastOpenMode>(
-                    title: 'TCP Fast Open',
-                    subtitle:
-                        'Reduce a TCP handshake when the network allows it',
-                    value: _tcpSettings!.fastOpenMode,
-                    values: TcpFastOpenMode.values,
-                    label: (mode) => switch (mode) {
-                      TcpFastOpenMode.coreDefault => 'Core default',
-                      TcpFastOpenMode.enabled => 'Enabled',
-                      TcpFastOpenMode.disabled => 'Disabled',
-                    },
-                    onChanged: (mode) =>
-                        _saveTcp(_tcpSettings!.copyWith(fastOpenMode: mode)),
-                  ),
-                  const SizedBox(height: 14),
-                  _MuxDropdown<int>(
-                    title: 'Keepalive idle',
-                    subtitle:
-                        'Seconds before an idle TCP connection is checked',
-                    value: _tcpSettings!.keepAliveIdle,
-                    values: const [0, 15, 30, 60, 120, 300, 600, 1800, 3600],
-                    label: (seconds) =>
-                        seconds == 0 ? 'Core default' : '$seconds seconds',
-                    onChanged: (seconds) => _saveTcp(
-                      _tcpSettings!.copyWith(keepAliveIdle: seconds),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  _MuxDropdown<int>(
-                    title: 'Keepalive interval',
-                    subtitle: 'Seconds between TCP keepalive probes',
-                    value: _tcpSettings!.keepAliveInterval,
-                    values: const [0, 5, 10, 15, 30, 60, 120, 300],
-                    label: (seconds) =>
-                        seconds == 0 ? 'Core default' : '$seconds seconds',
-                    onChanged: (seconds) => _saveTcp(
-                      _tcpSettings!.copyWith(keepAliveInterval: seconds),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  TextField(
-                    key: const ValueKey('tcp-interface-field'),
-                    controller: _tcpInterfaceController,
-                    textInputAction: TextInputAction.done,
-                    onSubmitted: (value) => _saveTcp(
-                      _tcpSettings!.copyWith(interfaceName: value.trim()),
-                    ),
-                    decoration: InputDecoration(
-                      labelText: context.tr('Network interface'),
-                      helperText: context.tr(
-                        'Optional. Empty lets Xray choose the network.',
-                      ),
-                      border: const OutlineInputBorder(),
-                      suffixIcon: IconButton(
-                        tooltip: context.tr('Save interface'),
-                        onPressed: () => _saveTcp(
-                          _tcpSettings!.copyWith(
-                            interfaceName: _tcpInterfaceController.text.trim(),
-                          ),
-                        ),
-                        icon: const Icon(Icons.check_rounded),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    key: const ValueKey('tcp-send-through-field'),
-                    controller: _tcpSendThroughController,
-                    keyboardType: TextInputType.url,
-                    textInputAction: TextInputAction.done,
-                    onSubmitted: (value) => _saveTcp(
-                      _tcpSettings!.copyWith(sendThroughAddress: value.trim()),
-                    ),
-                    decoration: InputDecoration(
-                      labelText: context.tr('Send through local IP'),
-                      helperText: context.tr(
-                        'Optional source address; leave empty for automatic binding.',
-                      ),
-                      border: const OutlineInputBorder(),
-                      suffixIcon: IconButton(
-                        tooltip: context.tr('Save source address'),
-                        onPressed: () => _saveTcp(
-                          _tcpSettings!.copyWith(
-                            sendThroughAddress: _tcpSendThroughController.text
-                                .trim(),
-                          ),
-                        ),
-                        icon: const Icon(Icons.check_rounded),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  _MuxDropdown<XrayOutboundDomainStrategy>(
-                    title: 'Proxy server DNS strategy',
-                    subtitle:
-                        'Controls how Xray resolves the proxy server domain.',
-                    value: _tcpSettings!.domainStrategy,
-                    values: XrayOutboundDomainStrategy.values,
-                    label: (strategy) => switch (strategy) {
-                      XrayOutboundDomainStrategy.asIs => 'System default',
-                      XrayOutboundDomainStrategy.useIp => 'Use IP',
-                      XrayOutboundDomainStrategy.useIPv4 => 'IPv4 only',
-                      XrayOutboundDomainStrategy.useIPv6 => 'IPv6 only',
-                      XrayOutboundDomainStrategy.useIPv4v6 => 'IPv4, then IPv6',
-                      XrayOutboundDomainStrategy.useIPv6v4 => 'IPv6, then IPv4',
-                      XrayOutboundDomainStrategy.forceIp => 'Force IP',
-                      XrayOutboundDomainStrategy.forceIPv4 => 'Force IPv4',
-                      XrayOutboundDomainStrategy.forceIPv6 => 'Force IPv6',
-                      XrayOutboundDomainStrategy.forceIPv4v6 =>
-                        'Force IPv4, then IPv6',
-                      XrayOutboundDomainStrategy.forceIPv6v4 =>
-                        'Force IPv6, then IPv4',
-                    },
-                    onChanged: (strategy) => _saveTcp(
-                      _tcpSettings!.copyWith(
-                        domainStrategy: strategy,
-                        happyEyeballs:
-                            strategy == XrayOutboundDomainStrategy.asIs
-                            ? false
-                            : _tcpSettings!.happyEyeballs,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  _MuxDropdown<XrayAddressPortStrategy>(
-                    title: 'Server address discovery',
-                    subtitle:
-                        'Optional SRV/TXT lookup for proxy domains. Uses system DNS.',
-                    value: _tcpSettings!.addressPortStrategy,
-                    values: XrayAddressPortStrategy.values,
-                    label: (strategy) => switch (strategy) {
-                      XrayAddressPortStrategy.none => 'Disabled',
-                      XrayAddressPortStrategy.srvPortOnly => 'SRV: port only',
-                      XrayAddressPortStrategy.srvAddressOnly =>
-                        'SRV: address only',
-                      XrayAddressPortStrategy.srvPortAndAddress =>
-                        'SRV: address and port',
-                      XrayAddressPortStrategy.txtPortOnly => 'TXT: port only',
-                      XrayAddressPortStrategy.txtAddressOnly =>
-                        'TXT: address only',
-                      XrayAddressPortStrategy.txtPortAndAddress =>
-                        'TXT: address and port',
-                    },
-                    onChanged: (strategy) => _saveTcp(
-                      _tcpSettings!.copyWith(addressPortStrategy: strategy),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  _DnsSwitch(
-                    key: const ValueKey('happy-eyeballs-switch'),
-                    title: 'Happy Eyeballs',
-                    subtitle:
-                        'Races IPv4 and IPv6 TCP addresses. Requires an IP DNS strategy.',
-                    value: _tcpSettings!.happyEyeballs,
-                    onChanged: (enabled) => _saveTcp(
-                      _tcpSettings!.copyWith(
-                        happyEyeballs: enabled,
-                        domainStrategy:
-                            enabled &&
-                                _tcpSettings!.domainStrategy ==
-                                    XrayOutboundDomainStrategy.asIs
-                            ? XrayOutboundDomainStrategy.useIp
-                            : _tcpSettings!.domainStrategy,
-                      ),
-                    ),
-                  ),
-                  if (_tcpSettings!.happyEyeballs) ...[
-                    _MuxDropdown<int>(
-                      title: 'Address race delay',
-                      subtitle: 'Delay before trying the next IP family.',
-                      value: _tcpSettings!.happyEyeballsDelayMs,
-                      values: const [100, 200, 250, 350, 500, 750, 1000],
-                      label: (milliseconds) => '$milliseconds ms',
-                      onChanged: (milliseconds) => _saveTcp(
-                        _tcpSettings!.copyWith(
-                          happyEyeballsDelayMs: milliseconds,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    _DnsSwitch(
-                      key: const ValueKey('happy-eyeballs-ipv6-first-switch'),
-                      title: 'Prefer IPv6',
-                      subtitle: 'Try IPv6 addresses before IPv4.',
-                      value: _tcpSettings!.prioritizeIPv6,
-                      onChanged: (enabled) => _saveTcp(
-                        _tcpSettings!.copyWith(prioritizeIPv6: enabled),
-                      ),
-                    ),
-                    _MuxDropdown<int>(
-                      title: 'Address interleave',
-                      subtitle: 'Mix IPv4 and IPv6 addresses while racing.',
-                      value: _tcpSettings!.addressInterleave,
-                      values: const [1, 2, 3, 4],
-                      onChanged: (count) => _saveTcp(
-                        _tcpSettings!.copyWith(addressInterleave: count),
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    _MuxDropdown<int>(
-                      title: 'Maximum concurrent attempts',
-                      subtitle: 'Limit parallel TCP connection attempts.',
-                      value: _tcpSettings!.maxConcurrentAddressAttempts,
-                      values: const [1, 2, 4, 6, 8, 16, 32],
-                      onChanged: (count) => _saveTcp(
-                        _tcpSettings!.copyWith(
-                          maxConcurrentAddressAttempts: count,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                  ],
-                  _MuxDropdown<int>(
-                    title: 'TCP maximum segment size',
-                    subtitle: 'Optional MSS for TCP packets.',
-                    value: _tcpSettings!.maxSegmentBytes,
-                    values: const [0, 1200, 1360, 1400, 1440, 1460],
-                    label: (bytes) => bytes == 0 ? 'Core default' : '$bytes B',
-                    onChanged: (bytes) => _saveTcp(
-                      _tcpSettings!.copyWith(maxSegmentBytes: bytes),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  _MuxDropdown<int>(
-                    title: 'TCP user timeout',
-                    subtitle: 'How long unacknowledged data may remain.',
-                    value: _tcpSettings!.userTimeoutMs,
-                    values: const [0, 5000, 10000, 20000, 30000, 60000, 120000],
-                    label: (milliseconds) =>
-                        milliseconds == 0 ? 'Core default' : '$milliseconds ms',
-                    onChanged: (milliseconds) => _saveTcp(
-                      _tcpSettings!.copyWith(userTimeoutMs: milliseconds),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  _MuxDropdown<XrayTcpCongestionControl>(
-                    title: 'TCP congestion control',
-                    subtitle: 'BBR, CUBIC and Reno are applied on Linux only.',
-                    value: _tcpSettings!.congestionControl,
-                    values: XrayTcpCongestionControl.values,
-                    label: (mode) => switch (mode) {
-                      XrayTcpCongestionControl.coreDefault => 'System default',
-                      XrayTcpCongestionControl.bbr => 'BBR',
-                      XrayTcpCongestionControl.cubic => 'CUBIC',
-                      XrayTcpCongestionControl.reno => 'Reno',
-                    },
-                    onChanged: (mode) => _saveTcp(
-                      _tcpSettings!.copyWith(congestionControl: mode),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  _MuxDropdown<int>(
-                    title: 'TCP receive window clamp',
-                    subtitle: 'Optional maximum advertised TCP window.',
-                    value: _tcpSettings!.windowClampBytes,
-                    values: const [0, 65536, 131072, 262144, 524288, 1048576],
-                    label: (bytes) =>
-                        bytes == 0 ? 'Core default' : '${bytes ~/ 1024} KB',
-                    onChanged: (bytes) => _saveTcp(
-                      _tcpSettings!.copyWith(windowClampBytes: bytes),
-                    ),
-                  ),
-                  if (Platform.isLinux)
-                    _DnsSwitch(
-                      key: const ValueKey('tcp-mptcp-switch'),
-                      title: 'Multipath TCP',
-                      subtitle: 'Linux kernel 5.6 or later.',
-                      value: _tcpSettings!.multipathTcp,
-                      onChanged: (enabled) => _saveTcp(
-                        _tcpSettings!.copyWith(multipathTcp: enabled),
-                      ),
-                    ),
-                  if (_tcpError != null) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      _tcpError!,
-                      style: const TextStyle(
-                        color: AppTheme.errorColor,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ],
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-          _categoryHeader(context.tr('Core behavior & statistics')),
-          const SizedBox(height: 8),
-          FrostedCard(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Connection policy',
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  'Xray level 0 timeouts and request buffer. Values apply after reconnecting; leave buffer empty to use the platform default.',
-                  style: TextStyle(color: muted, fontSize: 12),
-                ),
-                if (_policySettings == null)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 12),
-                    child: Center(child: CircularProgressIndicator()),
-                  )
-                else ...[
-                  const SizedBox(height: 12),
-                  TextField(
-                    key: const ValueKey('policy-handshake-field'),
-                    controller: _policyHandshakeController,
-                    keyboardType: TextInputType.number,
-                    decoration: InputDecoration(
-                      labelText: context.tr('Handshake timeout (seconds)'),
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    key: const ValueKey('policy-idle-field'),
-                    controller: _policyIdleController,
-                    keyboardType: TextInputType.number,
-                    decoration: InputDecoration(
-                      labelText: context.tr(
-                        'Connection idle timeout (seconds)',
-                      ),
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    key: const ValueKey('policy-uplink-field'),
-                    controller: _policyUplinkController,
-                    keyboardType: TextInputType.number,
-                    decoration: InputDecoration(
-                      labelText: context.tr('Uplink-only timeout (seconds)'),
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    key: const ValueKey('policy-downlink-field'),
-                    controller: _policyDownlinkController,
-                    keyboardType: TextInputType.number,
-                    decoration: InputDecoration(
-                      labelText: context.tr('Downlink-only timeout (seconds)'),
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    key: const ValueKey('policy-buffer-field'),
-                    controller: _policyBufferController,
-                    keyboardType: TextInputType.number,
-                    decoration: InputDecoration(
-                      labelText: context.tr('Request buffer (KB)'),
-                      helperText: context.tr(
-                        'Optional; Xray defaults depend on device architecture.',
-                      ),
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  SwitchListTile.adaptive(
-                    key: const ValueKey('policy-user-upload-switch'),
-                    contentPadding: EdgeInsets.zero,
-                    dense: true,
-                    title: const Text('Per-user upload statistics'),
-                    subtitle: const Text(
-                      'Requires an Xray inbound user with an email identity.',
-                    ),
-                    value: _policySettings!.statsUserUplink,
-                    onChanged: (enabled) => setState(() {
-                      _policySettings = _policySettings!.copyWith(
-                        statsUserUplink: enabled,
-                      );
-                    }),
-                  ),
-                  SwitchListTile.adaptive(
-                    key: const ValueKey('policy-user-download-switch'),
-                    contentPadding: EdgeInsets.zero,
-                    dense: true,
-                    title: const Text('Per-user download statistics'),
-                    subtitle: const Text(
-                      'Requires an Xray inbound user with an email identity.',
-                    ),
-                    value: _policySettings!.statsUserDownlink,
-                    onChanged: (enabled) => setState(() {
-                      _policySettings = _policySettings!.copyWith(
-                        statsUserDownlink: enabled,
-                      );
-                    }),
-                  ),
-                  SwitchListTile.adaptive(
-                    key: const ValueKey('policy-user-online-switch'),
-                    contentPadding: EdgeInsets.zero,
-                    dense: true,
-                    title: const Text('Per-user online statistics'),
-                    subtitle: const Text(
-                      'Counts named users active within the last 20 seconds.',
-                    ),
-                    value: _policySettings!.statsUserOnline,
-                    onChanged: (enabled) => setState(() {
-                      _policySettings = _policySettings!.copyWith(
-                        statsUserOnline: enabled,
-                      );
-                    }),
-                  ),
-                  _DnsSwitch(
-                    key: const ValueKey('policy-system-inbound-upload-switch'),
-                    title: 'Inbound upload statistics',
-                    subtitle: 'Record traffic received by local Xray inbounds.',
-                    value: _policySettings!.statsInboundUplink,
-                    onChanged: (enabled) => setState(() {
-                      _policySettings = _policySettings!.copyWith(
-                        statsInboundUplink: enabled,
-                      );
-                    }),
-                  ),
-                  _DnsSwitch(
-                    key: const ValueKey(
-                      'policy-system-inbound-download-switch',
-                    ),
-                    title: 'Inbound download statistics',
-                    subtitle: 'Record traffic sent by local Xray inbounds.',
-                    value: _policySettings!.statsInboundDownlink,
-                    onChanged: (enabled) => setState(() {
-                      _policySettings = _policySettings!.copyWith(
-                        statsInboundDownlink: enabled,
-                      );
-                    }),
-                  ),
-                  _DnsSwitch(
-                    key: const ValueKey('policy-system-outbound-upload-switch'),
-                    title: 'Outbound upload statistics',
-                    subtitle: 'Record traffic sent by Xray outbounds.',
-                    value: _policySettings!.statsOutboundUplink,
-                    onChanged: (enabled) => setState(() {
-                      _policySettings = _policySettings!.copyWith(
-                        statsOutboundUplink: enabled,
-                      );
-                    }),
-                  ),
-                  _DnsSwitch(
-                    key: const ValueKey(
-                      'policy-system-outbound-download-switch',
-                    ),
-                    title: 'Outbound download statistics',
-                    subtitle: 'Record traffic received by Xray outbounds.',
-                    value: _policySettings!.statsOutboundDownlink,
-                    onChanged: (enabled) => setState(() {
-                      _policySettings = _policySettings!.copyWith(
-                        statsOutboundDownlink: enabled,
-                      );
-                    }),
-                  ),
-                  const SizedBox(height: 6),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton.icon(
-                      key: const ValueKey('save-policy-settings'),
-                      onPressed: _savingPolicy ? null : _savePolicySettings,
-                      icon: _savingPolicy
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.save_outlined, size: 17),
-                      label: Text(_savingPolicy ? 'Saving…' : 'Save policy'),
-                    ),
-                  ),
-                  if (_policyError != null) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      _policyError!,
-                      style: const TextStyle(
-                        color: AppTheme.errorColor,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ],
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-          _categoryHeader(context.tr('DNS & name resolution')),
-          const SizedBox(height: 8),
-          FrostedCard(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'DNS resolver',
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 7),
-                Text(
-                  'Choose Xray DNS transports, address families and fallback behavior. Changes apply after reconnecting.',
-                  style: TextStyle(color: muted, fontSize: 12),
-                ),
-                const SizedBox(height: 12),
-                if (_dnsSettings == null)
-                  const Center(child: CircularProgressIndicator())
-                else ...[
-                  TextField(
-                    key: const ValueKey('dns-servers-field'),
-                    controller: _dnsServersController,
-                    autocorrect: false,
-                    enableSuggestions: false,
-                    minLines: 2,
-                    maxLines: 5,
-                    decoration: InputDecoration(
-                      labelText: context.tr('DNS servers'),
-                      hintText:
-                          '1.1.1.1\nhttps://dns.google/dns-query\n{"address":"9.9.9.9","domains":["geosite:example"]}',
-                      helperText: context.tr(
-                        'One endpoint or Xray DNS server JSON object per line. Supports UDP, TCP, DoH, DoQ and localhost. +local bypasses proxy routing; h2c is unencrypted.',
-                      ),
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  _MuxDropdown<DnsQueryStrategy>(
-                    title: 'Address family',
-                    subtitle: 'Controls whether Xray resolves IPv4 and IPv6.',
-                    value: _dnsSettings!.queryStrategy,
-                    values: DnsQueryStrategy.values,
-                    label: (strategy) => strategy.configValue,
-                    onChanged: (strategy) => _saveDnsSettings(
-                      _dnsSettings!.copyWith(queryStrategy: strategy),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    key: const ValueKey('dns-hosts-field'),
-                    controller: _dnsHostsController,
-                    autocorrect: false,
-                    enableSuggestions: false,
-                    minLines: 1,
-                    maxLines: 3,
-                    decoration: InputDecoration(
-                      labelText: context.tr('Custom hosts'),
-                      hintText: 'example.com=93.184.216.34',
-                      helperText: context.tr(
-                        'One mapping per line (for example domain:example.com=93.184.216.34). Separate multiple targets with |.',
-                      ),
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    key: const ValueKey('dns-client-ip-field'),
-                    controller: _dnsClientIpController,
-                    autocorrect: false,
-                    enableSuggestions: false,
-                    keyboardType: TextInputType.url,
-                    decoration: InputDecoration(
-                      labelText: context.tr('EDNS client subnet (optional)'),
-                      hintText: 'Leave empty for privacy',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton.icon(
-                      onPressed: _savingDns ? null : _saveDnsSettings,
-                      icon: _savingDns
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.save_outlined, size: 17),
-                      label: Text(_savingDns ? 'Saving…' : 'Save DNS'),
-                    ),
-                  ),
-                  const Divider(height: 14),
-                  _DnsSwitch(
-                    title: 'Parallel DNS queries',
-                    subtitle: 'Race multiple configured resolvers.',
-                    value: _dnsSettings!.enableParallelQuery,
-                    onChanged: (enabled) => _saveDnsSettings(
-                      _dnsSettings!.copyWith(enableParallelQuery: enabled),
-                    ),
-                  ),
-                  _DnsSwitch(
-                    title: 'Disable fallback',
-                    subtitle: 'Do not try another resolver after a failure.',
-                    value: _dnsSettings!.disableFallback,
-                    onChanged: (enabled) => _saveDnsSettings(
-                      _dnsSettings!.copyWith(disableFallback: enabled),
-                    ),
-                  ),
-                  _DnsSwitch(
-                    title: 'Disable fallback on domain match',
-                    subtitle:
-                        'Keep matching domains on their selected resolver.',
-                    value: _dnsSettings!.disableFallbackIfMatch,
-                    onChanged: (enabled) => _saveDnsSettings(
-                      _dnsSettings!.copyWith(disableFallbackIfMatch: enabled),
-                    ),
-                  ),
-                  _DnsSwitch(
-                    title: 'Disable DNS cache',
-                    subtitle:
-                        'Resolve through the configured servers each time.',
-                    value: _dnsSettings!.disableCache,
-                    onChanged: (enabled) => _saveDnsSettings(
-                      _dnsSettings!.copyWith(disableCache: enabled),
-                    ),
-                  ),
-                  _DnsSwitch(
-                    title: 'Serve stale DNS answers',
-                    subtitle: 'Return cached answers while refreshing them.',
-                    value: _dnsSettings!.serveStale,
-                    onChanged: (enabled) => _saveDnsSettings(
-                      _dnsSettings!.copyWith(serveStale: enabled),
-                    ),
-                  ),
-                  if (_dnsSettings!.serveStale)
-                    _MuxDropdown<int>(
-                      title: 'Stale answer lifetime',
-                      subtitle: 'Seconds after the cached DNS record expires.',
-                      value: _dnsSettings!.serveExpiredTtl,
-                      values: const [0, 60, 300, 900, 3600, 86400],
-                      label: (seconds) =>
-                          seconds == 0 ? 'No extra limit' : '$seconds seconds',
-                      onChanged: (seconds) => _saveDnsSettings(
-                        _dnsSettings!.copyWith(serveExpiredTtl: seconds),
-                      ),
-                    ),
-                  _DnsSwitch(
-                    title: 'Use system hosts file',
-                    subtitle: 'Add device hosts mappings to Xray DNS.',
-                    value: _dnsSettings!.useSystemHosts,
-                    onChanged: (enabled) => _saveDnsSettings(
-                      _dnsSettings!.copyWith(useSystemHosts: enabled),
-                    ),
-                  ),
-                  _DnsSwitch(
-                    title: 'FakeDNS',
-                    subtitle:
-                        'Give domains synthetic IPs so Xray can recover their names.',
-                    value: _dnsSettings!.fakeDns,
-                    onChanged: (enabled) => _saveDnsSettings(
-                      _dnsSettings!.copyWith(fakeDns: enabled),
-                    ),
-                  ),
-                  if (_dnsSettings!.fakeDns) ...[
-                    const SizedBox(height: 6),
-                    Text(
-                      'FakeDNS is active in Xray. After disconnecting, cached synthetic addresses can briefly remain on the device.',
-                      style: TextStyle(color: muted, fontSize: 12),
-                    ),
-                  ],
-                ],
-                if (_dnsError != null) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    _dnsError!,
-                    style: const TextStyle(
-                      color: AppTheme.errorColor,
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-          _categoryHeader(context.tr('Connection optimization')),
-          const SizedBox(height: 8),
-          FrostedCard(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Mux and XUDP',
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  'Controls how Xray reuses TCP connections and carries UDP. Changes apply after reconnecting.',
-                  style: TextStyle(color: muted, fontSize: 12),
-                ),
-                if (_muxSettings == null)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 12),
-                    child: Center(child: CircularProgressIndicator()),
-                  )
-                else ...[
-                  const SizedBox(height: 8),
-                  SwitchListTile.adaptive(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Enable Mux'),
-                    subtitle: Text(
-                      muxIncompatibility ?? 'Multiplex TCP connections',
-                    ),
-                    value: _muxSettings!.enabled,
-                    onChanged:
-                        muxIncompatibility != null && !_muxSettings!.enabled
-                        ? null
-                        : (enabled) => _saveMux(
-                            _muxSettings!.copyWith(enabled: enabled),
-                          ),
-                  ),
-                  if (_muxSettings!.enabled) ...[
-                    const SizedBox(height: 8),
-                    _MuxDropdown<int>(
-                      title: 'TCP concurrency',
-                      subtitle: 'Maximum concurrent streams on one connection',
-                      value: _muxSettings!.concurrency,
-                      values: const [1, 2, 4, 8, 16, 32, 64, 128],
-                      onChanged: (value) =>
-                          _saveMux(_muxSettings!.copyWith(concurrency: value)),
-                    ),
-                    const SizedBox(height: 12),
-                    _MuxDropdown<int>(
-                      title: 'XUDP concurrency',
-                      subtitle: 'UDP streams carried by XUDP',
-                      value: _muxSettings!.xudpConcurrency,
-                      values: const [1, 4, 8, 16, 32, 64, 128, 256, 512, 1024],
-                      onChanged: (value) => _saveMux(
-                        _muxSettings!.copyWith(xudpConcurrency: value),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    _MuxDropdown<Udp443Behavior>(
-                      title: 'UDP/443 behavior',
-                      subtitle: 'Choose how QUIC traffic uses XUDP',
-                      value: _muxSettings!.udp443Behavior,
-                      values: Udp443Behavior.values,
-                      label: (value) => value.name,
-                      onChanged: (value) => _saveMux(
-                        _muxSettings!.copyWith(udp443Behavior: value),
-                      ),
-                    ),
-                  ],
-                ],
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-          _categoryHeader(context.tr('Routing & privacy')),
-          const SizedBox(height: 8),
-          FrostedCard(
-            padding: const EdgeInsets.all(16),
-            child: InkWell(
-              onTap: Platform.isAndroid
-                  ? () => Navigator.of(
-                      context,
-                    ).push(appRoute(const AndroidAppRoutingScreen()))
-                  : null,
-              borderRadius: BorderRadius.circular(12),
-              child: Row(
-                children: [
-                  const Icon(Icons.apps_outlined, size: 19),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Apps outside the VPN',
-                          style: TextStyle(fontWeight: FontWeight.w700),
-                        ),
-                        const SizedBox(height: 5),
-                        Text(
-                          Platform.isAndroid
-                              ? 'Choose Android apps that use your regular connection.'
-                              : 'App-based routing is supported on Android. Site rules work on this device.',
-                          style: TextStyle(color: muted, fontSize: 12),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Icon(
-                    Platform.isAndroid
-                        ? Icons.chevron_right
-                        : Icons.lock_outline,
-                    size: 19,
-                    color: muted,
-                  ),
                 ],
               ),
             ),
-          ),
-          const SizedBox(height: 12),
-          FrostedCard(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Sites outside the VPN',
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 7),
-                Text(
-                  'Add one domain per line. Traffic to these sites uses your regular connection after the next VPN reconnect.',
-                  style: TextStyle(color: muted, fontSize: 12),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  key: const ValueKey('bypass-domain-field'),
-                  controller: _bypassController,
-                  minLines: 2,
-                  maxLines: 4,
-                  autocorrect: false,
-                  enableSuggestions: false,
-                  keyboardType: TextInputType.multiline,
-                  decoration: InputDecoration(
-                    hintText: 'example.com',
-                    border: OutlineInputBorder(),
+            const SizedBox(height: 12),
+            _categoryHeader('DNS & name resolution'),
+            const SizedBox(height: 8),
+            FrostedCard(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'DNS resolver',
+                    style: TextStyle(fontWeight: FontWeight.w700),
                   ),
-                ),
-                const SizedBox(height: 14),
-                Row(
-                  children: [
-                    const Expanded(
-                      child: Text(
-                        'Advanced routing rules',
-                        style: TextStyle(fontWeight: FontWeight.w700),
+                  const SizedBox(height: 7),
+                  Text(
+                    'Choose Xray DNS transports, address families and fallback behavior. Changes apply after reconnecting.',
+                    style: TextStyle(color: muted, fontSize: 12),
+                  ),
+                  const SizedBox(height: 12),
+                  if (_dnsSettings == null)
+                    const Center(child: CircularProgressIndicator())
+                  else ...[
+                    TextField(
+                      key: const ValueKey('dns-servers-field'),
+                      controller: _dnsServersController,
+                      autocorrect: false,
+                      enableSuggestions: false,
+                      minLines: 2,
+                      maxLines: 5,
+                      decoration: InputDecoration(
+                        labelText: context.tr('DNS servers'),
+                        hintText:
+                            '1.1.1.1\nhttps://dns.google/dns-query\n{"address":"9.9.9.9","domains":["geosite:example"]}',
+                        helperText: context.tr(
+                          'One endpoint or Xray DNS server JSON object per line. Supports UDP, TCP, DoH, DoQ and localhost. +local bypasses proxy routing; h2c is unencrypted.',
+                        ),
+                        border: OutlineInputBorder(),
                       ),
                     ),
-                    TextButton.icon(
-                      key: const ValueKey('add-xray-routing-rule'),
-                      onPressed: _savingRouting
-                          ? null
-                          : () => _editRoutingRule(),
-                      icon: const Icon(Icons.add, size: 18),
-                      label: const Text('Add rule'),
+                    const SizedBox(height: 10),
+                    _MuxDropdown<DnsQueryStrategy>(
+                      title: 'Address family',
+                      subtitle: 'Controls whether Xray resolves IPv4 and IPv6.',
+                      value: _dnsSettings!.queryStrategy,
+                      values: DnsQueryStrategy.values,
+                      label: (strategy) => strategy.configValue,
+                      onChanged: (strategy) => _saveDnsSettings(
+                        _dnsSettings!.copyWith(queryStrategy: strategy),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      key: const ValueKey('dns-hosts-field'),
+                      controller: _dnsHostsController,
+                      autocorrect: false,
+                      enableSuggestions: false,
+                      minLines: 1,
+                      maxLines: 3,
+                      decoration: InputDecoration(
+                        labelText: context.tr('Custom hosts'),
+                        hintText: 'example.com=93.184.216.34',
+                        helperText: context.tr(
+                          'One mapping per line (for example domain:example.com=93.184.216.34). Separate multiple targets with |.',
+                        ),
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      key: const ValueKey('dns-client-ip-field'),
+                      controller: _dnsClientIpController,
+                      autocorrect: false,
+                      enableSuggestions: false,
+                      keyboardType: TextInputType.url,
+                      decoration: InputDecoration(
+                        labelText: context.tr('EDNS client subnet (optional)'),
+                        hintText: 'Leave empty for privacy',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton.icon(
+                        onPressed: _savingDns ? null : _saveDnsSettings,
+                        icon: _savingDns
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.save_outlined, size: 17),
+                        label: Text(_savingDns ? 'Saving…' : 'Save DNS'),
+                      ),
+                    ),
+                    const Divider(height: 14),
+                    _DnsSwitch(
+                      title: 'Parallel DNS queries',
+                      subtitle: 'Race multiple configured resolvers.',
+                      value: _dnsSettings!.enableParallelQuery,
+                      onChanged: (enabled) => _saveDnsSettings(
+                        _dnsSettings!.copyWith(enableParallelQuery: enabled),
+                      ),
+                    ),
+                    _DnsSwitch(
+                      title: 'Disable fallback',
+                      subtitle: 'Do not try another resolver after a failure.',
+                      value: _dnsSettings!.disableFallback,
+                      onChanged: (enabled) => _saveDnsSettings(
+                        _dnsSettings!.copyWith(disableFallback: enabled),
+                      ),
+                    ),
+                    _DnsSwitch(
+                      title: 'Disable fallback on domain match',
+                      subtitle:
+                          'Keep matching domains on their selected resolver.',
+                      value: _dnsSettings!.disableFallbackIfMatch,
+                      onChanged: (enabled) => _saveDnsSettings(
+                        _dnsSettings!.copyWith(disableFallbackIfMatch: enabled),
+                      ),
+                    ),
+                    _DnsSwitch(
+                      title: 'Disable DNS cache',
+                      subtitle:
+                          'Resolve through the configured servers each time.',
+                      value: _dnsSettings!.disableCache,
+                      onChanged: (enabled) => _saveDnsSettings(
+                        _dnsSettings!.copyWith(disableCache: enabled),
+                      ),
+                    ),
+                    _DnsSwitch(
+                      title: 'Serve stale DNS answers',
+                      subtitle: 'Return cached answers while refreshing them.',
+                      value: _dnsSettings!.serveStale,
+                      onChanged: (enabled) => _saveDnsSettings(
+                        _dnsSettings!.copyWith(serveStale: enabled),
+                      ),
+                    ),
+                    if (_dnsSettings!.serveStale)
+                      _MuxDropdown<int>(
+                        title: 'Stale answer lifetime',
+                        subtitle:
+                            'Seconds after the cached DNS record expires.',
+                        value: _dnsSettings!.serveExpiredTtl,
+                        values: const [0, 60, 300, 900, 3600, 86400],
+                        label: (seconds) => seconds == 0
+                            ? 'No extra limit'
+                            : '$seconds seconds',
+                        onChanged: (seconds) => _saveDnsSettings(
+                          _dnsSettings!.copyWith(serveExpiredTtl: seconds),
+                        ),
+                      ),
+                    _DnsSwitch(
+                      title: 'Use system hosts file',
+                      subtitle: 'Add device hosts mappings to Xray DNS.',
+                      value: _dnsSettings!.useSystemHosts,
+                      onChanged: (enabled) => _saveDnsSettings(
+                        _dnsSettings!.copyWith(useSystemHosts: enabled),
+                      ),
+                    ),
+                    _DnsSwitch(
+                      title: 'FakeDNS',
+                      subtitle:
+                          'Give domains synthetic IPs so Xray can recover their names.',
+                      value: _dnsSettings!.fakeDns,
+                      onChanged: (enabled) => _saveDnsSettings(
+                        _dnsSettings!.copyWith(fakeDns: enabled),
+                      ),
+                    ),
+                    if (_dnsSettings!.fakeDns) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        'FakeDNS is active in Xray. After disconnecting, cached synthetic addresses can briefly remain on the device.',
+                        style: TextStyle(color: muted, fontSize: 12),
+                      ),
+                    ],
+                  ],
+                  if (_dnsError != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      _dnsError!,
+                      style: const TextStyle(
+                        color: AppTheme.errorColor,
+                        fontSize: 12,
+                      ),
                     ),
                   ],
-                ),
-                if (_routingRules.isEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4, bottom: 4),
-                    child: Text(
-                      'Match domains, addresses, ports, processes, or HTTP traffic and send it through proxy, direct, or block.',
-                      style: TextStyle(color: muted, fontSize: 12),
-                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            _categoryHeader('Connection optimization'),
+            const SizedBox(height: 8),
+            FrostedCard(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Mux and XUDP',
+                    style: TextStyle(fontWeight: FontWeight.w700),
                   ),
-                for (final entry in _routingRules.indexed)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 6),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.surface.withValues(
-                          alpha: Theme.of(context).brightness == Brightness.dark
-                              ? .45
-                              : .72,
-                        ),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: Theme.of(
-                            context,
-                          ).dividerColor.withValues(alpha: .35),
+                  const SizedBox(height: 5),
+                  Text(
+                    'Controls how Xray reuses TCP connections and carries UDP. Changes apply after reconnecting.',
+                    style: TextStyle(color: muted, fontSize: 12),
+                  ),
+                  if (_muxSettings == null)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 12),
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  else ...[
+                    const SizedBox(height: 8),
+                    SwitchListTile.adaptive(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Enable Mux'),
+                      subtitle: Text(
+                        muxIncompatibility ?? 'Multiplex TCP connections',
+                      ),
+                      value: _muxSettings!.enabled,
+                      onChanged:
+                          muxIncompatibility != null && !_muxSettings!.enabled
+                          ? null
+                          : (enabled) => _saveMux(
+                              _muxSettings!.copyWith(enabled: enabled),
+                            ),
+                    ),
+                    if (_muxSettings!.enabled) ...[
+                      const SizedBox(height: 8),
+                      _MuxDropdown<int>(
+                        title: 'TCP concurrency',
+                        subtitle:
+                            'Maximum concurrent streams on one connection',
+                        value: _muxSettings!.concurrency,
+                        values: const [1, 2, 4, 8, 16, 32, 64, 128],
+                        onChanged: (value) => _saveMux(
+                          _muxSettings!.copyWith(concurrency: value),
                         ),
                       ),
-                      child: Row(
+                      const SizedBox(height: 12),
+                      _MuxDropdown<int>(
+                        title: 'XUDP concurrency',
+                        subtitle: 'UDP streams carried by XUDP',
+                        value: _muxSettings!.xudpConcurrency,
+                        values: const [
+                          1,
+                          4,
+                          8,
+                          16,
+                          32,
+                          64,
+                          128,
+                          256,
+                          512,
+                          1024,
+                        ],
+                        onChanged: (value) => _saveMux(
+                          _muxSettings!.copyWith(xudpConcurrency: value),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      _MuxDropdown<Udp443Behavior>(
+                        title: 'UDP/443 behavior',
+                        subtitle: 'Choose how QUIC traffic uses XUDP',
+                        value: _muxSettings!.udp443Behavior,
+                        values: Udp443Behavior.values,
+                        label: (value) => value.name,
+                        onChanged: (value) => _saveMux(
+                          _muxSettings!.copyWith(udp443Behavior: value),
+                        ),
+                      ),
+                    ],
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            _categoryHeader('Routing & privacy'),
+            const SizedBox(height: 8),
+            FrostedCard(
+              padding: const EdgeInsets.all(16),
+              child: InkWell(
+                onTap: Platform.isAndroid
+                    ? () => Navigator.of(
+                        context,
+                      ).push(appRoute(const AndroidAppRoutingScreen()))
+                    : null,
+                borderRadius: BorderRadius.circular(12),
+                child: Row(
+                  children: [
+                    const Icon(Icons.apps_outlined, size: 19),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Expanded(
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(12),
-                              onTap: _savingRouting
-                                  ? null
-                                  : () => _editRoutingRule(
-                                      rule: entry.$2,
-                                      index: entry.$1,
-                                    ),
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 10,
-                                ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      '${entry.$2.action.name.toUpperCase()}  ·  ${_routingRuleSummary(entry.$2)}',
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 3),
-                                    Text(
-                                      _routingRuleMatchers(entry.$2),
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        color: muted,
-                                        fontSize: 11,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
+                          const Text(
+                            'Apps outside the VPN',
+                            style: TextStyle(fontWeight: FontWeight.w700),
                           ),
-                          IconButton(
-                            tooltip: context.tr('Delete rule'),
-                            onPressed: _savingRouting
-                                ? null
-                                : () => _removeRoutingRule(entry.$1),
-                            icon: const Icon(Icons.close_rounded, size: 18),
+                          const SizedBox(height: 5),
+                          Text(
+                            Platform.isAndroid
+                                ? 'Choose Android apps that use your regular connection.'
+                                : 'App-based routing is supported on Android. Site rules work on this device.',
+                            style: TextStyle(color: muted, fontSize: 12),
                           ),
                         ],
                       ),
                     ),
-                  ),
-                if (_routingError != null) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    _routingError!,
-                    style: const TextStyle(
-                      color: AppTheme.errorColor,
-                      fontSize: 12,
+                    const SizedBox(width: 8),
+                    Icon(
+                      Platform.isAndroid
+                          ? Icons.chevron_right
+                          : Icons.lock_outline,
+                      size: 19,
+                      color: muted,
                     ),
-                  ),
-                ],
-                const SizedBox(height: 8),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton(
-                    key: const ValueKey('save-bypass-domains'),
-                    onPressed: _savingRouting ? null : _saveRouting,
-                    child: Text(_savingRouting ? 'Saving…' : 'Save routing'),
-                  ),
+                  ],
                 ),
-              ],
+              ),
             ),
-          ),
-          const SizedBox(height: 12),
-          _categoryHeader(context.tr('Traffic inspection')),
-          const SizedBox(height: 8),
-          FrostedCard(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Traffic sniffing',
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  'Detect destination names in tunneled traffic for Xray routing. Reconnect to apply.',
-                  style: TextStyle(color: muted, fontSize: 12),
-                ),
-                if (_sniffingSettings == null)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 12),
-                    child: Center(child: CircularProgressIndicator()),
-                  )
-                else ...[
-                  const SizedBox(height: 8),
-                  SwitchListTile.adaptive(
-                    key: const ValueKey('xray-sniffing-enabled'),
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Enable sniffing'),
-                    subtitle: const Text('Inspect traffic for route matching.'),
-                    value: _sniffingSettings!.enabled,
-                    onChanged: (enabled) => setState(() {
-                      _sniffingSettings = _sniffingSettings!.copyWith(
-                        enabled: enabled,
-                      );
-                    }),
+            const SizedBox(height: 12),
+            FrostedCard(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Sites outside the VPN',
+                    style: TextStyle(fontWeight: FontWeight.w700),
                   ),
+                  const SizedBox(height: 7),
                   Text(
-                    'Protocols',
+                    'Add one domain per line. Traffic to these sites uses your regular connection after the next VPN reconnect.',
                     style: TextStyle(color: muted, fontSize: 12),
                   ),
-                  const SizedBox(height: 5),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 4,
+                  const SizedBox(height: 12),
+                  TextField(
+                    key: const ValueKey('bypass-domain-field'),
+                    controller: _bypassController,
+                    minLines: 2,
+                    maxLines: 4,
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    keyboardType: TextInputType.multiline,
+                    decoration: InputDecoration(
+                      hintText: 'example.com',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
                     children: [
-                      for (final protocol in const [
-                        'http',
-                        'tls',
-                        'quic',
-                        'fakedns',
-                      ])
-                        FilterChip(
-                          key: ValueKey('xray-sniffing-$protocol'),
-                          label: Text(protocol.toUpperCase()),
-                          selected: protocol == 'fakedns'
-                              ? _dnsSettings?.fakeDns == true
-                              : _sniffingSettings!.destOverride.contains(
-                                  protocol,
-                                ),
-                          onSelected: protocol == 'fakedns'
-                              ? _dnsSettings == null
-                                    ? null
-                                    : (selected) => _saveDnsSettings(
-                                        _dnsSettings!.copyWith(
-                                          fakeDns: selected,
-                                        ),
-                                      )
-                              : (selected) => setState(() {
-                                  final overrides = [
-                                    ..._sniffingSettings!.destOverride,
-                                  ];
-                                  if (selected) {
-                                    overrides.add(protocol);
-                                  } else {
-                                    overrides.remove(protocol);
-                                  }
-                                  _sniffingSettings = _sniffingSettings!
-                                      .copyWith(destOverride: overrides);
-                                }),
+                      const Expanded(
+                        child: Text(
+                          'Advanced routing rules',
+                          style: TextStyle(fontWeight: FontWeight.w700),
                         ),
+                      ),
+                      TextButton.icon(
+                        key: const ValueKey('add-xray-routing-rule'),
+                        onPressed: _savingRouting
+                            ? null
+                            : () => _editRoutingRule(),
+                        icon: const Icon(Icons.add, size: 18),
+                        label: const Text('Add rule'),
+                      ),
                     ],
                   ),
-                  SwitchListTile.adaptive(
-                    key: const ValueKey('xray-sniffing-route-only'),
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Route-only'),
-                    subtitle: const Text(
-                      'Use the detected domain for rules; keep the original IP as the connection target.',
-                    ),
-                    value: _sniffingSettings!.routeOnly,
-                    onChanged: (enabled) => setState(() {
-                      _sniffingSettings = _sniffingSettings!.copyWith(
-                        routeOnly: enabled,
-                      );
-                    }),
-                  ),
-                  SwitchListTile.adaptive(
-                    key: const ValueKey('xray-sniffing-metadata-only'),
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Metadata-only'),
-                    subtitle: const Text(
-                      'Avoid reading application payloads. HTTP, TLS and QUIC content sniffers are disabled.',
-                    ),
-                    value: _sniffingSettings!.metadataOnly,
-                    onChanged: (enabled) => setState(() {
-                      _sniffingSettings = _sniffingSettings!.copyWith(
-                        metadataOnly: enabled,
-                      );
-                    }),
-                  ),
-                  if (_dnsSettings?.fakeDns == true)
+                  if (_routingRules.isEmpty)
                     Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
+                      padding: const EdgeInsets.only(top: 4, bottom: 4),
                       child: Text(
-                        'FakeDNS requires sniffing; Xray keeps FakeDNS recovery enabled while it is active.',
+                        'Match domains, addresses, ports, processes, or HTTP traffic and send it through proxy, direct, or block.',
                         style: TextStyle(color: muted, fontSize: 12),
                       ),
                     ),
-                  TextField(
-                    key: const ValueKey('xray-sniffing-excluded-domains'),
-                    controller: _sniffingDomainsController,
-                    minLines: 1,
-                    maxLines: 3,
-                    autocorrect: false,
-                    enableSuggestions: false,
-                    decoration: InputDecoration(
-                      labelText: context.tr('Excluded domains'),
-                      hintText: 'courier.push.apple.com\nfull:service.example',
-                      helperText: context.tr(
-                        'One Xray domain matcher per line.',
+                  for (final entry in _routingRules.indexed)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.surface
+                              .withValues(
+                                alpha:
+                                    Theme.of(context).brightness ==
+                                        Brightness.dark
+                                    ? .45
+                                    : .72,
+                              ),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: Theme.of(
+                              context,
+                            ).dividerColor.withValues(alpha: .35),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(12),
+                                onTap: _savingRouting
+                                    ? null
+                                    : () => _editRoutingRule(
+                                        rule: entry.$2,
+                                        index: entry.$1,
+                                      ),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 10,
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        '${entry.$2.action.name.toUpperCase()}  ·  ${_routingRuleSummary(entry.$2)}',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 3),
+                                      Text(
+                                        _routingRuleMatchers(entry.$2),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          color: muted,
+                                          fontSize: 11,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: context.tr('Delete rule'),
+                              onPressed: _savingRouting
+                                  ? null
+                                  : () => _removeRoutingRule(entry.$1),
+                              icon: const Icon(Icons.close_rounded, size: 18),
+                            ),
+                          ],
+                        ),
                       ),
-                      border: OutlineInputBorder(),
                     ),
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    key: const ValueKey('xray-sniffing-excluded-ips'),
-                    controller: _sniffingIpsController,
-                    minLines: 1,
-                    maxLines: 3,
-                    autocorrect: false,
-                    enableSuggestions: false,
-                    decoration: InputDecoration(
-                      labelText: context.tr('Excluded IPs'),
-                      hintText: '192.168.1.1\n2001:db8::/32',
-                      helperText: context.tr(
-                        'One IP, CIDR or geoip matcher per line.',
-                      ),
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  if (_sniffingError != null) ...[
+                  if (_routingError != null) ...[
                     const SizedBox(height: 8),
                     Text(
-                      _sniffingError!,
+                      _routingError!,
                       style: const TextStyle(
                         color: AppTheme.errorColor,
                         fontSize: 12,
@@ -2777,99 +2658,353 @@ class _XrayCoreSettingsScreenState
                   Align(
                     alignment: Alignment.centerRight,
                     child: TextButton(
-                      key: const ValueKey('save-xray-sniffing'),
-                      onPressed: _savingSniffing ? null : _saveSniffing,
-                      child: Text(
-                        _savingSniffing ? 'Saving…' : 'Save sniffing',
-                      ),
+                      key: const ValueKey('save-bypass-domains'),
+                      onPressed: _savingRouting ? null : _saveRouting,
+                      child: Text(_savingRouting ? 'Saving…' : 'Save routing'),
                     ),
                   ),
                 ],
-              ],
+              ),
             ),
-          ),
-          const SizedBox(height: 12),
-          FrostedCard(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                const Icon(Icons.memory_outlined, size: 19),
-                const SizedBox(width: 10),
-                const Expanded(
-                  child: Text(
-                    'Installed Xray core',
+            const SizedBox(height: 12),
+            _categoryHeader('Traffic inspection'),
+            const SizedBox(height: 8),
+            FrostedCard(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Traffic sniffing',
                     style: TextStyle(fontWeight: FontWeight.w700),
                   ),
-                ),
-                FutureBuilder<String>(
-                  future: _coreVersion,
-                  builder: (context, snapshot) => Text(
-                    snapshot.data ?? 'Checking…',
+                  const SizedBox(height: 5),
+                  Text(
+                    'Detect destination names in tunneled traffic for Xray routing. Reconnect to apply.',
                     style: TextStyle(color: muted, fontSize: 12),
                   ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-          _categoryHeader(context.tr('Advanced core options')),
-          const SizedBox(height: 8),
-          FrostedCard(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Core version guard',
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  'Xray itself blocks startup outside these optional version bounds. Leave both blank to clear the guard; reconnect to apply.',
-                  style: TextStyle(color: muted, fontSize: 12),
-                ),
-                if (_versionRequirement == null)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 12),
-                    child: Center(child: CircularProgressIndicator()),
-                  )
-                else ...[
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          key: const ValueKey('xray-version-minimum'),
-                          controller: _versionMinimumController,
-                          autocorrect: false,
-                          enableSuggestions: false,
-                          decoration: InputDecoration(
-                            labelText: context.tr('Minimum version'),
-                            hintText: '26.9.9',
-                            border: OutlineInputBorder(),
+                  if (_sniffingSettings == null)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 12),
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  else ...[
+                    const SizedBox(height: 8),
+                    SwitchListTile.adaptive(
+                      key: const ValueKey('xray-sniffing-enabled'),
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Enable sniffing'),
+                      subtitle: const Text(
+                        'Inspect traffic for route matching.',
+                      ),
+                      value: _sniffingSettings!.enabled,
+                      onChanged: (enabled) => setState(() {
+                        _sniffingSettings = _sniffingSettings!.copyWith(
+                          enabled: enabled,
+                        );
+                      }),
+                    ),
+                    Text(
+                      'Protocols',
+                      style: TextStyle(color: muted, fontSize: 12),
+                    ),
+                    const SizedBox(height: 5),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 4,
+                      children: [
+                        for (final protocol in const [
+                          'http',
+                          'tls',
+                          'quic',
+                          'fakedns',
+                        ])
+                          FilterChip(
+                            key: ValueKey('xray-sniffing-$protocol'),
+                            label: Text(protocol.toUpperCase()),
+                            selected: protocol == 'fakedns'
+                                ? _dnsSettings?.fakeDns == true
+                                : _sniffingSettings!.destOverride.contains(
+                                    protocol,
+                                  ),
+                            onSelected: protocol == 'fakedns'
+                                ? _dnsSettings == null
+                                      ? null
+                                      : (selected) => _saveDnsSettings(
+                                          _dnsSettings!.copyWith(
+                                            fakeDns: selected,
+                                          ),
+                                        )
+                                : (selected) => setState(() {
+                                    final overrides = [
+                                      ..._sniffingSettings!.destOverride,
+                                    ];
+                                    if (selected) {
+                                      overrides.add(protocol);
+                                    } else {
+                                      overrides.remove(protocol);
+                                    }
+                                    _sniffingSettings = _sniffingSettings!
+                                        .copyWith(destOverride: overrides);
+                                  }),
                           ),
+                      ],
+                    ),
+                    SwitchListTile.adaptive(
+                      key: const ValueKey('xray-sniffing-route-only'),
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Route-only'),
+                      subtitle: const Text(
+                        'Use the detected domain for rules; keep the original IP as the connection target.',
+                      ),
+                      value: _sniffingSettings!.routeOnly,
+                      onChanged: (enabled) => setState(() {
+                        _sniffingSettings = _sniffingSettings!.copyWith(
+                          routeOnly: enabled,
+                        );
+                      }),
+                    ),
+                    SwitchListTile.adaptive(
+                      key: const ValueKey('xray-sniffing-metadata-only'),
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Metadata-only'),
+                      subtitle: const Text(
+                        'Avoid reading application payloads. HTTP, TLS and QUIC content sniffers are disabled.',
+                      ),
+                      value: _sniffingSettings!.metadataOnly,
+                      onChanged: (enabled) => setState(() {
+                        _sniffingSettings = _sniffingSettings!.copyWith(
+                          metadataOnly: enabled,
+                        );
+                      }),
+                    ),
+                    if (_dnsSettings?.fakeDns == true)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: Text(
+                          'FakeDNS requires sniffing; Xray keeps FakeDNS recovery enabled while it is active.',
+                          style: TextStyle(color: muted, fontSize: 12),
                         ),
                       ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: TextField(
-                          key: const ValueKey('xray-version-maximum'),
-                          controller: _versionMaximumController,
-                          autocorrect: false,
-                          enableSuggestions: false,
-                          decoration: InputDecoration(
-                            labelText: context.tr('Maximum version'),
-                            hintText: '26.9.9',
-                            border: OutlineInputBorder(),
-                          ),
+                    TextField(
+                      key: const ValueKey('xray-sniffing-excluded-domains'),
+                      controller: _sniffingDomainsController,
+                      minLines: 1,
+                      maxLines: 3,
+                      autocorrect: false,
+                      enableSuggestions: false,
+                      decoration: InputDecoration(
+                        labelText: context.tr('Excluded domains'),
+                        hintText:
+                            'courier.push.apple.com\nfull:service.example',
+                        helperText: context.tr(
+                          'One Xray domain matcher per line.',
+                        ),
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      key: const ValueKey('xray-sniffing-excluded-ips'),
+                      controller: _sniffingIpsController,
+                      minLines: 1,
+                      maxLines: 3,
+                      autocorrect: false,
+                      enableSuggestions: false,
+                      decoration: InputDecoration(
+                        labelText: context.tr('Excluded IPs'),
+                        hintText: '192.168.1.1\n2001:db8::/32',
+                        helperText: context.tr(
+                          'One IP, CIDR or geoip matcher per line.',
+                        ),
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    if (_sniffingError != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        _sniffingError!,
+                        style: const TextStyle(
+                          color: AppTheme.errorColor,
+                          fontSize: 12,
                         ),
                       ),
                     ],
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        key: const ValueKey('save-xray-sniffing'),
+                        onPressed: _savingSniffing ? null : _saveSniffing,
+                        child: Text(
+                          _savingSniffing ? 'Saving…' : 'Save sniffing',
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            FrostedCard(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  const Icon(Icons.memory_outlined, size: 19),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Text(
+                      'Installed Xray core',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
                   ),
-                  if (_versionRequirementError != null) ...[
+                  FutureBuilder<String>(
+                    future: _coreVersion,
+                    builder: (context, snapshot) => Text(
+                      snapshot.data ?? 'Checking…',
+                      style: TextStyle(color: muted, fontSize: 12),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            _categoryHeader('Advanced core options'),
+            const SizedBox(height: 8),
+            FrostedCard(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Core version guard',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    'Xray itself blocks startup outside these optional version bounds. Leave both blank to clear the guard; reconnect to apply.',
+                    style: TextStyle(color: muted, fontSize: 12),
+                  ),
+                  if (_versionRequirement == null)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 12),
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  else ...[
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            key: const ValueKey('xray-version-minimum'),
+                            controller: _versionMinimumController,
+                            autocorrect: false,
+                            enableSuggestions: false,
+                            decoration: InputDecoration(
+                              labelText: context.tr('Minimum version'),
+                              hintText: '26.9.9',
+                              border: OutlineInputBorder(),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: TextField(
+                            key: const ValueKey('xray-version-maximum'),
+                            controller: _versionMaximumController,
+                            autocorrect: false,
+                            enableSuggestions: false,
+                            decoration: InputDecoration(
+                              labelText: context.tr('Maximum version'),
+                              hintText: '26.9.9',
+                              border: OutlineInputBorder(),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (_versionRequirementError != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        _versionRequirementError!,
+                        style: const TextStyle(
+                          color: AppTheme.errorColor,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton.icon(
+                        key: const ValueKey('save-xray-version-guard'),
+                        onPressed: _savingVersionRequirement
+                            ? null
+                            : _saveVersionRequirement,
+                        icon: _savingVersionRequirement
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.save_outlined, size: 17),
+                        label: Text(
+                          _savingVersionRequirement ? 'Saving…' : 'Save guard',
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            FrostedCard(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'FinalMask',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    'Configure Xray TCP and UDP masks or QUIC tuning for the selected proxy. The core validates mask-specific options when you connect.',
+                    style: TextStyle(color: muted, fontSize: 12),
+                  ),
+                  const SizedBox(height: 12),
+                  if (_finalMaskSettings == null)
+                    const Center(child: CircularProgressIndicator())
+                  else
+                    TextField(
+                      key: const ValueKey('xray-finalmask-field'),
+                      controller: _finalMaskController,
+                      minLines: 4,
+                      maxLines: 10,
+                      autocorrect: false,
+                      enableSuggestions: false,
+                      keyboardType: TextInputType.multiline,
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 12,
+                      ),
+                      decoration: InputDecoration(
+                        labelText: context.tr('FinalMask object'),
+                        hintText:
+                            '{"tcp":[{"type":"fragment","settings":{"packets":"tlshello","lengths":["100-200"]}}]}',
+                        helperText: context.tr(
+                          'Use Xray FinalMask JSON: tcp, udp, and/or quicParams. Leave {} to remove app-level overrides.',
+                        ),
+                        alignLabelWithHint: true,
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  if (_finalMaskError != null) ...[
                     const SizedBox(height: 8),
                     Text(
-                      _versionRequirementError!,
+                      _finalMaskError!,
                       style: const TextStyle(
                         color: AppTheme.errorColor,
                         fontSize: 12,
@@ -2880,11 +3015,11 @@ class _XrayCoreSettingsScreenState
                   Align(
                     alignment: Alignment.centerRight,
                     child: TextButton.icon(
-                      key: const ValueKey('save-xray-version-guard'),
-                      onPressed: _savingVersionRequirement
+                      key: const ValueKey('save-xray-finalmask'),
+                      onPressed: _savingFinalMask || _finalMaskSettings == null
                           ? null
-                          : _saveVersionRequirement,
-                      icon: _savingVersionRequirement
+                          : _saveFinalMask,
+                      icon: _savingFinalMask
                           ? const SizedBox(
                               width: 16,
                               height: 16,
@@ -2892,38 +3027,34 @@ class _XrayCoreSettingsScreenState
                             )
                           : const Icon(Icons.save_outlined, size: 17),
                       label: Text(
-                        _savingVersionRequirement ? 'Saving…' : 'Save guard',
+                        _savingFinalMask ? 'Saving…' : 'Save FinalMask',
                       ),
                     ),
                   ),
                 ],
-              ],
+              ),
             ),
-          ),
-          const SizedBox(height: 12),
-          FrostedCard(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'FinalMask',
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  'Configure Xray TCP and UDP masks or QUIC tuning for the selected proxy. The core validates mask-specific options when you connect.',
-                  style: TextStyle(color: muted, fontSize: 12),
-                ),
-                const SizedBox(height: 12),
-                if (_finalMaskSettings == null)
-                  const Center(child: CircularProgressIndicator())
-                else
+            const SizedBox(height: 12),
+            FrostedCard(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Custom Xray JSON',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    'Merge advanced Xray options into every imported server. Object fields merge recursively; arrays replace the matching field. Reconnect to apply. Invalid core options prevent connection.',
+                    style: TextStyle(color: muted, fontSize: 12),
+                  ),
+                  const SizedBox(height: 12),
                   TextField(
-                    key: const ValueKey('xray-finalmask-field'),
-                    controller: _finalMaskController,
-                    minLines: 4,
-                    maxLines: 10,
+                    key: const ValueKey('xray-custom-config-field'),
+                    controller: _customConfigController,
+                    minLines: 5,
+                    maxLines: 14,
                     autocorrect: false,
                     enableSuggestions: false,
                     keyboardType: TextInputType.multiline,
@@ -2932,175 +3063,188 @@ class _XrayCoreSettingsScreenState
                       fontSize: 12,
                     ),
                     decoration: InputDecoration(
-                      labelText: context.tr('FinalMask object'),
-                      hintText:
-                          '{"tcp":[{"type":"fragment","settings":{"packets":"tlshello","lengths":["100-200"]}}]}',
-                      helperText: context.tr(
-                        'Use Xray FinalMask JSON: tcp, udp, and/or quicParams. Leave {} to remove app-level overrides.',
-                      ),
+                      labelText: context.tr('Xray config object'),
+                      hintText: '{"routing":{"domainStrategy":"IPIfNonMatch"}}',
                       alignLabelWithHint: true,
                       border: OutlineInputBorder(),
                     ),
                   ),
-                if (_finalMaskError != null) ...[
+                  if (_customConfigError != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      _customConfigError!,
+                      style: const TextStyle(
+                        color: AppTheme.errorColor,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 8),
-                  Text(
-                    _finalMaskError!,
-                    style: const TextStyle(
-                      color: AppTheme.errorColor,
-                      fontSize: 12,
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton.icon(
+                      key: const ValueKey('save-custom-xray-config'),
+                      onPressed: _savingCustomConfig ? null : _saveCustomConfig,
+                      icon: _savingCustomConfig
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.save_outlined, size: 17),
+                      label: Text(
+                        _savingCustomConfig ? 'Saving…' : 'Save JSON',
+                      ),
                     ),
                   ),
                 ],
-                const SizedBox(height: 8),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton.icon(
-                    key: const ValueKey('save-xray-finalmask'),
-                    onPressed: _savingFinalMask || _finalMaskSettings == null
-                        ? null
-                        : _saveFinalMask,
-                    icon: _savingFinalMask
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.save_outlined, size: 17),
-                    label: Text(
-                      _savingFinalMask ? 'Saving…' : 'Save FinalMask',
-                    ),
-                  ),
-                ),
-              ],
+              ),
             ),
-          ),
-          const SizedBox(height: 12),
-          FrostedCard(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Custom Xray JSON',
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  'Merge advanced Xray options into every imported server. Object fields merge recursively; arrays replace the matching field. Reconnect to apply. Invalid core options prevent connection.',
-                  style: TextStyle(color: muted, fontSize: 12),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  key: const ValueKey('xray-custom-config-field'),
-                  controller: _customConfigController,
-                  minLines: 5,
-                  maxLines: 14,
-                  autocorrect: false,
-                  enableSuggestions: false,
-                  keyboardType: TextInputType.multiline,
-                  style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-                  decoration: InputDecoration(
-                    labelText: context.tr('Xray config object'),
-                    hintText: '{"routing":{"domainStrategy":"IPIfNonMatch"}}',
-                    alignLabelWithHint: true,
-                    border: OutlineInputBorder(),
+            const SizedBox(height: 12),
+            FrostedCard(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Xray logs',
+                    style: TextStyle(fontWeight: FontWeight.w700),
                   ),
-                ),
-                if (_customConfigError != null) ...[
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 5),
                   Text(
-                    _customConfigError!,
-                    style: const TextStyle(
-                      color: AppTheme.errorColor,
-                      fontSize: 12,
+                    'Choose which sanitized Xray diagnostics are captured. Raw connection details and file logs stay disabled.',
+                    style: TextStyle(color: muted, fontSize: 12),
+                  ),
+                  const SizedBox(height: 12),
+                  if (_logLevel == null)
+                    const Center(child: CircularProgressIndicator())
+                  else
+                    _DropdownMenuField<XrayLogLevel>(
+                      title: 'Log level',
+                      value: _logLevel!,
+                      values: XrayLogLevel.values,
+                      label: (level) => level.label,
+                      onSelected: _saveLogLevel,
                     ),
-                  ),
-                ],
-                const SizedBox(height: 8),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton.icon(
-                    key: const ValueKey('save-custom-xray-config'),
-                    onPressed: _savingCustomConfig ? null : _saveCustomConfig,
-                    icon: _savingCustomConfig
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.save_outlined, size: 17),
-                    label: Text(_savingCustomConfig ? 'Saving…' : 'Save JSON'),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-          FrostedCard(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Xray logs',
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  'Choose which sanitized Xray diagnostics are captured. Raw connection details and file logs stay disabled.',
-                  style: TextStyle(color: muted, fontSize: 12),
-                ),
-                const SizedBox(height: 12),
-                if (_logLevel == null)
-                  const Center(child: CircularProgressIndicator())
-                else
-                  _DropdownMenuField<XrayLogLevel>(
-                    title: 'Log level',
-                    value: _logLevel!,
-                    values: XrayLogLevel.values,
-                    label: (level) => level.label,
-                    onSelected: _saveLogLevel,
-                  ),
-                if (_logError != null) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    _logError!,
-                    style: const TextStyle(
-                      color: AppTheme.errorColor,
-                      fontSize: 12,
+                  if (_logError != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      _logError!,
+                      style: const TextStyle(
+                        color: AppTheme.errorColor,
+                        fontSize: 12,
+                      ),
                     ),
-                  ),
+                  ],
                 ],
-              ],
+              ),
             ),
-          ),
-          const SizedBox(height: 12),
-        ],
+            const SizedBox(height: 12),
+          ],
+          expandedSections: _expandedXraySections,
+          onToggle: (title) => setState(() {
+            if (!_expandedXraySections.add(title)) {
+              _expandedXraySections.remove(title);
+            }
+          }),
+        ),
       ),
     );
   }
 }
 
-Widget _categoryHeader(String title) => Builder(
-  builder: (context) {
-    final muted = Theme.of(context).brightness == Brightness.dark
-        ? AppTheme.foregroundMuted
-        : AppTheme.lightForegroundMuted;
-    return Padding(
-      padding: const EdgeInsets.only(left: 3, top: 2),
-      child: Text(
-        title.toUpperCase(),
-        style: TextStyle(
-          color: muted,
-          fontSize: 9,
-          fontWeight: FontWeight.w800,
-          letterSpacing: 1.1,
+Widget _categoryHeader(String title) => _XraySettingsSectionMarker(title);
+
+List<Widget> _groupXraySettings(
+  BuildContext context,
+  List<Widget> content, {
+  required Set<String> expandedSections,
+  required ValueChanged<String> onToggle,
+}) {
+  final sections = <String, List<Widget>>{};
+  String? active;
+  for (final widget in content) {
+    if (widget is _XraySettingsSectionMarker) {
+      active = widget.title;
+      sections.putIfAbsent(active, () => <Widget>[]);
+    } else if (active != null) {
+      sections[active]!.add(widget);
+    }
+  }
+
+  final icons = <String, IconData>{
+    'Protocol & identity': Icons.badge_outlined,
+    'Transport & TLS': Icons.swap_horiz_rounded,
+    'Network behavior': Icons.route_outlined,
+    'Core behavior & statistics': Icons.tune_rounded,
+    'DNS & name resolution': Icons.dns_outlined,
+    'Connection optimization': Icons.speed_rounded,
+    'Routing & privacy': Icons.alt_route_rounded,
+    'Traffic inspection': Icons.visibility_outlined,
+    'Advanced core options': Icons.settings_suggest_outlined,
+  };
+  return [
+    for (final entry in sections.entries)
+      Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: FrostedCard(
+          padding: EdgeInsets.zero,
+          borderRadius: 14,
+          child: Column(
+            children: [
+              ListTile(
+                key: ValueKey('xray-section-${entry.key}'),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 13),
+                leading: Icon(icons[entry.key] ?? Icons.tune_rounded, size: 18),
+                title: Text(
+                  context.tr(entry.key),
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                subtitle: Text(
+                  context.tr('Tap to view options'),
+                  style: const TextStyle(fontSize: 10),
+                ),
+                trailing: Icon(
+                  expandedSections.contains(entry.key)
+                      ? Icons.keyboard_arrow_up_rounded
+                      : Icons.keyboard_arrow_down_rounded,
+                  size: 20,
+                ),
+                onTap: () => onToggle(entry.key),
+              ),
+              if (expandedSections.contains(entry.key))
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(11, 0, 11, 11),
+                  child: TweenAnimationBuilder<double>(
+                    tween: Tween(begin: 0, end: 1),
+                    duration: const Duration(milliseconds: 180),
+                    curve: Curves.easeOutCubic,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: entry.value,
+                    ),
+                    builder: (context, opacity, child) =>
+                        Opacity(opacity: opacity, child: child),
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
-    );
-  },
-);
+  ];
+}
+
+class _XraySettingsSectionMarker extends StatelessWidget {
+  const _XraySettingsSectionMarker(this.title);
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
+}
 
 String _routingRuleSummary(XrayRoutingRule rule) {
   final parts = <String>[
@@ -3522,7 +3666,7 @@ class _RoutingRuleDialogState extends State<_RoutingRuleDialog> {
                     maxLength: 128,
                     decoration: InputDecoration(
                       labelText: context.tr('Rule name (optional)'),
-                      hintText: 'Direct local API',
+                      hintText: context.tr('Direct local API'),
                       border: OutlineInputBorder(),
                     ),
                   ),

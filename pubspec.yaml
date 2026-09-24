@@ -98,6 +98,14 @@ flutter:
     - assets/tray_icon_macos.png
     - assets/tray_icon_windows.ico
     - assets/tray_icon_linux.png
+    - assets/tray_icon_idle.png
+    - assets/tray_icon_connected_0.png
+    - assets/tray_icon_connected_1.png
+    - assets/tray_icon_connected_2.png
+    - assets/tray_icon_connected_3.png
+    - assets/tray_icon_connected_4.png
+    - assets/tray_icon_connected_5.png
+    - assets/tray_icon_error.png
 
   # To add assets to your application, add an assets section, like this:
   # assets:

@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/cupertino.dart' as cupertino;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -21,6 +22,113 @@ import 'package:oculve/core/theme/app_theme.dart';
 import 'package:oculve/core/network/oculve_api.dart';
 import 'package:oculve/features/auth/data/auth_repository.dart';
 import 'profile_test.dart' show testLink;
+
+extension _WidgetTesterXrayScrolling on WidgetTester {
+  Future<void> scrollXrayUntilVisible(
+    Finder target,
+    double delta, {
+    required Finder scrollable,
+    int maxScrolls = 100,
+  }) async {
+    final list = scrollable;
+    final viewportFinder = find
+        .descendant(of: list, matching: find.byType(Viewport))
+        .first;
+    final position = Scrollable.of(element(viewportFinder)).position;
+    final viewport = getRect(viewportFinder);
+    for (var attempt = 0; attempt < maxScrolls; attempt++) {
+      if (target.evaluate().isEmpty) {
+        position.jumpTo(
+          (position.pixels + delta)
+              .clamp(position.minScrollExtent, position.maxScrollExtent)
+              .toDouble(),
+        );
+        await pump(const Duration(milliseconds: 16));
+        continue;
+      }
+      final rect = getRect(target);
+      if (rect.top >= viewport.top + 8 && rect.bottom <= viewport.bottom - 8) {
+        return;
+      }
+      final correction = rect.center.dy - viewport.center.dy;
+      final next = (position.pixels + correction).clamp(
+        position.minScrollExtent,
+        position.maxScrollExtent,
+      );
+      if ((next - position.pixels).abs() < 1) break;
+      position.jumpTo(next.toDouble());
+      await pump(const Duration(milliseconds: 16));
+    }
+    expect(target, findsOneWidget);
+    final targetRect = getRect(target);
+    expect(
+      targetRect.top >= viewport.top && targetRect.bottom <= viewport.bottom,
+      isTrue,
+      reason:
+          'Xray setting is outside the viewport: target=$targetRect, '
+          'viewport=$viewport, offset=${position.pixels}/${position.maxScrollExtent}',
+    );
+  }
+}
+
+Future<void> _expandXraySettings(
+  WidgetTester tester, [
+  List<String> sections = const [
+    'Protocol & identity',
+    'Transport & TLS',
+    'Network behavior',
+    'Core behavior & statistics',
+    'DNS & name resolution',
+    'Connection optimization',
+    'Routing & privacy',
+    'Traffic inspection',
+    'Advanced core options',
+  ],
+]) async {
+  await tester.pump(const Duration(seconds: 1));
+  final list = find.byKey(const ValueKey('xray-core-settings-list'));
+  final viewportFinder = find
+      .descendant(of: list, matching: find.byType(Viewport))
+      .first;
+  final position = Scrollable.of(tester.element(viewportFinder)).position;
+  final viewport = tester.getRect(viewportFinder);
+  for (final title in sections) {
+    final section = find.byKey(ValueKey('xray-section-$title'));
+    var scrolls = 0;
+    bool fullyVisible() {
+      if (section.evaluate().isEmpty) return false;
+      final rect = tester.getRect(section);
+      return rect.top >= viewport.top + 8 && rect.bottom <= viewport.bottom - 8;
+    }
+
+    while (!fullyVisible() && scrolls < 50) {
+      if (section.evaluate().isEmpty) {
+        position.jumpTo(
+          (position.pixels + 240)
+              .clamp(position.minScrollExtent, position.maxScrollExtent)
+              .toDouble(),
+        );
+      } else {
+        final rect = tester.getRect(section);
+        position.jumpTo(
+          (position.pixels + rect.center.dy - viewport.center.dy)
+              .clamp(position.minScrollExtent, position.maxScrollExtent)
+              .toDouble(),
+        );
+      }
+      await tester.pump(const Duration(milliseconds: 16));
+      scrolls++;
+    }
+    expect(
+      section,
+      findsOneWidget,
+      reason: 'Could not find Xray section $title',
+    );
+    expect(fullyVisible(), isTrue, reason: 'Xray section $title is offscreen');
+    await tester.tap(section);
+    await tester.pump(const Duration(milliseconds: 400));
+  }
+}
 
 class _AccountSession extends SessionController {
   int refreshCount = 0;
@@ -155,7 +263,7 @@ void main() {
       expect(find.byTooltip('Show code'), findsNothing);
       expect(find.text('Export'), findsNothing);
       final blur = find.byType(TweenAnimationBuilder<double>);
-      expect(tester.widget<TweenAnimationBuilder<double>>(blur).tween.end, 8);
+      expect(tester.widget<TweenAnimationBuilder<double>>(blur).tween.end, 6.5);
       expect(find.text('Premium'), findsOneWidget);
       expect(find.text('SUBSCRIPTION LINK'), findsNothing);
       expect(find.textContaining('d remaining'), findsOneWidget);
@@ -227,10 +335,18 @@ void main() {
       );
       await tester.tap(find.text('Delete account'));
       await tester.pump(const Duration(milliseconds: 300));
-      expect(find.textContaining('Type DELETE MY ACCOUNT'), findsOneWidget);
-      await tester.tap(find.text('Continue'));
+      expect(
+        find.textContaining('Type the phrase below to confirm.'),
+        findsOneWidget,
+      );
+      final confirmation = find.byType(cupertino.CupertinoTextField);
+      await tester.enterText(confirmation, 'DELETE MY ACCOUNT');
+      await tester.pump();
+      await tester.tap(find.text('Delete account').last);
       await tester.pump(const Duration(milliseconds: 300));
-      expect(find.text('Permanently delete?'), findsNothing);
+      expect(find.text('Permanently delete?'), findsOneWidget);
+      await tester.tap(find.text('Cancel').last);
+      await tester.pump(const Duration(milliseconds: 300));
       expect(tester.takeException(), isNull);
     },
   );
@@ -409,23 +525,20 @@ void main() {
       ),
     );
     await tester.pump();
-    await tester.scrollUntilVisible(
+    await _expandXraySettings(tester, ['Routing & privacy']);
+    await tester.scrollXrayUntilVisible(
       find.byKey(const ValueKey('bypass-domain-field')),
       160,
-      scrollable: find.byType(Scrollable).first,
+      scrollable: find.byKey(const ValueKey('xray-core-settings-list')),
     );
     await tester.enterText(
       find.byKey(const ValueKey('bypass-domain-field')),
       'EXAMPLE.com\nsub.example.com',
     );
-    await tester.scrollUntilVisible(
+    await tester.scrollXrayUntilVisible(
       find.byKey(const ValueKey('save-bypass-domains')),
       160,
-      scrollable: find.byType(Scrollable).first,
-    );
-    await Scrollable.ensureVisible(
-      tester.element(find.byKey(const ValueKey('save-bypass-domains'))),
-      alignment: 0.5,
+      scrollable: find.byKey(const ValueKey('xray-core-settings-list')),
     );
     await tester.pump(const Duration(milliseconds: 250));
     await tester.pump(const Duration(milliseconds: 250));
@@ -454,13 +567,13 @@ void main() {
       ),
     );
     await tester.pump();
+    await _expandXraySettings(tester, ['Routing & privacy']);
     final addRule = find.byKey(const ValueKey('add-xray-routing-rule'));
-    await tester.scrollUntilVisible(
+    await tester.scrollXrayUntilVisible(
       addRule,
       160,
-      scrollable: find.byType(Scrollable).first,
+      scrollable: find.byKey(const ValueKey('xray-core-settings-list')),
     );
-    await Scrollable.ensureVisible(tester.element(addRule), alignment: 0.5);
     await tester.pump(const Duration(milliseconds: 250));
     await tester.tap(addRule);
     await tester.pump(const Duration(milliseconds: 300));
@@ -499,12 +612,11 @@ void main() {
     await tester.tap(find.text('Done'));
     await tester.pump(const Duration(milliseconds: 300));
     final save = find.byKey(const ValueKey('save-bypass-domains'));
-    await tester.scrollUntilVisible(
+    await tester.scrollXrayUntilVisible(
       save,
       160,
-      scrollable: find.byType(Scrollable).first,
+      scrollable: find.byKey(const ValueKey('xray-core-settings-list')),
     );
-    await Scrollable.ensureVisible(tester.element(save), alignment: 0.5);
     await tester.pump(const Duration(milliseconds: 250));
     await tester.tap(save);
     await tester.pump(const Duration(milliseconds: 300));
@@ -538,14 +650,14 @@ void main() {
       ),
     );
     await tester.pump(const Duration(milliseconds: 100));
+    await _expandXraySettings(tester, ['Traffic inspection']);
 
     final routeOnly = find.byKey(const ValueKey('xray-sniffing-route-only'));
-    await tester.scrollUntilVisible(
+    await tester.scrollXrayUntilVisible(
       routeOnly,
       150,
-      scrollable: find.byType(Scrollable).first,
+      scrollable: find.byKey(const ValueKey('xray-core-settings-list')),
     );
-    await Scrollable.ensureVisible(tester.element(routeOnly), alignment: 0.4);
     await tester.pump(const Duration(milliseconds: 200));
     await tester.tap(routeOnly);
     await tester.pump(const Duration(milliseconds: 100));
@@ -553,10 +665,10 @@ void main() {
     final domains = find.byKey(
       const ValueKey('xray-sniffing-excluded-domains'),
     );
-    await tester.scrollUntilVisible(
+    await tester.scrollXrayUntilVisible(
       domains,
       150,
-      scrollable: find.byType(Scrollable).first,
+      scrollable: find.byKey(const ValueKey('xray-core-settings-list')),
     );
     await tester.enterText(domains, 'push.example.com\nfull:api.example.com');
     await tester.enterText(
@@ -564,12 +676,11 @@ void main() {
       '192.168.1.0/24',
     );
     final save = find.byKey(const ValueKey('save-xray-sniffing'));
-    await tester.scrollUntilVisible(
+    await tester.scrollXrayUntilVisible(
       save,
       120,
-      scrollable: find.byType(Scrollable).first,
+      scrollable: find.byKey(const ValueKey('xray-core-settings-list')),
     );
-    await Scrollable.ensureVisible(tester.element(save), alignment: 0.5);
     await tester.pump(const Duration(milliseconds: 200));
     await tester.tap(save);
     await tester.pump(const Duration(milliseconds: 300));
@@ -600,14 +711,14 @@ void main() {
       ),
     );
     await tester.pump(const Duration(milliseconds: 150));
+    await _expandXraySettings(tester, ['Traffic inspection']);
 
     final fakeDnsChip = find.byKey(const ValueKey('xray-sniffing-fakedns'));
-    await tester.scrollUntilVisible(
+    await tester.scrollXrayUntilVisible(
       fakeDnsChip,
       150,
-      scrollable: find.byType(Scrollable).first,
+      scrollable: find.byKey(const ValueKey('xray-core-settings-list')),
     );
-    await Scrollable.ensureVisible(tester.element(fakeDnsChip), alignment: 0.4);
     await tester.pump(const Duration(milliseconds: 200));
     await tester.tap(fakeDnsChip);
     await tester.pump(const Duration(milliseconds: 300));
@@ -653,6 +764,7 @@ void main() {
         ),
       );
       await tester.pump(const Duration(milliseconds: 100));
+      await _expandXraySettings(tester, ['Connection optimization']);
       final settingsList = find.byKey(
         const ValueKey('xray-core-settings-list'),
       );
@@ -691,10 +803,11 @@ void main() {
       ),
     );
     await tester.pump(const Duration(milliseconds: 150));
-    await tester.scrollUntilVisible(
+    await _expandXraySettings(tester, ['DNS & name resolution']);
+    await tester.scrollXrayUntilVisible(
       find.byKey(const ValueKey('dns-servers-field')),
       140,
-      scrollable: find.byType(Scrollable).first,
+      scrollable: find.byKey(const ValueKey('xray-core-settings-list')),
     );
     await tester.enterText(
       find.byKey(const ValueKey('dns-servers-field')),
@@ -704,12 +817,17 @@ void main() {
       find.byKey(const ValueKey('dns-hosts-field')),
       'example.test=192.0.2.15',
     );
-    await tester.scrollUntilVisible(
+    await tester.scrollXrayUntilVisible(
       find.text('Save DNS'),
       120,
-      scrollable: find.byType(Scrollable).first,
+      scrollable: find.byKey(const ValueKey('xray-core-settings-list')),
     );
-    await tester.tap(find.text('Save DNS'));
+    await tester.tap(
+      find.ancestor(
+        of: find.text('Save DNS'),
+        matching: find.byType(TextButton),
+      ),
+    );
     await tester.pump(const Duration(milliseconds: 300));
     final saved = await XrayPreferences.dnsSettings();
     expect(saved.servers, ['https://dns.google/dns-query', 'tcp://9.9.9.10']);
@@ -746,13 +864,11 @@ void main() {
       ),
     );
     await tester.pump(const Duration(milliseconds: 150));
-    final settingsScroll = find
-        .descendant(
-          of: find.byType(ListView).first,
-          matching: find.byType(Scrollable),
-        )
-        .first;
-    await tester.scrollUntilVisible(
+    await _expandXraySettings(tester, ['Transport & TLS']);
+    final settingsScroll = find.byKey(
+      const ValueKey('xray-core-settings-list'),
+    );
+    await tester.scrollXrayUntilVisible(
       find.byKey(const ValueKey('tls-server-name-field')),
       140,
       scrollable: settingsScroll,
@@ -761,10 +877,19 @@ void main() {
       find.byKey(const ValueKey('tls-server-name-field')),
       'front.example',
     );
-    await tester.ensureVisible(find.text('Advanced TLS'));
-    await tester.tap(find.text('Advanced TLS'));
+    await tester.scrollXrayUntilVisible(
+      find.text('Advanced TLS'),
+      120,
+      scrollable: settingsScroll,
+    );
+    await tester.tap(
+      find.ancestor(
+        of: find.text('Advanced TLS'),
+        matching: find.byType(ListTile),
+      ),
+    );
     await tester.pump(const Duration(milliseconds: 250));
-    await tester.scrollUntilVisible(
+    await tester.scrollXrayUntilVisible(
       find.byKey(const ValueKey('tls-native-fingerprint-field')),
       120,
       scrollable: settingsScroll,
@@ -773,7 +898,7 @@ void main() {
       find.byKey(const ValueKey('tls-native-fingerprint-field')),
       'HelloChrome_120',
     );
-    await tester.scrollUntilVisible(
+    await tester.scrollXrayUntilVisible(
       find.byKey(const ValueKey('tls-alpn-field')),
       120,
       scrollable: settingsScroll,
@@ -808,13 +933,11 @@ void main() {
       ),
     );
     await tester.pump(const Duration(milliseconds: 150));
-    final settingsScroll = find
-        .descendant(
-          of: find.byType(ListView).first,
-          matching: find.byType(Scrollable),
-        )
-        .first;
-    await tester.scrollUntilVisible(
+    await _expandXraySettings(tester, ['Transport & TLS']);
+    final settingsScroll = find.byKey(
+      const ValueKey('xray-core-settings-list'),
+    );
+    await tester.scrollXrayUntilVisible(
       find.byKey(const ValueKey('xhttp-host-field')),
       160,
       scrollable: settingsScroll,
@@ -852,13 +975,14 @@ void main() {
       ),
     );
     await tester.pump(const Duration(milliseconds: 150));
+    await _expandXraySettings(tester, ['Network behavior']);
     final fastOpenField = find.byKey(
       const ValueKey('xray-dropdown-TCP Fast Open'),
     );
-    await tester.scrollUntilVisible(
+    await tester.scrollXrayUntilVisible(
       fastOpenField,
       240,
-      scrollable: find.byType(Scrollable).first,
+      scrollable: find.byKey(const ValueKey('xray-core-settings-list')),
     );
     expect(fastOpenField, findsOneWidget);
     await tester.ensureVisible(fastOpenField);
@@ -879,7 +1003,7 @@ void main() {
   ) async {
     SharedPreferences.setMockInitialValues({});
     final profile = VpnProfile.parseSubscription(testLink).single;
-    tester.view.physicalSize = const Size(360, 1400);
+    tester.view.physicalSize = const Size(360, 640);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -896,6 +1020,7 @@ void main() {
       ),
     );
     await tester.pump(const Duration(milliseconds: 180));
+    await _expandXraySettings(tester, ['Protocol & identity']);
     await tester.pump(const Duration(milliseconds: 180));
     expect(find.text('VLESS Encryption'), findsOneWidget);
     final enabled = find.byKey(const ValueKey('vless-encryption-enabled'));
@@ -951,13 +1076,11 @@ void main() {
       ),
     );
     await tester.pump(const Duration(milliseconds: 200));
-    final settingsScroll = find
-        .descendant(
-          of: find.byType(ListView).first,
-          matching: find.byType(Scrollable),
-        )
-        .first;
-    await tester.scrollUntilVisible(
+    await _expandXraySettings(tester, ['Core behavior & statistics']);
+    final settingsScroll = find.byKey(
+      const ValueKey('xray-core-settings-list'),
+    );
+    await tester.scrollXrayUntilVisible(
       find.byKey(const ValueKey('policy-handshake-field')),
       180,
       scrollable: settingsScroll,
@@ -966,6 +1089,8 @@ void main() {
       find.byKey(const ValueKey('policy-handshake-field')),
       '47',
     );
+    FocusManager.instance.primaryFocus?.unfocus();
+    await tester.pump();
     for (final key in [
       'policy-user-upload-switch',
       'policy-user-download-switch',
@@ -976,7 +1101,7 @@ void main() {
       'policy-system-outbound-download-switch',
     ]) {
       final switchFinder = find.byKey(ValueKey(key));
-      await tester.scrollUntilVisible(
+      await tester.scrollXrayUntilVisible(
         switchFinder,
         140,
         scrollable: settingsScroll,
@@ -984,7 +1109,7 @@ void main() {
       await tester.tap(switchFinder);
       await tester.pump();
     }
-    await tester.scrollUntilVisible(
+    await tester.scrollXrayUntilVisible(
       find.byKey(const ValueKey('save-policy-settings')),
       140,
       scrollable: settingsScroll,
@@ -1020,13 +1145,11 @@ void main() {
       ),
     );
     await tester.pump(const Duration(milliseconds: 200));
-    final settingsScroll = find
-        .descendant(
-          of: find.byType(ListView).first,
-          matching: find.byType(Scrollable),
-        )
-        .first;
-    await tester.scrollUntilVisible(
+    await _expandXraySettings(tester, ['Advanced core options']);
+    final settingsScroll = find.byKey(
+      const ValueKey('xray-core-settings-list'),
+    );
+    await tester.scrollXrayUntilVisible(
       find.byKey(const ValueKey('xray-custom-config-field')),
       180,
       scrollable: settingsScroll,
@@ -1035,7 +1158,7 @@ void main() {
       find.byKey(const ValueKey('xray-custom-config-field')),
       '{"routing":{"domainStrategy":"IPIfNonMatch"}}',
     );
-    await tester.scrollUntilVisible(
+    await tester.scrollXrayUntilVisible(
       find.byKey(const ValueKey('save-custom-xray-config')),
       120,
       scrollable: settingsScroll,
@@ -1065,21 +1188,23 @@ void main() {
       ),
     );
     await tester.pump(const Duration(milliseconds: 200));
-    final settingsScroll = find
-        .descendant(
-          of: find.byType(ListView).first,
-          matching: find.byType(Scrollable),
-        )
-        .first;
+    await _expandXraySettings(tester, ['Advanced core options']);
+    final settingsScroll = find.byKey(
+      const ValueKey('xray-core-settings-list'),
+    );
     final minimum = find.byKey(const ValueKey('xray-version-minimum'));
-    await tester.scrollUntilVisible(minimum, 180, scrollable: settingsScroll);
+    await tester.scrollXrayUntilVisible(
+      minimum,
+      180,
+      scrollable: settingsScroll,
+    );
     await tester.enterText(minimum, '25.8.3');
     await tester.enterText(
       find.byKey(const ValueKey('xray-version-maximum')),
       '26.9.9',
     );
     final save = find.byKey(const ValueKey('save-xray-version-guard'));
-    await tester.scrollUntilVisible(save, 120, scrollable: settingsScroll);
+    await tester.scrollXrayUntilVisible(save, 120, scrollable: settingsScroll);
     await tester.tap(save);
     await tester.pump(const Duration(milliseconds: 300));
 
@@ -1104,20 +1229,18 @@ void main() {
       ),
     );
     await tester.pump(const Duration(milliseconds: 200));
-    final settingsScroll = find
-        .descendant(
-          of: find.byType(ListView).first,
-          matching: find.byType(Scrollable),
-        )
-        .first;
+    await _expandXraySettings(tester, ['Advanced core options']);
+    final settingsScroll = find.byKey(
+      const ValueKey('xray-core-settings-list'),
+    );
     final field = find.byKey(const ValueKey('xray-finalmask-field'));
-    await tester.scrollUntilVisible(field, 180, scrollable: settingsScroll);
+    await tester.scrollXrayUntilVisible(field, 180, scrollable: settingsScroll);
     await tester.enterText(
       field,
       '{"tcp":[{"type":"fragment","settings":{"packets":"tlshello","lengths":["100-200"]}}]}',
     );
     final save = find.byKey(const ValueKey('save-xray-finalmask'));
-    await tester.scrollUntilVisible(save, 120, scrollable: settingsScroll);
+    await tester.scrollXrayUntilVisible(save, 120, scrollable: settingsScroll);
     await tester.tap(save);
     await tester.pump(const Duration(milliseconds: 300));
 

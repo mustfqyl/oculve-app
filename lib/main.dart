@@ -20,7 +20,8 @@ void main() async {
 
   if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
     await windowManager.ensureInitialized();
-    final trayPlatform = Platform.isWindows || Platform.isMacOS;
+    final trayPlatform =
+        Platform.isWindows || Platform.isMacOS || Platform.isLinux;
 
     final windowOptions = WindowOptions(
       size: desktopWindowSize,

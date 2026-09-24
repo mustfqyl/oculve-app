@@ -30,13 +30,25 @@ final serverLatencyDiagnosticsProvider = StateProvider<List<String>>(
   (ref) => const [],
 );
 
+/// Remembers the last settled ping order so a refresh never sends rows back to
+/// the subscription order while new measurements are still arriving.
+final serverLatencyDisplayOrderProvider = StateProvider<List<String>>(
+  (ref) => const [],
+);
+
 final serverLatencyProvider = FutureProvider.autoDispose.family<int?, String>((
   ref,
   id,
 ) async {
   // A direct TCP probe must leave over the device's normal network path. If the
   // VPN is up, an ordinary app socket may be routed back into the tunnel.
-  if (ref.watch(vpnProvider) != VpnState.disconnected) return null;
+  final state = ref.watch(vpnProvider);
+  if (ref.watch(vpnTunnelMayBeActiveProvider) ||
+      state == VpnState.connected ||
+      state == VpnState.connecting ||
+      state == VpnState.disconnecting) {
+    return null;
+  }
   final profiles =
       ref.watch(sessionProvider).valueOrNull?.profiles ?? const <VpnProfile>[];
   for (final profile in profiles) {

@@ -44,7 +44,7 @@ void main() {
   testWidgets(
     'account statistics show API usage, monthly history and devices',
     (tester) async {
-      tester.view.physicalSize = const Size(400, 700);
+      tester.view.physicalSize = const Size(360, 640);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
@@ -55,14 +55,27 @@ void main() {
         ),
       );
       await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
       expect(find.text('Account usage'), findsOneWidget);
       expect(find.text('1.00 GB'), findsWidgets);
-      await tester.scrollUntilVisible(
-        find.text('Last 12 months'),
-        250,
-        scrollable: find.byType(Scrollable).first,
-      );
+      expect(find.text('Usage history'), findsOneWidget);
       expect(find.text('Last 12 months'), findsOneWidget);
+      expect(find.text('Current VPN session'), findsOneWidget);
+      expect(find.text('Servers'), findsOneWidget);
+      for (final target in [
+        find.text('Account usage'),
+        find.text('Usage history'),
+        find.text('Last 12 months'),
+        find.text('Current VPN session'),
+        find.text('Servers'),
+      ]) {
+        final rect = tester.getRect(target);
+        expect(
+          rect.top >= 64 && rect.bottom <= 640,
+          isTrue,
+          reason: '$target should fit in the compact statistics view',
+        );
+      }
     },
   );
 }

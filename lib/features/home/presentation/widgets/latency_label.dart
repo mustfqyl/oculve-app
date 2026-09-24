@@ -12,7 +12,7 @@ class LatencyLabel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ms = latency.valueOrNull;
-    final bars = latency.isLoading || ms == null
+    final bars = ms == null
         ? 0
         : ms < 120
         ? 3
@@ -28,10 +28,10 @@ class LatencyLabel extends StatelessWidget {
         : bars == 2
         ? AppTheme.warningColor
         : AppTheme.dangerColor;
-    final label = latency.isLoading
-        ? '…'
-        : ms == null
-        ? '—'
+    final label = ms == null
+        ? latency.isLoading
+              ? context.tr('Measuring VPN server ping')
+              : context.tr('Ping unavailable')
         : '${ms}ms';
     final accessibleLabel = ms == null
         ? (latency.isLoading
@@ -53,7 +53,9 @@ class LatencyLabel extends StatelessWidget {
               children: [
                 for (var index = 0; index < 3; index++) ...[
                   if (index > 0) const SizedBox(width: 2),
-                  Container(
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 240),
+                    curve: Curves.easeInOutCubic,
                     width: 4,
                     height: 6.0 + index * 5,
                     decoration: BoxDecoration(

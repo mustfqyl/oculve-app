@@ -41,6 +41,34 @@ class AppStrings {
     'Close': 'Cerrar',
     'CONNECT': 'CONECTAR',
     'CONNECTED': 'CONECTADO',
+    'CONNECTING': 'CONECTANDO',
+    'Refreshing servers…': 'Actualizando servidores…',
+    'Could not refresh servers. Showing the last saved locations.':
+        'No se pudieron actualizar los servidores. Se muestran las ubicaciones guardadas.',
+    'DISCONNECT': 'DESCONECTAR',
+    'STOPPING': 'DETENIENDO',
+    'Connected. Tap to disconnect.': 'Conectado. Toca para desconectar.',
+    'VPN connection in progress': 'Conexión VPN en curso',
+    'Tap to connect to the VPN': 'Toca para conectar la VPN',
+    'Dismiss': 'Cerrar',
+    'The VPN runtime failed. Check permissions and connection settings.':
+        'El servicio VPN ha fallado. Comprueba los permisos y la conexión.',
+    'VPN disconnected. Reconnect to protect your traffic.':
+        'VPN desconectada. Reconéctate para proteger tu tráfico.',
+    'Your subscription is not active.': 'Tu suscripción no está activa.',
+    'No compatible servers are available.':
+        'No hay servidores compatibles disponibles.',
+    'VPN permission was not granted.': 'No se concedió el permiso de VPN.',
+    'Connection timed out. Please try another location.':
+        'Se agotó el tiempo de conexión. Prueba otra ubicación.',
+    'Could not establish the VPN. Check your account, VPN permission and server availability.':
+        'No se pudo establecer la VPN. Comprueba tu cuenta, el permiso de VPN y la disponibilidad del servidor.',
+    'The VPN could not be stopped. Check the system VPN settings.':
+        'No se pudo detener la VPN. Comprueba los ajustes de VPN del sistema.',
+    'Sorted by ping. Tap to sort alphabetically.':
+        'Ordenado por latencia. Toca para ordenar alfabéticamente.',
+    'Sorted alphabetically. Tap to sort by ping.':
+        'Ordenado alfabéticamente. Toca para ordenar por latencia.',
     'Connection': 'Conexión',
     'Connection optimization': 'Optimización de conexión',
     'Connection policy': 'Política de conexión',
@@ -56,6 +84,12 @@ class AppStrings {
     'DNS resolver': 'Resolución DNS',
     'DNS servers': 'Servidores DNS',
     'Delete account': 'Eliminar cuenta',
+    'Delete account?': '¿Eliminar la cuenta?',
+    'This permanently deletes your Oculve account and VPN access.':
+        'Esto eliminará permanentemente tu cuenta de Oculve y el acceso VPN.',
+    'This action cannot be undone. Type the phrase below to confirm.':
+        'Esta acción no se puede deshacer. Escribe la frase para confirmar.',
+    'Confirmation phrase': 'Frase de confirmación',
     'Delete my account': 'ELIMINAR MI CUENTA',
     'Delete rule': 'Eliminar regla',
     'Diagnostics': 'Diagnóstico',
@@ -85,6 +119,7 @@ class AppStrings {
     'Language': 'Idioma',
     'Last 12 months': 'Últimos 12 meses',
     'Last 30 days': 'Últimos 30 días',
+    'Usage history': 'Historial de uso',
     'Last seen': 'Última actividad',
     'Lifetime tracked': 'Total registrado',
     'Light': 'Claro',
@@ -510,6 +545,44 @@ class AppStrings {
     'This security key will no longer work for sign in.':
         'Esta clave de seguridad ya no se podrá usar para iniciar sesión.',
     'Open Oculve': 'Abrir Oculve',
+    'Network & DNS': 'Red y DNS',
+    'DNS provider': 'Proveedor DNS',
+    'Choose a DNS provider. The provider can see the domain names you look up.':
+        'Elige un proveedor DNS. Este proveedor podrá ver los nombres de dominio que consultas.',
+    'Changes apply after you reconnect.':
+        'Los cambios se aplican al volver a conectarte.',
+    'Traffic routing': 'Enrutamiento del tráfico',
+    'Domains outside the VPN': 'Dominios fuera de la VPN',
+    'Sites listed here use your regular connection. Add one domain per line.':
+        'Los sitios de esta lista usarán tu conexión normal. Añade un dominio por línea.',
+    'example.com': 'ejemplo.com',
+    'Save domains': 'Guardar dominios',
+    'Could not save settings.': 'No se pudieron guardar los ajustes.',
+    'Settings saved.': 'Ajustes guardados.',
+    'Android apps outside the VPN': 'Aplicaciones Android fuera de la VPN',
+    'Desktop': 'Escritorio',
+    'Tray & menu bar': 'Bandeja del sistema y barra de menús',
+    'Left-click action': 'Acción del clic izquierdo',
+    'Right-click action': 'Acción del clic derecho',
+    'Open or hide the app': 'Mostrar u ocultar la aplicación',
+    'Connect or disconnect VPN': 'Conectar o desconectar la VPN',
+    'Choose a location': 'Elegir una ubicación',
+    'Show the tray menu': 'Mostrar el menú de la bandeja',
+    'On Linux, tray click behavior is controlled by the desktop environment. Use the Oculve tray menu for connection and location actions.':
+        'En Linux, el entorno de escritorio controla los clics de la bandeja. Usa el menú de Oculve para conectarte y elegir ubicación.',
+    'Tap to view options': 'Toca para ver las opciones',
+    'Retry': 'Reintentar',
+    'Sign in again': 'Volver a iniciar sesión',
+    'Devices reset. Your subscription link has changed.':
+        'Dispositivos restablecidos. Tu enlace de suscripción ha cambiado.',
+    'Recovery codes copied.': 'Códigos de recuperación copiados.',
+    'Direct local API': 'API local directa',
+    'Could not load installed apps.':
+        'No se pudieron cargar las aplicaciones instaladas.',
+    'Permanently delete?': '¿Eliminar permanentemente?',
+    'Your account and VPN access cannot be restored.':
+        'No se podrán restaurar tu cuenta ni el acceso VPN.',
+    'Delete permanently': 'Eliminar permanentemente',
     'Quit Oculve': 'Salir de Oculve',
     'Merge advanced Xray options into every imported server. Object fields merge recursively; arrays replace the matching field. Reconnect to apply. Invalid core options prevent connection.':
         'Combina las opciones avanzadas de Xray con cada servidor importado. Los campos de objeto se combinan de forma recursiva; las matrices sustituyen el campo correspondiente. Reconecta para aplicar los cambios. Las opciones no válidas del núcleo impiden la conexión.',
@@ -586,6 +659,33 @@ class AppStrings {
     'Close': 'Kapat',
     'CONNECT': 'BAĞLAN',
     'CONNECTED': 'BAĞLANDI',
+    'CONNECTING': 'BAĞLANIYOR',
+    'Refreshing servers…': 'Sunucular yenileniyor…',
+    'Could not refresh servers. Showing the last saved locations.':
+        'Sunucular yenilenemedi. Son kaydedilen konumlar gösteriliyor.',
+    'DISCONNECT': 'BAĞLANTIYI KES',
+    'STOPPING': 'DURDURULUYOR',
+    'Connected. Tap to disconnect.': 'Bağlı. Kesmek için dokunun.',
+    'VPN connection in progress': 'VPN bağlantısı sürüyor',
+    'Tap to connect to the VPN': 'VPN’e bağlanmak için dokunun',
+    'Dismiss': 'Kapat',
+    'The VPN runtime failed. Check permissions and connection settings.':
+        'VPN altyapısı çalışmadı. İzinleri ve bağlantı ayarlarını kontrol edin.',
+    'VPN disconnected. Reconnect to protect your traffic.':
+        'VPN bağlantısı kesildi. Trafiğinizi korumak için yeniden bağlanın.',
+    'Your subscription is not active.': 'Aboneliğiniz etkin değil.',
+    'No compatible servers are available.': 'Uygun sunucu bulunamadı.',
+    'VPN permission was not granted.': 'VPN izni verilmedi.',
+    'Connection timed out. Please try another location.':
+        'Bağlantı zaman aşımına uğradı. Başka bir konum deneyin.',
+    'Could not establish the VPN. Check your account, VPN permission and server availability.':
+        'VPN bağlantısı kurulamadı. Hesabınızı, VPN iznini ve sunucunun erişilebilirliğini kontrol edin.',
+    'The VPN could not be stopped. Check the system VPN settings.':
+        'VPN durdurulamadı. Sistem VPN ayarlarını kontrol edin.',
+    'Sorted by ping. Tap to sort alphabetically.':
+        'Ping değerine göre sıralı. Alfabetik sıralamak için dokunun.',
+    'Sorted alphabetically. Tap to sort by ping.':
+        'Alfabetik sıralı. Ping değerine göre sıralamak için dokunun.',
     'Connection': 'Bağlantı',
     'Connection optimization': 'Bağlantı iyileştirme',
     'Connection policy': 'Bağlantı ilkesi',
@@ -601,6 +701,12 @@ class AppStrings {
     'DNS resolver': 'DNS çözümleyicisi',
     'DNS servers': 'DNS sunucuları',
     'Delete account': 'Hesabı sil',
+    'Delete account?': 'Hesap silinsin mi?',
+    'This permanently deletes your Oculve account and VPN access.':
+        'Bu işlem Oculve hesabınızı ve VPN erişiminizi kalıcı olarak siler.',
+    'This action cannot be undone. Type the phrase below to confirm.':
+        'Bu işlem geri alınamaz. Onaylamak için aşağıdaki ifadeyi yazın.',
+    'Confirmation phrase': 'Onay ifadesi',
     'Delete my account': 'HESABIMI SİL',
     'Delete rule': 'Kuralı sil',
     'Diagnostics': 'Tanılama',
@@ -630,6 +736,7 @@ class AppStrings {
     'Language': 'Dil',
     'Last 12 months': 'Son 12 ay',
     'Last 30 days': 'Son 30 gün',
+    'Usage history': 'Kullanım geçmişi',
     'Last seen': 'Son görülme',
     'Lifetime tracked': 'Toplam kullanım',
     'Light': 'Açık',
@@ -1045,6 +1152,43 @@ class AppStrings {
     'This security key will no longer work for sign in.':
         'Bu güvenlik anahtarı artık oturum açmak için kullanılamaz.',
     'Open Oculve': 'Oculve’yi aç',
+    'Network & DNS': 'Ağ ve DNS',
+    'DNS provider': 'DNS sağlayıcısı',
+    'Choose a DNS provider. The provider can see the domain names you look up.':
+        'Bir DNS sağlayıcısı seç. Sorguladığın alan adlarını bu sağlayıcı görebilir.',
+    'Changes apply after you reconnect.':
+        'Değişiklikler yeniden bağlandığında uygulanır.',
+    'Traffic routing': 'Trafik yönlendirme',
+    'Domains outside the VPN': 'VPN dışında kalacak alan adları',
+    'Sites listed here use your regular connection. Add one domain per line.':
+        'Buradaki siteler normal bağlantını kullanır. Her satıra bir alan adı ekle.',
+    'example.com': 'ornek.com',
+    'Save domains': 'Alan adlarını kaydet',
+    'Could not save settings.': 'Ayarlar kaydedilemedi.',
+    'Settings saved.': 'Ayarlar kaydedildi.',
+    'Android apps outside the VPN': 'VPN dışında kalacak Android uygulamaları',
+    'Desktop': 'Masaüstü',
+    'Tray & menu bar': 'Sistem tepsisi ve menü çubuğu',
+    'Left-click action': 'Sol tıklama işlemi',
+    'Right-click action': 'Sağ tıklama işlemi',
+    'Open or hide the app': 'Uygulamayı göster veya gizle',
+    'Connect or disconnect VPN': 'VPN’e bağlan veya bağlantıyı kes',
+    'Choose a location': 'Konum seç',
+    'Show the tray menu': 'Tepsi menüsünü göster',
+    'On Linux, tray click behavior is controlled by the desktop environment. Use the Oculve tray menu for connection and location actions.':
+        'Linux’ta tepsi tıklamalarını masaüstü ortamı yönetir. Bağlantı ve konum işlemleri için Oculve tepsi menüsünü kullan.',
+    'Tap to view options': 'Seçenekleri görmek için dokun',
+    'Retry': 'Yeniden dene',
+    'Sign in again': 'Tekrar giriş yap',
+    'Devices reset. Your subscription link has changed.':
+        'Cihazlar sıfırlandı. Abonelik bağlantın değişti.',
+    'Recovery codes copied.': 'Kurtarma kodları kopyalandı.',
+    'Direct local API': 'Doğrudan yerel API',
+    'Could not load installed apps.': 'Yüklü uygulamalar yüklenemedi.',
+    'Permanently delete?': 'Kalıcı olarak silinsin mi?',
+    'Your account and VPN access cannot be restored.':
+        'Hesabın ve VPN erişimin geri yüklenemez.',
+    'Delete permanently': 'Kalıcı olarak sil',
     'Quit Oculve': 'Oculve’den çık',
     'Merge advanced Xray options into every imported server. Object fields merge recursively; arrays replace the matching field. Reconnect to apply. Invalid core options prevent connection.':
         'Gelişmiş Xray seçeneklerini içe aktarılan her sunucuya uygular. Nesne alanları özyinelemeli birleştirilir; diziler eşleşen alanı değiştirir. Uygulamak için yeniden bağlan. Geçersiz çekirdek seçenekleri bağlantıyı engeller.',

@@ -540,6 +540,8 @@ void main() {
       ),
     );
     await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump(const Duration(milliseconds: 250));
+    await tester.pump(const Duration(milliseconds: 320));
     expect(find.byTooltip('25ms'), findsOneWidget);
     expect(find.byTooltip('180ms'), findsOneWidget);
     expect(find.text('Optimal'), findsOneWidget);
@@ -559,56 +561,62 @@ void main() {
       lessThan(tester.getTopLeft(find.text('Amsterdam')).dy),
     );
     expect(tester.takeException(), isNull);
-    expect(find.byTooltip('Sort alphabetically'), findsOneWidget);
+    expect(
+      find.byTooltip('Sorted by ping. Tap to sort alphabetically.'),
+      findsOneWidget,
+    );
     await tester.tap(find.byKey(const ValueKey('server-sort-toggle')));
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump(const Duration(milliseconds: 350));
     expect(find.byType(PopupMenuButton<ServerSort>), findsNothing);
-    expect(find.byTooltip('Sort by ping'), findsOneWidget);
+    expect(
+      find.byTooltip('Sorted alphabetically. Tap to sort by ping.'),
+      findsOneWidget,
+    );
     expect(
       tester.getTopLeft(find.text('Amsterdam')).dy,
       lessThan(tester.getTopLeft(find.text('Zurich')).dy),
     );
   });
 
-  testWidgets(
-    'opening locations uses the startup subscription without refresh',
-    (tester) async {
-      final session = _SessionWithServers();
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            sessionProvider.overrideWith((ref) => session),
-            serverLatencyProbeProvider.overrideWithValue(_FixedProbe()),
-          ],
-          child: MaterialApp(
-            home: Scaffold(
-              body: Builder(
-                builder: (context) => TextButton(
-                  onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const ServerSelectionScreen(),
-                    ),
+  testWidgets('opening locations refreshes the subscription every time', (
+    tester,
+  ) async {
+    final session = _SessionWithServers();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sessionProvider.overrideWith((ref) => session),
+          serverLatencyProbeProvider.overrideWithValue(_FixedProbe()),
+        ],
+        child: MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const ServerSelectionScreen(),
                   ),
-                  child: const Text('Open locations'),
                 ),
+                child: const Text('Open locations'),
               ),
             ),
           ),
         ),
-      );
-      await tester.tap(find.text('Open locations'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 350));
-      expect(session.refreshes, 0);
-      tester.state<NavigatorState>(find.byType(Navigator)).pop();
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 350));
-      await tester.tap(find.text('Open locations'));
-      await tester.pump();
-      expect(session.refreshes, 0);
-    },
-  );
+      ),
+    );
+    await tester.tap(find.text('Open locations'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(session.refreshes, 1);
+    tester.state<NavigatorState>(find.byType(Navigator)).pop();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.tap(find.text('Open locations'));
+    await tester.pump();
+    expect(session.refreshes, 2);
+  });
 
   testWidgets('home location control stays compact beside the connect button', (
     tester,

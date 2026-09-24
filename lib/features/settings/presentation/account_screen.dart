@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show Platform;
 import 'dart:ui' show ImageFilter;
 
+import 'package:flutter/cupertino.dart' as cupertino;
 import 'package:flutter/material.dart' hide Text;
 import 'package:oculve/core/localization/localized_text.dart';
 import 'package:flutter/services.dart';
@@ -448,62 +450,26 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
   }
 
   Future<void> _deleteAccount() async {
-    final input = TextEditingController();
-    try {
-      final phraseAccepted =
-          await showDialog<bool>(
-            context: context,
-            builder: (dialogContext) => AlertDialog(
-              title: Text(context.tr('Delete account')),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    context.tr(
-                      'This permanently deletes your VPN account and access. Type DELETE MY ACCOUNT to continue.',
-                    ),
-                  ),
-                  TextField(
-                    controller: input,
-                    decoration: InputDecoration(
-                      hintText: context.tr('DELETE MY ACCOUNT'),
-                    ),
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(dialogContext, false),
-                  child: Text(context.tr('Cancel')),
-                ),
-                TextButton(
-                  onPressed: () => Navigator.pop(
-                    dialogContext,
-                    input.text == context.tr('DELETE MY ACCOUNT'),
-                  ),
-                  child: Text(context.tr('Continue')),
-                ),
-              ],
-            ),
-          ) ??
-          false;
-      if (!phraseAccepted || !mounted) return;
-      final finalConfirmed = await _confirm(
-        'Permanently delete?',
-        'Your account and VPN access cannot be restored.',
-        'Delete permanently',
-      );
-      if (!finalConfirmed || !mounted) return;
-      await _run(() async {
-        await ref.read(vpnProvider.notifier).disconnect();
-        await ref.read(apiProvider).request('/api/user/me', method: 'DELETE');
-        await ref.read(apiProvider).clear();
-        ref.read(sessionProvider.notifier).clearLocalSession();
-        if (mounted) Navigator.popUntil(context, (route) => route.isFirst);
-      });
-    } finally {
-      input.dispose();
-    }
+    final phraseAccepted =
+        await showDialog<bool>(
+          context: context,
+          builder: (_) => const _DeleteAccountConfirmationDialog(),
+        ) ??
+        false;
+    if (!phraseAccepted || !mounted) return;
+    final finalConfirmed = await _confirm(
+      'Permanently delete?',
+      'Your account and VPN access cannot be restored.',
+      'Delete permanently',
+    );
+    if (!finalConfirmed || !mounted) return;
+    await _run(() async {
+      await ref.read(vpnProvider.notifier).disconnect();
+      await ref.read(apiProvider).request('/api/user/me', method: 'DELETE');
+      await ref.read(apiProvider).clear();
+      ref.read(sessionProvider.notifier).clearLocalSession();
+      if (mounted) Navigator.popUntil(context, (route) => route.isFirst);
+    });
   }
 
   Future<void> _showDevicesSheet(List<Map<String, dynamic>> devices) async {
@@ -528,7 +494,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
                       children: [
                         Expanded(
                           child: Text(
-                            'Registered devices (${devices.length})',
+                            '${context.tr('Registered devices')} (${devices.length})',
                             style: TextStyle(
                               color: _fg,
                               fontSize: 15,
@@ -1025,55 +991,35 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
                                     padding: const EdgeInsets.symmetric(
                                       vertical: 2,
                                     ),
-                                    child: ShaderMask(
-                                      blendMode: BlendMode.dstIn,
-                                      shaderCallback: (bounds) =>
-                                          LinearGradient(
-                                            colors: _showCode
-                                                ? const [
-                                                    Colors.white,
-                                                    Colors.white,
-                                                  ]
-                                                : const [
-                                                    Colors.transparent,
-                                                    Colors.white,
-                                                    Colors.white,
-                                                    Colors.transparent,
-                                                  ],
-                                            stops: _showCode
-                                                ? null
-                                                : const [0, .12, .88, 1],
-                                          ).createShader(bounds),
-                                      child: TweenAnimationBuilder<double>(
-                                        tween: Tween<double>(
-                                          end: _showCode ? 0 : 8,
-                                        ),
-                                        duration: const Duration(
-                                          milliseconds: 300,
-                                        ),
-                                        curve: Curves.ease,
-                                        builder: (context, blur, child) =>
-                                            ImageFiltered(
-                                              imageFilter: ImageFilter.blur(
-                                                sigmaX: blur,
-                                                sigmaY: blur,
-                                              ),
-                                              child: child,
+                                    child: TweenAnimationBuilder<double>(
+                                      tween: Tween<double>(
+                                        end: _showCode ? 0 : 6.5,
+                                      ),
+                                      duration: const Duration(
+                                        milliseconds: 300,
+                                      ),
+                                      curve: Curves.easeOutCubic,
+                                      builder: (context, blur, child) =>
+                                          ImageFiltered(
+                                            imageFilter: ImageFilter.blur(
+                                              sigmaX: blur,
+                                              sigmaY: blur,
                                             ),
-                                        child: ExcludeSemantics(
-                                          child: Text(
-                                            account?.authCode.isNotEmpty == true
-                                                ? account!.authCode
-                                                : '—',
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: TextStyle(
-                                              color: _fg,
-                                              fontFamily: 'monospace',
-                                              fontSize: 14,
-                                              fontWeight: FontWeight.w700,
-                                              letterSpacing: 1.4,
-                                            ),
+                                            child: child,
+                                          ),
+                                      child: ExcludeSemantics(
+                                        child: Text(
+                                          account?.authCode.isNotEmpty == true
+                                              ? account!.authCode
+                                              : '—',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            color: _fg,
+                                            fontFamily: 'monospace',
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w700,
+                                            letterSpacing: 1.4,
                                           ),
                                         ),
                                       ),
@@ -1217,22 +1163,32 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
                     OutlinedButton.icon(
                       style: OutlinedButton.styleFrom(
                         foregroundColor: AppTheme.dangerColor,
-                        minimumSize: const Size.fromHeight(48),
+                        minimumSize: const Size.fromHeight(50),
                         side: BorderSide(
                           color: AppTheme.dangerColor.withValues(alpha: .42),
+                          width: 1.2,
                         ),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
                       ),
                       onPressed: _busy ? null : _deleteAccount,
-                      icon: const Icon(Icons.delete_outline, size: 16),
-                      label: Text(context.tr('Delete account')),
+                      icon: const Icon(Icons.delete_outline, size: 17),
+                      label: Text(
+                        context.tr('Delete account'),
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                     ),
                     const SizedBox(height: 7),
-                    FilledButton(
+                    FilledButton.icon(
                       style: FilledButton.styleFrom(
-                        minimumSize: const Size.fromHeight(44),
+                        minimumSize: const Size.fromHeight(50),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                       ),
                       onPressed: _busy
                           ? null
@@ -1246,7 +1202,14 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
                                 );
                               }
                             }),
-                      child: Text(context.tr('Log out')),
+                      icon: const Icon(Icons.logout_rounded, size: 17),
+                      label: Text(
+                        context.tr('Log out'),
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -1267,4 +1230,127 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
       letterSpacing: 1,
     ),
   );
+}
+
+class _DeleteAccountConfirmationDialog extends StatefulWidget {
+  const _DeleteAccountConfirmationDialog();
+
+  @override
+  State<_DeleteAccountConfirmationDialog> createState() =>
+      _DeleteAccountConfirmationDialogState();
+}
+
+class _DeleteAccountConfirmationDialogState
+    extends State<_DeleteAccountConfirmationDialog> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final phrase = context.tr('DELETE MY ACCOUNT');
+    final canDelete =
+        _controller.text.trim().toUpperCase() == phrase.trim().toUpperCase();
+    final appleStyle = Platform.isMacOS || Platform.isIOS;
+    final confirmationInput = appleStyle
+        ? cupertino.CupertinoTextField(
+            controller: _controller,
+            autofocus: true,
+            autocorrect: false,
+            enableSuggestions: false,
+            textCapitalization: TextCapitalization.characters,
+            onChanged: (_) => setState(() {}),
+            placeholder: phrase,
+          )
+        : TextField(
+            controller: _controller,
+            autofocus: true,
+            autocorrect: false,
+            enableSuggestions: false,
+            textCapitalization: TextCapitalization.characters,
+            onChanged: (_) => setState(() {}),
+            decoration: InputDecoration(
+              labelText: context.tr('Confirmation phrase'),
+              hintText: phrase,
+              isDense: true,
+            ),
+          );
+    final content = Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          context.tr(
+            'This permanently deletes your Oculve account and VPN access.',
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          context.tr(
+            'This action cannot be undone. Type the phrase below to confirm.',
+          ),
+          style: TextStyle(
+            fontSize: 12,
+            color: Theme.of(context).brightness == Brightness.dark
+                ? AppTheme.foregroundMuted
+                : AppTheme.lightForegroundMuted,
+          ),
+        ),
+        const SizedBox(height: 16),
+        confirmationInput,
+      ],
+    );
+
+    if (appleStyle) {
+      return cupertino.CupertinoAlertDialog(
+        title: Text(context.tr('Delete account?')),
+        content: Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: content,
+        ),
+        actions: [
+          cupertino.CupertinoDialogAction(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(context.tr('Cancel')),
+          ),
+          cupertino.CupertinoDialogAction(
+            isDestructiveAction: true,
+            onPressed: canDelete ? () => Navigator.pop(context, true) : null,
+            child: Text(context.tr('Delete account')),
+          ),
+        ],
+      );
+    }
+
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return AlertDialog(
+      icon: const Icon(
+        Icons.delete_forever_outlined,
+        color: AppTheme.dangerColor,
+      ),
+      title: Text(context.tr('Delete account?')),
+      content: SizedBox(width: 340, child: content),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: Text(context.tr('Cancel')),
+        ),
+        FilledButton(
+          style: FilledButton.styleFrom(
+            backgroundColor: AppTheme.dangerColor,
+            foregroundColor: Colors.white,
+          ),
+          onPressed: canDelete ? () => Navigator.pop(context, true) : null,
+          child: Text(context.tr('Delete account')),
+        ),
+      ],
+      backgroundColor: dark ? const Color(0xFF17191D) : Colors.white,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+    );
+  }
 }
