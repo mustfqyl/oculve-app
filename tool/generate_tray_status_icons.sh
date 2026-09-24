@@ -20,10 +20,16 @@ render_icon() {
 }
 
 render_icon idle 0 '#48d6a0' 0
-render_icon connected_0 5 '#48d6a0' 0.68
-render_icon connected_1 6 '#48d6a0' 0.82
-render_icon connected_2 7 '#48d6a0' 0.94
-render_icon connected_3 8 '#48d6a0' 1
-render_icon connected_4 7 '#48d6a0' 0.94
-render_icon connected_5 6 '#48d6a0' 0.82
+render_icon connected_0 4.0 '#48d6a0' 0.58
+render_icon connected_1 4.8 '#48d6a0' 0.64
+render_icon connected_2 5.6 '#48d6a0' 0.70
+render_icon connected_3 6.4 '#48d6a0' 0.78
+render_icon connected_4 7.2 '#48d6a0' 0.88
+render_icon connected_5 8.0 '#48d6a0' 1.00
+render_icon connected_6 7.2 '#48d6a0' 0.94
+render_icon connected_7 6.4 '#48d6a0' 0.86
+render_icon connected_8 5.6 '#48d6a0' 0.78
+render_icon connected_9 4.8 '#48d6a0' 0.70
+render_icon connected_10 4.0 '#48d6a0' 0.64
+render_icon connected_11 4.0 '#48d6a0' 0.60
 render_icon error 7 '#f04452' 1

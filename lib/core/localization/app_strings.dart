@@ -618,6 +618,30 @@ class AppStrings {
     'Last active': 'Última actividad',
     'Authenticator sign-in will be disabled.':
         'Se desactivará el inicio de sesión con autenticador.',
+    'Connection setup': 'Configuración de conexión',
+    'Performance': 'Rendimiento',
+    'Apps outside the VPN': 'Aplicaciones fuera de la VPN',
+    'Enter the code from your authenticator.':
+        'Introduce el código de tu aplicación de autenticación.',
+    'FinalMask': 'FinalMask',
+    'IP / CIDR': 'IP / CIDR',
+    'Local inbound IP / CIDR': 'IP / CIDR de entrada local',
+    'Measuring VPN server ping': 'Midiendo el ping del servidor VPN',
+    'One endpoint or Xray DNS server JSON object per line. Supports UDP, TCP, DoH, DoQ and localhost. +local bypasses proxy routing; h2c is unencrypted.':
+        'Escribe un servidor DNS o un objeto JSON de Xray por línea. Admite UDP, TCP, DoH, DoQ y localhost. +local evita el proxy; h2c no está cifrado.',
+    'One mapping per line (for example domain:example.com=93.184.216.34). Separate multiple targets with |.':
+        'Una asignación por línea (por ejemplo, domain:example.com=93.184.216.34). Separa los destinos con |.',
+    'Paste a static ECHConfig or use udp://, https:// or h2c://.':
+        'Pega un ECHConfig estático o usa udp://, https:// o h2c://.',
+    'Process name / path': 'Nombre o ruta del proceso',
+    'Route-only': 'Solo para enrutamiento',
+    'SNI / server name': 'SNI / nombre del servidor',
+    'Setup key copied.': 'Clave de configuración copiada.',
+    'Source IP / CIDR': 'IP / CIDR de origen',
+    'Use Xray FinalMask JSON: tcp, udp, and/or quicParams. Leave {} to remove app-level overrides.':
+        'Usa el JSON FinalMask de Xray: tcp, udp o quicParams. Deja {} para quitar las modificaciones de la aplicación.',
+    'User / email': 'Usuario / correo electrónico',
+    'milliseconds': 'milisegundos',
   };
 
   static const _tr = <String, String>{
@@ -1224,6 +1248,28 @@ class AppStrings {
     'Last active': 'Son etkinlik',
     'Authenticator sign-in will be disabled.':
         'Doğrulama uygulamasıyla oturum açma devre dışı bırakılacak.',
+    'Connection setup': 'Bağlantı kurulumu',
+    'Performance': 'Performans',
+    'Enter the code from your authenticator.':
+        'Doğrulama uygulamanızdaki kodu girin.',
+    'FinalMask': 'FinalMask',
+    'IP / CIDR': 'IP / CIDR',
+    'Local inbound IP / CIDR': 'Yerel gelen bağlantı IP / CIDR',
+    'Measuring VPN server ping': 'VPN sunucusu ping değeri ölçülüyor',
+    'One endpoint or Xray DNS server JSON object per line. Supports UDP, TCP, DoH, DoQ and localhost. +local bypasses proxy routing; h2c is unencrypted.':
+        'Her satıra bir adres veya Xray DNS sunucusu JSON nesnesi yazın. UDP, TCP, DoH, DoQ ve localhost desteklenir. +local proxy yönlendirmesini atlar; h2c şifrelenmemiştir.',
+    'One mapping per line (for example domain:example.com=93.184.216.34). Separate multiple targets with |.':
+        'Her satıra bir eşleme yazın (ör. domain:example.com=93.184.216.34). Birden çok hedefi | ile ayırın.',
+    'Paste a static ECHConfig or use udp://, https:// or h2c://.':
+        'Statik bir ECHConfig yapıştırın veya udp://, https:// ya da h2c:// kullanın.',
+    'Process name / path': 'İşlem adı / yolu',
+    'SNI / server name': 'SNI / sunucu adı',
+    'Setup key copied.': 'Kurulum anahtarı kopyalandı.',
+    'Source IP / CIDR': 'Kaynak IP / CIDR',
+    'Use Xray FinalMask JSON: tcp, udp, and/or quicParams. Leave {} to remove app-level overrides.':
+        'Xray FinalMask JSON biçimini kullanın: tcp, udp ve/veya quicParams. Uygulama düzeyindeki geçersiz kılmaları kaldırmak için {} bırakın.',
+    'User / email': 'Kullanıcı / e-posta',
+    'milliseconds': 'milisaniye',
   };
 
   static String translate(String source, String languageCode) =>
@@ -1231,6 +1277,13 @@ class AppStrings {
         'es' => _es[source] ?? source,
         'tr' => _tr[source] ?? source,
         _ => source,
+      };
+
+  static bool hasTranslation(String source, String languageCode) =>
+      switch (languageCode) {
+        'es' => _es.containsKey(source),
+        'tr' => _tr.containsKey(source),
+        _ => true,
       };
 }
 

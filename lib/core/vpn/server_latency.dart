@@ -36,10 +36,18 @@ final serverLatencyDisplayOrderProvider = StateProvider<List<String>>(
   (ref) => const [],
 );
 
+/// Keeps the last successful direct RTT available while a probe is refreshing
+/// or temporarily cannot use the physical network (for example, during a
+/// tunnel shutdown after a connection error).
+final serverLatencyLastKnownProvider = StateProvider<Map<String, int>>(
+  (ref) => const {},
+);
+
 final serverLatencyProvider = FutureProvider.autoDispose.family<int?, String>((
   ref,
   id,
 ) async {
+  final lastKnown = ref.read(serverLatencyLastKnownProvider)[id];
   // A direct TCP probe must leave over the device's normal network path. If the
   // VPN is up, an ordinary app socket may be routed back into the tunnel.
   final state = ref.watch(vpnProvider);
@@ -47,16 +55,24 @@ final serverLatencyProvider = FutureProvider.autoDispose.family<int?, String>((
       state == VpnState.connected ||
       state == VpnState.connecting ||
       state == VpnState.disconnecting) {
-    return null;
+    return lastKnown;
   }
   final profiles =
       ref.watch(sessionProvider).valueOrNull?.profiles ?? const <VpnProfile>[];
   for (final profile in profiles) {
     if (profile.id == id) {
-      return ref.read(serverLatencyProbeProvider).measure(profile);
+      final measured = await ref
+          .read(serverLatencyProbeProvider)
+          .measure(profile);
+      if (measured != null && measured > 0) {
+        final cache = ref.read(serverLatencyLastKnownProvider.notifier);
+        cache.state = {...cache.state, id: measured};
+        return measured;
+      }
+      return lastKnown;
     }
   }
-  return null;
+  return lastKnown;
 });
 
 List<VpnProfile> sortProfilesByLatency(

@@ -909,7 +909,7 @@ class _XrayCoreSettingsScreenState
         children: _groupXraySettings(
           context,
           [
-            _categoryHeader('Protocol & identity'),
+            _categoryHeader('Connection setup'),
             const SizedBox(height: 8),
             FrostedCard(
               padding: const EdgeInsets.all(16),
@@ -951,7 +951,7 @@ class _XrayCoreSettingsScreenState
               ),
             ),
             const SizedBox(height: 12),
-            _categoryHeader('Protocol & identity'),
+            _categoryHeader('Connection setup'),
             const SizedBox(height: 8),
             FrostedCard(
               padding: const EdgeInsets.all(16),
@@ -1108,7 +1108,7 @@ class _XrayCoreSettingsScreenState
               ),
             ),
             const SizedBox(height: 12),
-            _categoryHeader('Transport & TLS'),
+            _categoryHeader('Connection setup'),
             const SizedBox(height: 8),
             FrostedCard(
               padding: const EdgeInsets.all(16),
@@ -1381,7 +1381,7 @@ class _XrayCoreSettingsScreenState
               ),
             ),
             const SizedBox(height: 12),
-            _categoryHeader('Transport & TLS'),
+            _categoryHeader('Connection setup'),
             const SizedBox(height: 8),
             FrostedCard(
               padding: const EdgeInsets.all(16),
@@ -1652,7 +1652,7 @@ class _XrayCoreSettingsScreenState
               ),
             ),
             const SizedBox(height: 12),
-            _categoryHeader('Network behavior'),
+            _categoryHeader('Performance'),
             const SizedBox(height: 8),
             FrostedCard(
               padding: const EdgeInsets.all(16),
@@ -1979,7 +1979,7 @@ class _XrayCoreSettingsScreenState
               ),
             ),
             const SizedBox(height: 12),
-            _categoryHeader('Core behavior & statistics'),
+            _categoryHeader('Diagnostics'),
             const SizedBox(height: 8),
             FrostedCard(
               padding: const EdgeInsets.all(16),
@@ -2381,7 +2381,7 @@ class _XrayCoreSettingsScreenState
               ),
             ),
             const SizedBox(height: 12),
-            _categoryHeader('Connection optimization'),
+            _categoryHeader('Performance'),
             const SizedBox(height: 8),
             FrostedCard(
               padding: const EdgeInsets.all(16),
@@ -2667,7 +2667,7 @@ class _XrayCoreSettingsScreenState
               ),
             ),
             const SizedBox(height: 12),
-            _categoryHeader('Traffic inspection'),
+            _categoryHeader('Routing & privacy'),
             const SizedBox(height: 8),
             FrostedCard(
               padding: const EdgeInsets.all(16),
@@ -2846,6 +2846,8 @@ class _XrayCoreSettingsScreenState
               ),
             ),
             const SizedBox(height: 12),
+            _categoryHeader('Advanced core options'),
+            const SizedBox(height: 8),
             FrostedCard(
               padding: const EdgeInsets.all(16),
               child: Row(
@@ -2869,8 +2871,6 @@ class _XrayCoreSettingsScreenState
               ),
             ),
             const SizedBox(height: 12),
-            _categoryHeader('Advanced core options'),
-            const SizedBox(height: 8),
             FrostedCard(
               padding: const EdgeInsets.all(16),
               child: Column(
@@ -3173,14 +3173,11 @@ List<Widget> _groupXraySettings(
   }
 
   final icons = <String, IconData>{
-    'Protocol & identity': Icons.badge_outlined,
-    'Transport & TLS': Icons.swap_horiz_rounded,
-    'Network behavior': Icons.route_outlined,
-    'Core behavior & statistics': Icons.tune_rounded,
+    'Connection setup': Icons.security_rounded,
+    'Performance': Icons.speed_rounded,
+    'Diagnostics': Icons.monitor_heart_outlined,
     'DNS & name resolution': Icons.dns_outlined,
-    'Connection optimization': Icons.speed_rounded,
     'Routing & privacy': Icons.alt_route_rounded,
-    'Traffic inspection': Icons.visibility_outlined,
     'Advanced core options': Icons.settings_suggest_outlined,
   };
   return [

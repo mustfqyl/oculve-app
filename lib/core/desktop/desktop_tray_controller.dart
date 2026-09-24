@@ -37,6 +37,12 @@ class DesktopTrayController with TrayListener, WindowListener {
     'assets/tray_icon_connected_3.png',
     'assets/tray_icon_connected_4.png',
     'assets/tray_icon_connected_5.png',
+    'assets/tray_icon_connected_6.png',
+    'assets/tray_icon_connected_7.png',
+    'assets/tray_icon_connected_8.png',
+    'assets/tray_icon_connected_9.png',
+    'assets/tray_icon_connected_10.png',
+    'assets/tray_icon_connected_11.png',
   ];
 
   Future<void> initialize() async {
@@ -82,7 +88,7 @@ class DesktopTrayController with TrayListener, WindowListener {
       _breathingFrame = 0;
       await _renderIcon(_connectedIcons.first, revision, template: false);
       if (revision != _iconRevision) return;
-      _breathingTimer = Timer.periodic(const Duration(milliseconds: 420), (_) {
+      _breathingTimer = Timer.periodic(const Duration(milliseconds: 160), (_) {
         if (revision != _iconRevision) return;
         _breathingFrame = (_breathingFrame + 1) % _connectedIcons.length;
         unawaited(

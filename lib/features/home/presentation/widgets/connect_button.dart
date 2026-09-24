@@ -16,13 +16,16 @@ class ConnectButton extends ConsumerWidget {
     final busy =
         state == VpnState.connecting || state == VpnState.disconnecting;
     final dark = Theme.of(context).brightness == Brightness.dark;
-    final foreground = connected
+    final failed = state == VpnState.error;
+    final foreground = connected || failed
         ? Colors.white
         : dark
         ? AppTheme.backgroundColor
         : Colors.white;
     final fill = connected
         ? const Color(0xFF168D6A)
+        : failed
+        ? AppTheme.errorColor
         : dark
         ? Colors.white
         : AppTheme.lightForeground;
@@ -32,7 +35,7 @@ class ConnectButton extends ConsumerWidget {
       VpnState.disconnecting => context.tr('STOPPING'),
       _ => context.tr('CONNECT'),
     };
-    final icon = state == VpnState.error
+    final icon = failed
         ? Icons.refresh_rounded
         : Icons.power_settings_new_rounded;
 
@@ -45,23 +48,31 @@ class ConnectButton extends ConsumerWidget {
           ? context.tr('VPN connection in progress')
           : context.tr('Tap to connect to the VPN'),
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 220),
+        duration: const Duration(milliseconds: 240),
         curve: Curves.easeOutCubic,
-        width: 206,
-        height: 58,
+        width: 216,
+        height: 56,
         decoration: BoxDecoration(
           color: fill,
-          borderRadius: BorderRadius.circular(17),
+          borderRadius: BorderRadius.circular(28),
           border: Border.all(
             color: connected
-                ? const Color(0xFF42C99C).withValues(alpha: .42)
-                : (dark ? Colors.white : Colors.black).withValues(alpha: .1),
+                ? const Color(0xFF63E0B1).withValues(alpha: .7)
+                : failed
+                ? Colors.white.withValues(alpha: .35)
+                : (dark ? Colors.white : Colors.black).withValues(alpha: .14),
+            width: connected || failed ? 1.4 : 1,
           ),
           boxShadow: [
             BoxShadow(
-              color: (connected ? const Color(0xFF168D6A) : Colors.black)
-                  .withValues(alpha: dark ? .18 : .10),
-              blurRadius: connected ? 18 : 12,
+              color:
+                  (connected
+                          ? const Color(0xFF168D6A)
+                          : failed
+                          ? AppTheme.errorColor
+                          : Colors.black)
+                      .withValues(alpha: dark ? .24 : .12),
+              blurRadius: connected ? 20 : 13,
               offset: const Offset(0, 5),
             ),
           ],
@@ -69,38 +80,49 @@ class ConnectButton extends ConsumerWidget {
         child: Material(
           color: Colors.transparent,
           child: InkWell(
-            customBorder: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(17),
-            ),
+            customBorder: const StadiumBorder(),
             onTap: busy ? null : () => ref.read(vpnProvider.notifier).toggle(),
             child: Center(
               child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 160),
-                switchInCurve: Curves.easeOut,
-                switchOutCurve: Curves.easeIn,
+                duration: const Duration(milliseconds: 180),
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeInCubic,
                 child: Row(
                   key: ValueKey(state),
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    if (busy)
-                      SizedBox(
-                        width: 17,
-                        height: 17,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: foreground,
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      width: 30,
+                      height: 30,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: foreground.withValues(alpha: .12),
+                        border: Border.all(
+                          color: foreground.withValues(alpha: .12),
                         ),
-                      )
-                    else
-                      Icon(icon, size: 19, color: foreground),
-                    const SizedBox(width: 10),
+                      ),
+                      child: Center(
+                        child: busy
+                            ? SizedBox(
+                                width: 15,
+                                height: 15,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: foreground,
+                                ),
+                              )
+                            : Icon(icon, size: 17, color: foreground),
+                      ),
+                    ),
+                    const SizedBox(width: 11),
                     Text(
                       label,
                       style: TextStyle(
                         color: foreground,
-                        fontSize: 12,
+                        fontSize: 13,
                         fontWeight: FontWeight.w800,
-                        letterSpacing: 1.15,
+                        letterSpacing: .8,
                       ),
                     ),
                   ],

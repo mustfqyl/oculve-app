@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -22,6 +24,51 @@ void main() {
     expect(preferences.getString('app_language'), 'tr');
     notifier.dispose();
   });
+
+  test(
+    'every literal interface phrase has Spanish and Turkish translations',
+    () {
+      final sources = <String>{};
+      final patterns = [
+        RegExp(
+          r"(?:context|dialogContext)\.tr\(\s*'((?:\\.|[^'])*)'",
+          dotAll: true,
+        ),
+        RegExp(
+          r'(?:context|dialogContext)\.tr\(\s*"((?:\\.|[^"])*)"',
+          dotAll: true,
+        ),
+        RegExp(r"\bText\(\s*(?:const\s*)?'((?:\\.|[^'])*)'", dotAll: true),
+        RegExp(r'\bText\(\s*(?:const\s*)?"((?:\\.|[^"])*)"', dotAll: true),
+      ];
+      for (final entity in Directory('lib').listSync(recursive: true)) {
+        if (entity is! File || !entity.path.endsWith('.dart')) continue;
+        final contents = entity.readAsStringSync();
+        for (final pattern in patterns) {
+          for (final match in pattern.allMatches(contents)) {
+            final source = match.group(1)!.replaceAll(r'\n', '\n');
+            if (source.contains(r'$') ||
+                source.trim().isEmpty ||
+                source == '.') {
+              continue;
+            }
+            if (source.toLowerCase() == 'oculve') continue;
+            sources.add(source);
+          }
+        }
+      }
+
+      for (final language in ['es', 'tr']) {
+        for (final source in sources) {
+          expect(
+            AppStrings.hasTranslation(source, language),
+            isTrue,
+            reason: '$language translation missing for "$source"',
+          );
+        }
+      }
+    },
+  );
 
   testWidgets('reviewed interface labels render in Spanish and Turkish', (
     tester,

@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:oculve/core/models/vpn_state.dart';
 import 'package:oculve/core/network/oculve_api.dart';
 import 'package:oculve/core/providers/vpn_provider.dart';
 import 'package:oculve/core/theme/app_theme.dart';
@@ -45,6 +46,12 @@ class _FixedProbe extends ServerLatencyProbe {
       profile.id == 'fast' ? 25 : 180;
 }
 
+class _ErrorVpnNotifier extends VpnNotifier {
+  _ErrorVpnNotifier(super.ref) {
+    state = VpnState.error;
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   SharedPreferences.setMockInitialValues({});
@@ -54,6 +61,25 @@ void main() {
       Platform.isIOS || Platform.isMacOS,
     );
   });
+
+  test(
+    'last successful ping stays visible while an error tunnel stops',
+    () async {
+      final container = ProviderContainer(
+        overrides: [
+          sessionProvider.overrideWith((ref) => _SessionWithServers()),
+          vpnProvider.overrideWith((ref) => _ErrorVpnNotifier(ref)),
+        ],
+      );
+      addTearDown(container.dispose);
+      container.read(serverLatencyLastKnownProvider.notifier).state = {
+        'fast': 24,
+      };
+      container.read(vpnTunnelMayBeActiveProvider.notifier).state = true;
+
+      expect(await container.read(serverLatencyProvider('fast').future), 24);
+    },
+  );
 
   test(
     'TCP reachability ping does not launch a Reality health request',

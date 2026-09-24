@@ -114,20 +114,38 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
   Future<bool> _confirm(String title, String description, String action) async {
     return await showDialog<bool>(
           context: context,
-          builder: (dialogContext) => AlertDialog(
-            title: Text(context.tr(title)),
-            content: Text(context.tr(description)),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(dialogContext, false),
-                child: Text(context.tr('Cancel')),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(dialogContext, true),
-                child: Text(context.tr(action)),
-              ),
-            ],
-          ),
+          builder: (dialogContext) {
+            final cancel = cupertino.CupertinoDialogAction(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: Text(context.tr('Cancel')),
+            );
+            final confirm = cupertino.CupertinoDialogAction(
+              isDestructiveAction: title == 'Permanently delete?',
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: Text(context.tr(action)),
+            );
+            if (Platform.isMacOS || Platform.isIOS) {
+              return cupertino.CupertinoAlertDialog(
+                title: Text(context.tr(title)),
+                content: Text(context.tr(description)),
+                actions: [cancel, confirm],
+              );
+            }
+            return AlertDialog(
+              title: Text(context.tr(title)),
+              content: Text(context.tr(description)),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: Text(context.tr('Cancel')),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, true),
+                  child: Text(context.tr(action)),
+                ),
+              ],
+            );
+          },
         ) ??
         false;
   }
@@ -1000,12 +1018,24 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
                                       ),
                                       curve: Curves.easeOutCubic,
                                       builder: (context, blur, child) =>
-                                          ImageFiltered(
-                                            imageFilter: ImageFilter.blur(
-                                              sigmaX: blur,
-                                              sigmaY: blur,
+                                          ClipRRect(
+                                            borderRadius: BorderRadius.circular(
+                                              12,
                                             ),
-                                            child: child,
+                                            child: Padding(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 7,
+                                                    vertical: 3,
+                                                  ),
+                                              child: ImageFiltered(
+                                                imageFilter: ImageFilter.blur(
+                                                  sigmaX: blur,
+                                                  sigmaY: blur,
+                                                ),
+                                                child: child,
+                                              ),
+                                            ),
                                           ),
                                       child: ExcludeSemantics(
                                         child: Text(
@@ -1163,10 +1193,10 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
                     OutlinedButton.icon(
                       style: OutlinedButton.styleFrom(
                         foregroundColor: AppTheme.dangerColor,
-                        minimumSize: const Size.fromHeight(50),
+                        minimumSize: const Size.fromHeight(53),
                         side: BorderSide(
                           color: AppTheme.dangerColor.withValues(alpha: .42),
-                          width: 1.2,
+                          width: 1.5,
                         ),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
@@ -1177,15 +1207,16 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
                       label: Text(
                         context.tr('Delete account'),
                         style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: .1,
                         ),
                       ),
                     ),
                     const SizedBox(height: 7),
                     FilledButton.icon(
                       style: FilledButton.styleFrom(
-                        minimumSize: const Size.fromHeight(50),
+                        minimumSize: const Size.fromHeight(53),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
@@ -1206,8 +1237,9 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
                       label: Text(
                         context.tr('Log out'),
                         style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: .1,
                         ),
                       ),
                     ),

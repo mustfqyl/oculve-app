@@ -74,14 +74,11 @@ extension _WidgetTesterXrayScrolling on WidgetTester {
 Future<void> _expandXraySettings(
   WidgetTester tester, [
   List<String> sections = const [
-    'Protocol & identity',
-    'Transport & TLS',
-    'Network behavior',
-    'Core behavior & statistics',
+    'Connection setup',
+    'Performance',
+    'Diagnostics',
     'DNS & name resolution',
-    'Connection optimization',
     'Routing & privacy',
-    'Traffic inspection',
     'Advanced core options',
   ],
 ]) async {
@@ -204,6 +201,22 @@ class _VlessSession extends SessionController {
 }
 
 void main() {
+  testWidgets('settings place theme options above language', (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          theme: AppTheme.darkTheme,
+          home: const SettingsScreen(),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(
+      tester.getTopLeft(find.text('System')).dy,
+      lessThan(tester.getTopLeft(find.text('Language')).dy),
+    );
+  });
+
   testWidgets('home wordmark uses the website system type at header size', (
     tester,
   ) async {
@@ -650,7 +663,7 @@ void main() {
       ),
     );
     await tester.pump(const Duration(milliseconds: 100));
-    await _expandXraySettings(tester, ['Traffic inspection']);
+    await _expandXraySettings(tester, ['Routing & privacy']);
 
     final routeOnly = find.byKey(const ValueKey('xray-sniffing-route-only'));
     await tester.scrollXrayUntilVisible(
@@ -711,7 +724,7 @@ void main() {
       ),
     );
     await tester.pump(const Duration(milliseconds: 150));
-    await _expandXraySettings(tester, ['Traffic inspection']);
+    await _expandXraySettings(tester, ['Routing & privacy']);
 
     final fakeDnsChip = find.byKey(const ValueKey('xray-sniffing-fakedns'));
     await tester.scrollXrayUntilVisible(
@@ -764,7 +777,7 @@ void main() {
         ),
       );
       await tester.pump(const Duration(milliseconds: 100));
-      await _expandXraySettings(tester, ['Connection optimization']);
+      await _expandXraySettings(tester, ['Performance']);
       final settingsList = find.byKey(
         const ValueKey('xray-core-settings-list'),
       );
@@ -864,7 +877,7 @@ void main() {
       ),
     );
     await tester.pump(const Duration(milliseconds: 150));
-    await _expandXraySettings(tester, ['Transport & TLS']);
+    await _expandXraySettings(tester, ['Connection setup']);
     final settingsScroll = find.byKey(
       const ValueKey('xray-core-settings-list'),
     );
@@ -933,7 +946,7 @@ void main() {
       ),
     );
     await tester.pump(const Duration(milliseconds: 150));
-    await _expandXraySettings(tester, ['Transport & TLS']);
+    await _expandXraySettings(tester, ['Connection setup']);
     final settingsScroll = find.byKey(
       const ValueKey('xray-core-settings-list'),
     );
@@ -975,7 +988,7 @@ void main() {
       ),
     );
     await tester.pump(const Duration(milliseconds: 150));
-    await _expandXraySettings(tester, ['Network behavior']);
+    await _expandXraySettings(tester, ['Performance']);
     final fastOpenField = find.byKey(
       const ValueKey('xray-dropdown-TCP Fast Open'),
     );
@@ -1020,7 +1033,7 @@ void main() {
       ),
     );
     await tester.pump(const Duration(milliseconds: 180));
-    await _expandXraySettings(tester, ['Protocol & identity']);
+    await _expandXraySettings(tester, ['Connection setup']);
     await tester.pump(const Duration(milliseconds: 180));
     expect(find.text('VLESS Encryption'), findsOneWidget);
     final enabled = find.byKey(const ValueKey('vless-encryption-enabled'));
@@ -1076,7 +1089,7 @@ void main() {
       ),
     );
     await tester.pump(const Duration(milliseconds: 200));
-    await _expandXraySettings(tester, ['Core behavior & statistics']);
+    await _expandXraySettings(tester, ['Diagnostics']);
     final settingsScroll = find.byKey(
       const ValueKey('xray-core-settings-list'),
     );

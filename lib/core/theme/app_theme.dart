@@ -58,6 +58,8 @@ class AppTheme {
       scrollbarTheme: const ScrollbarThemeData(
         thumbColor: WidgetStatePropertyAll(Colors.transparent),
         trackColor: WidgetStatePropertyAll(Colors.transparent),
+        thickness: WidgetStatePropertyAll(0),
+        thumbVisibility: WidgetStatePropertyAll(false),
         trackVisibility: WidgetStatePropertyAll(false),
         interactive: false,
       ),
@@ -110,6 +112,8 @@ class AppTheme {
       scrollbarTheme: const ScrollbarThemeData(
         thumbColor: WidgetStatePropertyAll(Colors.transparent),
         trackColor: WidgetStatePropertyAll(Colors.transparent),
+        thickness: WidgetStatePropertyAll(0),
+        thumbVisibility: WidgetStatePropertyAll(false),
         trackVisibility: WidgetStatePropertyAll(false),
         interactive: false,
       ),
