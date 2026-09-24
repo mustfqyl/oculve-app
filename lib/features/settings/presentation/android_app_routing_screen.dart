@@ -1,6 +1,7 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
+import 'package:oculve/core/localization/localized_text.dart';
 import 'package:oculve/core/theme/app_theme.dart';
 import 'package:oculve/core/vpn/android_app_catalog.dart';
 import 'package:oculve/core/vpn/xray_preferences.dart';

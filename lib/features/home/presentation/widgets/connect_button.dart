@@ -1,8 +1,10 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
+import 'package:oculve/core/localization/localized_text.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:oculve/core/theme/app_theme.dart';
 import 'package:oculve/core/providers/vpn_provider.dart';
 import 'package:oculve/core/models/vpn_state.dart';
+import 'package:oculve/core/localization/app_strings.dart';
 
 class ConnectButton extends ConsumerWidget {
   const ConnectButton({super.key});
@@ -34,22 +36,27 @@ class ConnectButton extends ConsumerWidget {
           AnimatedContainer(
             duration: const Duration(milliseconds: 280),
             curve: const Cubic(0.2, 0.8, 0.2, 1),
-            width: 148,
-            height: 148,
+            width: 136,
+            height: 136,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
+              color: isConnected
+                  ? activeColor.withValues(alpha: .035)
+                  : (isDark
+                        ? Colors.white.withValues(alpha: .018)
+                        : Colors.black.withValues(alpha: .018)),
               border: Border.all(
                 color: isConnected
                     ? activeColor.withValues(alpha: 0.25)
                     : (isDark
                           ? Colors.white.withValues(alpha: 0.06)
                           : Colors.black.withValues(alpha: 0.06)),
-                width: 1,
+                width: isConnected ? 1.25 : .75,
               ),
             ),
             child: Center(
               child: FrostedCircle(
-                size: 114,
+                size: 104,
                 blurAmount: 28,
                 color: isConnected
                     ? activeColor.withValues(alpha: isDark ? 0.12 : 0.08)
@@ -82,16 +89,16 @@ class ConnectButton extends ConsumerWidget {
                           children: [
                             Icon(
                               Icons.power_settings_new,
-                              size: 42,
+                              size: 38,
                               color: isConnected ? activeColor : mutedColor,
                             ),
                             const SizedBox(height: 8),
                             Text(
                               isConnected
-                                  ? 'CONNECTED'
+                                  ? context.tr('CONNECTED')
                                   : vpnState == VpnState.disconnecting
                                   ? 'STOPPING'
-                                  : 'CONNECT',
+                                  : context.tr('CONNECT'),
                               style: TextStyle(
                                 color: isConnected ? activeColor : mutedColor,
                                 fontWeight: FontWeight.w700,

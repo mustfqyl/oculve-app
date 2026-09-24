@@ -1,4 +1,6 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
+import 'package:oculve/core/localization/localized_text.dart';
+import 'package:oculve/core/localization/app_strings.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_vless/flutter_vless.dart';
 import 'package:oculve/core/providers/vpn_provider.dart';
@@ -40,7 +42,7 @@ class _ClientLogsScreenState extends ConsumerState<ClientLogsScreen> {
     return AppPage(
       title: 'Connection events',
       action: IconButton(
-        tooltip: 'Refresh diagnostics',
+        tooltip: context.tr('Refresh diagnostics'),
         icon: const Icon(Icons.refresh),
         onPressed: () => setState(_refresh),
       ),

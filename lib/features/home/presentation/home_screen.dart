@@ -1,6 +1,8 @@
 import 'dart:io';
 
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
+import 'package:oculve/core/localization/localized_text.dart';
+import 'package:oculve/core/localization/app_strings.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:oculve/core/theme/app_theme.dart';
 import 'widgets/connect_button.dart';
@@ -48,7 +50,7 @@ class HomeScreen extends ConsumerWidget {
                             children: [
                               _HeaderAction(
                                 icon: Icons.person_outline,
-                                tooltip: 'Account',
+                                tooltip: context.tr('Account'),
                                 onTap: () => Navigator.push(
                                   context,
                                   appRoute(const AccountScreen()),
@@ -57,7 +59,7 @@ class HomeScreen extends ConsumerWidget {
                               const SizedBox(width: 8),
                               _HeaderAction(
                                 icon: Icons.settings_outlined,
-                                tooltip: 'Settings',
+                                tooltip: context.tr('Settings'),
                                 onTap: () => Navigator.push(
                                   context,
                                   appRoute(const SettingsScreen()),

@@ -1,6 +1,10 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
+import 'package:oculve/core/localization/localized_text.dart';
+import 'package:oculve/core/localization/app_strings.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:oculve/core/providers/theme_provider.dart';
+import 'package:oculve/core/providers/locale_provider.dart';
 import 'package:oculve/core/theme/app_theme.dart';
 import 'package:oculve/core/widgets/app_page.dart';
 import 'package:oculve/core/widgets/app_route.dart';
@@ -19,17 +23,19 @@ class SettingsScreen extends ConsumerWidget {
         : AppTheme.lightForegroundMuted;
 
     return AppPage(
-      title: 'Settings',
+      title: context.tr('Settings'),
       child: ListView(
         padding: const EdgeInsets.all(24),
         children: [
           // Theme Section
-          _SectionHeader(title: 'APPEARANCE', color: fgMuted),
+          _SectionHeader(title: context.tr('Appearance'), color: fgMuted),
           const SizedBox(height: 12),
+          const _LanguageSelector(),
+          const SizedBox(height: 10),
           const _ThemeSelector(),
           const SizedBox(height: 24),
 
-          _SectionHeader(title: 'CONNECTION', color: fgMuted),
+          _SectionHeader(title: context.tr('Connection'), color: fgMuted),
           const SizedBox(height: 12),
           _SettingsTile(
             icon: Icons.tune,
@@ -42,11 +48,11 @@ class SettingsScreen extends ConsumerWidget {
           const SizedBox(height: 24),
 
           // Diagnostics Section
-          _SectionHeader(title: 'DIAGNOSTICS', color: fgMuted),
+          _SectionHeader(title: context.tr('Diagnostics'), color: fgMuted),
           const SizedBox(height: 12),
           _SettingsTile(
             icon: Icons.bar_chart,
-            title: 'Usage Statistics',
+            title: 'Statistics',
             onTap: () => Navigator.push(
               context,
               appRoute(const UsageStatisticsScreen()),
@@ -60,10 +66,134 @@ class SettingsScreen extends ConsumerWidget {
                 Navigator.push(context, appRoute(const ClientLogsScreen())),
           ),
           const SizedBox(height: 24),
+
+          _SectionHeader(title: context.tr('Help & resources'), color: fgMuted),
+          const SizedBox(height: 12),
+          _SettingsTile(
+            icon: Icons.download_outlined,
+            title: 'Downloads',
+            onTap: () => launchUrl(
+              Uri.parse('https://www.oculve.com/download'),
+              mode: LaunchMode.externalApplication,
+            ),
+          ),
+          const SizedBox(height: 12),
+          _SettingsTile(
+            icon: Icons.support_agent_outlined,
+            title: 'Support',
+            onTap: () => launchUrl(
+              Uri.parse('https://www.oculve.com/contact'),
+              mode: LaunchMode.externalApplication,
+            ),
+          ),
+          const SizedBox(height: 24),
         ],
       ),
     );
   }
+}
+
+class _LanguageSelector extends ConsumerWidget {
+  const _LanguageSelector();
+
+  static const _languages = [
+    ('en', 'English', 'EN'),
+    ('es', 'Español', 'ES'),
+    ('tr', 'Türkçe', 'TR'),
+  ];
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final selected = ref.watch(localeProvider).languageCode;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final fg = isDark ? AppTheme.foreground : AppTheme.lightForeground;
+    final muted = isDark
+        ? AppTheme.foregroundMuted
+        : AppTheme.lightForegroundMuted;
+    return FrostedCard(
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 10),
+      borderRadius: 13,
+      child: Row(
+        children: [
+          Icon(Icons.translate_rounded, size: 18, color: muted),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Text(
+              context.tr('Language'),
+              style: TextStyle(fontSize: 12, color: fg),
+            ),
+          ),
+          for (final (code, _, short) in _languages) ...[
+            if (code != 'en') const SizedBox(width: 5),
+            _LanguageOption(
+              key: ValueKey('language-$code'),
+              code: code,
+              label: short,
+              selected: selected == code,
+              onTap: () => ref.read(localeProvider.notifier).setLanguage(code),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _LanguageOption extends StatelessWidget {
+  const _LanguageOption({
+    super.key,
+    required this.code,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String code;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Tooltip(
+    message: switch (code) {
+      'es' => 'Español',
+      'tr' => 'Türkçe',
+      _ => 'English',
+    },
+    child: InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        constraints: const BoxConstraints(minWidth: 34, minHeight: 30),
+        alignment: Alignment.center,
+        padding: const EdgeInsets.symmetric(horizontal: 7),
+        decoration: BoxDecoration(
+          color: selected
+              ? AppTheme.successColor.withValues(alpha: .18)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: selected
+                ? AppTheme.successColor.withValues(alpha: .5)
+                : Colors.transparent,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            color: selected
+                ? AppTheme.successColor
+                : Theme.of(context).brightness == Brightness.dark
+                ? AppTheme.foregroundMuted
+                : AppTheme.lightForegroundMuted,
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 class _SectionHeader extends StatelessWidget {

@@ -1,7 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
+import 'package:oculve/core/localization/localized_text.dart';
+import 'package:oculve/core/localization/app_strings.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_vless/flutter_vless.dart';
 import 'package:oculve/core/providers/vpn_provider.dart';
@@ -884,7 +886,7 @@ class _XrayCoreSettingsScreenState
       title: 'Xray core',
       action: IconButton(
         key: const ValueKey('save-transport-settings'),
-        tooltip: 'Save transport settings',
+        tooltip: context.tr('Save transport settings'),
         onPressed:
             _tlsSettings == null ||
                 _xhttpSettings == null ||
@@ -904,6 +906,8 @@ class _XrayCoreSettingsScreenState
         key: const ValueKey('xray-core-settings-list'),
         padding: const EdgeInsets.fromLTRB(18, 8, 18, 24),
         children: [
+          _categoryHeader(context.tr('Protocol & identity')),
+          const SizedBox(height: 8),
           FrostedCard(
             padding: const EdgeInsets.all(16),
             child: Column(
@@ -944,7 +948,8 @@ class _XrayCoreSettingsScreenState
             ),
           ),
           const SizedBox(height: 12),
-          const SizedBox(height: 12),
+          _categoryHeader(context.tr('Protocol & identity')),
+          const SizedBox(height: 8),
           FrostedCard(
             padding: const EdgeInsets.all(16),
             child: Column(
@@ -1037,12 +1042,15 @@ class _XrayCoreSettingsScreenState
                       enableSuggestions: false,
                       minLines: 2,
                       maxLines: 4,
-                      decoration: const InputDecoration(
-                        labelText: 'Server authentication parameter',
+                      decoration: InputDecoration(
+                        labelText: context.tr(
+                          'Server authentication parameter',
+                        ),
                         hintText:
                             'Paste the client parameter from xray mlkem768',
-                        helperText:
-                            'This value is specific to the server. The client cannot create a matching server parameter by itself.',
+                        helperText: context.tr(
+                          'This value is specific to the server. The client cannot create a matching server parameter by itself.',
+                        ),
                         border: OutlineInputBorder(),
                       ),
                     ),
@@ -1052,11 +1060,14 @@ class _XrayCoreSettingsScreenState
                       controller: _vlessPaddingController,
                       autocorrect: false,
                       enableSuggestions: false,
-                      decoration: const InputDecoration(
-                        labelText: 'Padding and delay pattern (optional)',
+                      decoration: InputDecoration(
+                        labelText: context.tr(
+                          'Padding and delay pattern (optional)',
+                        ),
                         hintText: '100-111-1111.75-0-111.50-0-3333',
-                        helperText:
-                            'Use dot-separated probability-min-max blocks; leave empty for Xray defaults.',
+                        helperText: context.tr(
+                          'Use dot-separated probability-min-max blocks; leave empty for Xray defaults.',
+                        ),
                         border: OutlineInputBorder(),
                       ),
                     ),
@@ -1096,6 +1107,8 @@ class _XrayCoreSettingsScreenState
             ),
           ),
           const SizedBox(height: 12),
+          _categoryHeader(context.tr('Transport & TLS')),
+          const SizedBox(height: 8),
           FrostedCard(
             padding: const EdgeInsets.all(16),
             child: Column(
@@ -1133,8 +1146,8 @@ class _XrayCoreSettingsScreenState
                     controller: _xhttpHostController,
                     autocorrect: false,
                     enableSuggestions: false,
-                    decoration: const InputDecoration(
-                      labelText: 'HTTP host override (optional)',
+                    decoration: InputDecoration(
+                      labelText: context.tr('HTTP host override (optional)'),
                       hintText: 'cdn.example.com',
                       border: OutlineInputBorder(),
                     ),
@@ -1145,8 +1158,8 @@ class _XrayCoreSettingsScreenState
                     controller: _xhttpPathController,
                     autocorrect: false,
                     enableSuggestions: false,
-                    decoration: const InputDecoration(
-                      labelText: 'Path override (optional)',
+                    decoration: InputDecoration(
+                      labelText: context.tr('Path override (optional)'),
                       hintText: '/tunnel',
                       border: OutlineInputBorder(),
                     ),
@@ -1172,8 +1185,10 @@ class _XrayCoreSettingsScreenState
                         enableSuggestions: false,
                         minLines: 1,
                         maxLines: 4,
-                        decoration: const InputDecoration(
-                          labelText: 'Custom HTTP headers (JSON object)',
+                        decoration: InputDecoration(
+                          labelText: context.tr(
+                            'Custom HTTP headers (JSON object)',
+                          ),
                           hintText: '{"X-Client":"Oculve"}',
                           border: OutlineInputBorder(),
                         ),
@@ -1184,8 +1199,8 @@ class _XrayCoreSettingsScreenState
                         controller: _xhttpPaddingController,
                         autocorrect: false,
                         enableSuggestions: false,
-                        decoration: const InputDecoration(
-                          labelText: 'Header padding bytes',
+                        decoration: InputDecoration(
+                          labelText: context.tr('Header padding bytes'),
                           hintText: '100-1000',
                           border: OutlineInputBorder(),
                         ),
@@ -1212,8 +1227,8 @@ class _XrayCoreSettingsScreenState
                         key: const ValueKey('xhttp-max-post-field'),
                         controller: _xhttpMaxPostController,
                         keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          labelText: 'Maximum POST body bytes',
+                        decoration: InputDecoration(
+                          labelText: context.tr('Maximum POST body bytes'),
                           hintText: '1000000',
                           border: OutlineInputBorder(),
                         ),
@@ -1223,8 +1238,8 @@ class _XrayCoreSettingsScreenState
                         key: const ValueKey('xhttp-post-interval-field'),
                         controller: _xhttpPostIntervalController,
                         keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          labelText: 'Minimum POST interval (ms)',
+                        decoration: InputDecoration(
+                          labelText: context.tr('Minimum POST interval (ms)'),
                           hintText: '30',
                           border: OutlineInputBorder(),
                         ),
@@ -1238,8 +1253,8 @@ class _XrayCoreSettingsScreenState
                       TextField(
                         key: const ValueKey('xhttp-max-concurrency-field'),
                         controller: _xhttpMaxConcurrencyController,
-                        decoration: const InputDecoration(
-                          labelText: 'Maximum concurrent requests',
+                        decoration: InputDecoration(
+                          labelText: context.tr('Maximum concurrent requests'),
                           hintText: '16-32',
                           border: OutlineInputBorder(),
                         ),
@@ -1248,8 +1263,8 @@ class _XrayCoreSettingsScreenState
                       TextField(
                         key: const ValueKey('xhttp-max-connections-field'),
                         controller: _xhttpMaxConnectionsController,
-                        decoration: const InputDecoration(
-                          labelText: 'Maximum connections',
+                        decoration: InputDecoration(
+                          labelText: context.tr('Maximum connections'),
                           hintText: 'Leave blank unless using this limit',
                           border: OutlineInputBorder(),
                         ),
@@ -1258,8 +1273,8 @@ class _XrayCoreSettingsScreenState
                       TextField(
                         key: const ValueKey('xhttp-reuse-limit-field'),
                         controller: _xhttpReuseLimitController,
-                        decoration: const InputDecoration(
-                          labelText: 'Connection reuse limit',
+                        decoration: InputDecoration(
+                          labelText: context.tr('Connection reuse limit'),
                           hintText: '0 means core default',
                           border: OutlineInputBorder(),
                         ),
@@ -1268,8 +1283,8 @@ class _XrayCoreSettingsScreenState
                       TextField(
                         key: const ValueKey('xhttp-request-count-field'),
                         controller: _xhttpRequestCountController,
-                        decoration: const InputDecoration(
-                          labelText: 'Maximum HTTP request count',
+                        decoration: InputDecoration(
+                          labelText: context.tr('Maximum HTTP request count'),
                           hintText: '600-900',
                           border: OutlineInputBorder(),
                         ),
@@ -1278,8 +1293,8 @@ class _XrayCoreSettingsScreenState
                       TextField(
                         key: const ValueKey('xhttp-reusable-seconds-field'),
                         controller: _xhttpReusableSecondsController,
-                        decoration: const InputDecoration(
-                          labelText: 'Maximum reusable seconds',
+                        decoration: InputDecoration(
+                          labelText: context.tr('Maximum reusable seconds'),
                           hintText: '1800-3000',
                           border: OutlineInputBorder(),
                         ),
@@ -1289,8 +1304,10 @@ class _XrayCoreSettingsScreenState
                         key: const ValueKey('xhttp-keepalive-field'),
                         controller: _xhttpKeepAliveController,
                         keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          labelText: 'HTTP keepalive period (seconds)',
+                        decoration: InputDecoration(
+                          labelText: context.tr(
+                            'HTTP keepalive period (seconds)',
+                          ),
                           hintText: '0 uses core default; -1 disables',
                           border: OutlineInputBorder(),
                         ),
@@ -1303,12 +1320,15 @@ class _XrayCoreSettingsScreenState
                         enableSuggestions: false,
                         minLines: 2,
                         maxLines: 8,
-                        decoration: const InputDecoration(
-                          labelText: 'Separate download settings (JSON)',
+                        decoration: InputDecoration(
+                          labelText: context.tr(
+                            'Separate download settings (JSON)',
+                          ),
                           hintText:
                               '{"address":"download.example","port":443,"network":"xhttp","security":"tls","tlsSettings":{"serverName":"download.example"},"xhttpSettings":{"path":"/tunnel"}}',
-                          helperText:
-                              'The upload and download sides can use different IPs, domains, transports or security.',
+                          helperText: context.tr(
+                            'The upload and download sides can use different IPs, domains, transports or security.',
+                          ),
                           border: OutlineInputBorder(),
                         ),
                       ),
@@ -1320,11 +1340,14 @@ class _XrayCoreSettingsScreenState
                         enableSuggestions: false,
                         minLines: 1,
                         maxLines: 6,
-                        decoration: const InputDecoration(
-                          labelText: 'Additional client extra settings (JSON)',
+                        decoration: InputDecoration(
+                          labelText: context.tr(
+                            'Additional client extra settings (JSON)',
+                          ),
                           hintText: '{"xPaddingBytes":"100-1000"}',
-                          helperText:
-                              'Client-supported XHTTP fields only. SSE response options and buffered-post limits are server-side.',
+                          helperText: context.tr(
+                            'Client-supported XHTTP fields only. SSE response options and buffered-post limits are server-side.',
+                          ),
                           border: OutlineInputBorder(),
                         ),
                       ),
@@ -1355,6 +1378,8 @@ class _XrayCoreSettingsScreenState
             ),
           ),
           const SizedBox(height: 12),
+          _categoryHeader(context.tr('Transport & TLS')),
+          const SizedBox(height: 8),
           FrostedCard(
             padding: const EdgeInsets.all(16),
             child: Column(
@@ -1381,8 +1406,8 @@ class _XrayCoreSettingsScreenState
                     controller: _tlsServerNameController,
                     autocorrect: false,
                     enableSuggestions: false,
-                    decoration: const InputDecoration(
-                      labelText: 'SNI / server name',
+                    decoration: InputDecoration(
+                      labelText: context.tr('SNI / server name'),
                       hintText: 'server.example.com',
                       border: OutlineInputBorder(),
                     ),
@@ -1407,11 +1432,14 @@ class _XrayCoreSettingsScreenState
                         controller: _tlsClientHelloController,
                         autocorrect: false,
                         enableSuggestions: false,
-                        decoration: const InputDecoration(
-                          labelText: 'Native uTLS Hello profile (optional)',
+                        decoration: InputDecoration(
+                          labelText: context.tr(
+                            'Native uTLS Hello profile (optional)',
+                          ),
                           hintText: 'HelloChrome_120',
-                          helperText:
-                              'Overrides the browser preset above. Use a Hello name supported by this Xray core.',
+                          helperText: context.tr(
+                            'Overrides the browser preset above. Use a Hello name supported by this Xray core.',
+                          ),
                           border: OutlineInputBorder(),
                         ),
                       ),
@@ -1421,8 +1449,10 @@ class _XrayCoreSettingsScreenState
                         controller: _tlsVerifyNameController,
                         autocorrect: false,
                         enableSuggestions: false,
-                        decoration: const InputDecoration(
-                          labelText: 'Certificate verification name',
+                        decoration: InputDecoration(
+                          labelText: context.tr(
+                            'Certificate verification name',
+                          ),
                           hintText: 'example.com,backup.example.com',
                           border: OutlineInputBorder(),
                         ),
@@ -1442,10 +1472,12 @@ class _XrayCoreSettingsScreenState
                         controller: _tlsAlpnController,
                         autocorrect: false,
                         enableSuggestions: false,
-                        decoration: const InputDecoration(
-                          labelText: 'ALPN',
+                        decoration: InputDecoration(
+                          labelText: context.tr('ALPN'),
                           hintText: 'h2,http/1.1',
-                          helperText: 'Comma-separated protocol names.',
+                          helperText: context.tr(
+                            'Comma-separated protocol names.',
+                          ),
                           border: OutlineInputBorder(),
                         ),
                       ),
@@ -1479,11 +1511,12 @@ class _XrayCoreSettingsScreenState
                         controller: _tlsCipherSuitesController,
                         autocorrect: false,
                         enableSuggestions: false,
-                        decoration: const InputDecoration(
-                          labelText: 'Cipher suites (optional)',
+                        decoration: InputDecoration(
+                          labelText: context.tr('Cipher suites (optional)'),
                           hintText: 'TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256',
-                          helperText:
-                              'Separate Go cipher suite names with colons.',
+                          helperText: context.tr(
+                            'Separate Go cipher suite names with colons.',
+                          ),
                           border: OutlineInputBorder(),
                         ),
                       ),
@@ -1493,11 +1526,12 @@ class _XrayCoreSettingsScreenState
                         controller: _tlsCurvesController,
                         autocorrect: false,
                         enableSuggestions: false,
-                        decoration: const InputDecoration(
-                          labelText: 'Curve preferences',
+                        decoration: InputDecoration(
+                          labelText: context.tr('Curve preferences'),
                           hintText: 'X25519,X25519MLKEM768',
-                          helperText:
-                              'Supported: CurveP256, CurveP384, CurveP521, X25519 and ML-KEM hybrids.',
+                          helperText: context.tr(
+                            'Supported: CurveP256, CurveP384, CurveP521, X25519 and ML-KEM hybrids.',
+                          ),
                           border: OutlineInputBorder(),
                         ),
                       ),
@@ -1509,8 +1543,8 @@ class _XrayCoreSettingsScreenState
                         enableSuggestions: false,
                         minLines: 1,
                         maxLines: 2,
-                        decoration: const InputDecoration(
-                          labelText: 'Certificate SHA-256 pin(s)',
+                        decoration: InputDecoration(
+                          labelText: context.tr('Certificate SHA-256 pin(s)'),
                           hintText:
                               '64 hex characters; multiple separated by commas',
                           border: OutlineInputBorder(),
@@ -1533,11 +1567,12 @@ class _XrayCoreSettingsScreenState
                         enableSuggestions: false,
                         minLines: 2,
                         maxLines: 5,
-                        decoration: const InputDecoration(
-                          labelText: 'Custom CA certificate (PEM)',
+                        decoration: InputDecoration(
+                          labelText: context.tr('Custom CA certificate (PEM)'),
                           hintText: '-----BEGIN CERTIFICATE-----',
-                          helperText:
-                              'Adding a custom CA makes Xray trust only this CA for TLS verification.',
+                          helperText: context.tr(
+                            'Adding a custom CA makes Xray trust only this CA for TLS verification.',
+                          ),
                           border: OutlineInputBorder(),
                         ),
                       ),
@@ -1560,11 +1595,12 @@ class _XrayCoreSettingsScreenState
                         enableSuggestions: false,
                         minLines: 1,
                         maxLines: 2,
-                        decoration: const InputDecoration(
-                          labelText: 'ECH config or DNS lookup URL',
+                        decoration: InputDecoration(
+                          labelText: context.tr('ECH config or DNS lookup URL'),
                           hintText: 'https://1.1.1.1/dns-query',
-                          helperText:
-                              'Paste a static ECHConfig or use udp://, https:// or h2c://.',
+                          helperText: context.tr(
+                            'Paste a static ECHConfig or use udp://, https:// or h2c://.',
+                          ),
                           border: OutlineInputBorder(),
                         ),
                       ),
@@ -1574,10 +1610,11 @@ class _XrayCoreSettingsScreenState
                         controller: _tlsMasterKeyLogController,
                         autocorrect: false,
                         enableSuggestions: false,
-                        decoration: const InputDecoration(
-                          labelText: 'TLS key log file path',
-                          helperText:
-                              'For Wireshark diagnostics only. Anyone with this file can decrypt captured traffic.',
+                        decoration: InputDecoration(
+                          labelText: context.tr('TLS key log file path'),
+                          helperText: context.tr(
+                            'For Wireshark diagnostics only. Anyone with this file can decrypt captured traffic.',
+                          ),
                           border: OutlineInputBorder(),
                         ),
                       ),
@@ -1608,6 +1645,8 @@ class _XrayCoreSettingsScreenState
             ),
           ),
           const SizedBox(height: 12),
+          _categoryHeader(context.tr('Network behavior')),
+          const SizedBox(height: 8),
           FrostedCard(
             padding: const EdgeInsets.all(16),
             child: Column(
@@ -1677,12 +1716,13 @@ class _XrayCoreSettingsScreenState
                       _tcpSettings!.copyWith(interfaceName: value.trim()),
                     ),
                     decoration: InputDecoration(
-                      labelText: 'Network interface',
-                      helperText:
-                          'Optional. Empty lets Xray choose the network.',
+                      labelText: context.tr('Network interface'),
+                      helperText: context.tr(
+                        'Optional. Empty lets Xray choose the network.',
+                      ),
                       border: const OutlineInputBorder(),
                       suffixIcon: IconButton(
-                        tooltip: 'Save interface',
+                        tooltip: context.tr('Save interface'),
                         onPressed: () => _saveTcp(
                           _tcpSettings!.copyWith(
                             interfaceName: _tcpInterfaceController.text.trim(),
@@ -1702,12 +1742,13 @@ class _XrayCoreSettingsScreenState
                       _tcpSettings!.copyWith(sendThroughAddress: value.trim()),
                     ),
                     decoration: InputDecoration(
-                      labelText: 'Send through local IP',
-                      helperText:
-                          'Optional source address; leave empty for automatic binding.',
+                      labelText: context.tr('Send through local IP'),
+                      helperText: context.tr(
+                        'Optional source address; leave empty for automatic binding.',
+                      ),
                       border: const OutlineInputBorder(),
                       suffixIcon: IconButton(
-                        tooltip: 'Save source address',
+                        tooltip: context.tr('Save source address'),
                         onPressed: () => _saveTcp(
                           _tcpSettings!.copyWith(
                             sendThroughAddress: _tcpSendThroughController.text
@@ -1914,6 +1955,8 @@ class _XrayCoreSettingsScreenState
             ),
           ),
           const SizedBox(height: 12),
+          _categoryHeader(context.tr('Core behavior & statistics')),
+          const SizedBox(height: 8),
           FrostedCard(
             padding: const EdgeInsets.all(16),
             child: Column(
@@ -1939,8 +1982,8 @@ class _XrayCoreSettingsScreenState
                     key: const ValueKey('policy-handshake-field'),
                     controller: _policyHandshakeController,
                     keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'Handshake timeout (seconds)',
+                    decoration: InputDecoration(
+                      labelText: context.tr('Handshake timeout (seconds)'),
                       border: OutlineInputBorder(),
                     ),
                   ),
@@ -1949,8 +1992,10 @@ class _XrayCoreSettingsScreenState
                     key: const ValueKey('policy-idle-field'),
                     controller: _policyIdleController,
                     keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'Connection idle timeout (seconds)',
+                    decoration: InputDecoration(
+                      labelText: context.tr(
+                        'Connection idle timeout (seconds)',
+                      ),
                       border: OutlineInputBorder(),
                     ),
                   ),
@@ -1959,8 +2004,8 @@ class _XrayCoreSettingsScreenState
                     key: const ValueKey('policy-uplink-field'),
                     controller: _policyUplinkController,
                     keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'Uplink-only timeout (seconds)',
+                    decoration: InputDecoration(
+                      labelText: context.tr('Uplink-only timeout (seconds)'),
                       border: OutlineInputBorder(),
                     ),
                   ),
@@ -1969,8 +2014,8 @@ class _XrayCoreSettingsScreenState
                     key: const ValueKey('policy-downlink-field'),
                     controller: _policyDownlinkController,
                     keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'Downlink-only timeout (seconds)',
+                    decoration: InputDecoration(
+                      labelText: context.tr('Downlink-only timeout (seconds)'),
                       border: OutlineInputBorder(),
                     ),
                   ),
@@ -1979,10 +2024,11 @@ class _XrayCoreSettingsScreenState
                     key: const ValueKey('policy-buffer-field'),
                     controller: _policyBufferController,
                     keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'Request buffer (KB)',
-                      helperText:
-                          'Optional; Xray defaults depend on device architecture.',
+                    decoration: InputDecoration(
+                      labelText: context.tr('Request buffer (KB)'),
+                      helperText: context.tr(
+                        'Optional; Xray defaults depend on device architecture.',
+                      ),
                       border: OutlineInputBorder(),
                     ),
                   ),
@@ -2111,6 +2157,8 @@ class _XrayCoreSettingsScreenState
             ),
           ),
           const SizedBox(height: 12),
+          _categoryHeader(context.tr('DNS & name resolution')),
+          const SizedBox(height: 8),
           FrostedCard(
             padding: const EdgeInsets.all(16),
             child: Column(
@@ -2136,12 +2184,13 @@ class _XrayCoreSettingsScreenState
                     enableSuggestions: false,
                     minLines: 2,
                     maxLines: 5,
-                    decoration: const InputDecoration(
-                      labelText: 'DNS servers',
+                    decoration: InputDecoration(
+                      labelText: context.tr('DNS servers'),
                       hintText:
                           '1.1.1.1\nhttps://dns.google/dns-query\n{"address":"9.9.9.9","domains":["geosite:example"]}',
-                      helperText:
-                          'One endpoint or Xray DNS server JSON object per line. Supports UDP, TCP, DoH, DoQ and localhost. +local bypasses proxy routing; h2c is unencrypted.',
+                      helperText: context.tr(
+                        'One endpoint or Xray DNS server JSON object per line. Supports UDP, TCP, DoH, DoQ and localhost. +local bypasses proxy routing; h2c is unencrypted.',
+                      ),
                       border: OutlineInputBorder(),
                     ),
                   ),
@@ -2164,11 +2213,12 @@ class _XrayCoreSettingsScreenState
                     enableSuggestions: false,
                     minLines: 1,
                     maxLines: 3,
-                    decoration: const InputDecoration(
-                      labelText: 'Custom hosts',
+                    decoration: InputDecoration(
+                      labelText: context.tr('Custom hosts'),
                       hintText: 'example.com=93.184.216.34',
-                      helperText:
-                          'One mapping per line (for example domain:example.com=93.184.216.34). Separate multiple targets with |.',
+                      helperText: context.tr(
+                        'One mapping per line (for example domain:example.com=93.184.216.34). Separate multiple targets with |.',
+                      ),
                       border: OutlineInputBorder(),
                     ),
                   ),
@@ -2179,8 +2229,8 @@ class _XrayCoreSettingsScreenState
                     autocorrect: false,
                     enableSuggestions: false,
                     keyboardType: TextInputType.url,
-                    decoration: const InputDecoration(
-                      labelText: 'EDNS client subnet (optional)',
+                    decoration: InputDecoration(
+                      labelText: context.tr('EDNS client subnet (optional)'),
                       hintText: 'Leave empty for privacy',
                       border: OutlineInputBorder(),
                     ),
@@ -2294,6 +2344,8 @@ class _XrayCoreSettingsScreenState
             ),
           ),
           const SizedBox(height: 12),
+          _categoryHeader(context.tr('Connection optimization')),
+          const SizedBox(height: 8),
           FrostedCard(
             padding: const EdgeInsets.all(16),
             child: Column(
@@ -2366,6 +2418,8 @@ class _XrayCoreSettingsScreenState
             ),
           ),
           const SizedBox(height: 12),
+          _categoryHeader(context.tr('Routing & privacy')),
+          const SizedBox(height: 8),
           FrostedCard(
             padding: const EdgeInsets.all(16),
             child: InkWell(
@@ -2433,7 +2487,7 @@ class _XrayCoreSettingsScreenState
                   autocorrect: false,
                   enableSuggestions: false,
                   keyboardType: TextInputType.multiline,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     hintText: 'example.com',
                     border: OutlineInputBorder(),
                   ),
@@ -2526,7 +2580,7 @@ class _XrayCoreSettingsScreenState
                             ),
                           ),
                           IconButton(
-                            tooltip: 'Delete rule',
+                            tooltip: context.tr('Delete rule'),
                             onPressed: _savingRouting
                                 ? null
                                 : () => _removeRoutingRule(entry.$1),
@@ -2559,6 +2613,8 @@ class _XrayCoreSettingsScreenState
             ),
           ),
           const SizedBox(height: 12),
+          _categoryHeader(context.tr('Traffic inspection')),
+          const SizedBox(height: 8),
           FrostedCard(
             padding: const EdgeInsets.all(16),
             child: Column(
@@ -2681,10 +2737,12 @@ class _XrayCoreSettingsScreenState
                     maxLines: 3,
                     autocorrect: false,
                     enableSuggestions: false,
-                    decoration: const InputDecoration(
-                      labelText: 'Excluded domains',
+                    decoration: InputDecoration(
+                      labelText: context.tr('Excluded domains'),
                       hintText: 'courier.push.apple.com\nfull:service.example',
-                      helperText: 'One Xray domain matcher per line.',
+                      helperText: context.tr(
+                        'One Xray domain matcher per line.',
+                      ),
                       border: OutlineInputBorder(),
                     ),
                   ),
@@ -2696,10 +2754,12 @@ class _XrayCoreSettingsScreenState
                     maxLines: 3,
                     autocorrect: false,
                     enableSuggestions: false,
-                    decoration: const InputDecoration(
-                      labelText: 'Excluded IPs',
+                    decoration: InputDecoration(
+                      labelText: context.tr('Excluded IPs'),
                       hintText: '192.168.1.1\n2001:db8::/32',
-                      helperText: 'One IP, CIDR or geoip matcher per line.',
+                      helperText: context.tr(
+                        'One IP, CIDR or geoip matcher per line.',
+                      ),
                       border: OutlineInputBorder(),
                     ),
                   ),
@@ -2752,6 +2812,8 @@ class _XrayCoreSettingsScreenState
             ),
           ),
           const SizedBox(height: 12),
+          _categoryHeader(context.tr('Advanced core options')),
+          const SizedBox(height: 8),
           FrostedCard(
             padding: const EdgeInsets.all(16),
             child: Column(
@@ -2781,8 +2843,8 @@ class _XrayCoreSettingsScreenState
                           controller: _versionMinimumController,
                           autocorrect: false,
                           enableSuggestions: false,
-                          decoration: const InputDecoration(
-                            labelText: 'Minimum version',
+                          decoration: InputDecoration(
+                            labelText: context.tr('Minimum version'),
                             hintText: '26.9.9',
                             border: OutlineInputBorder(),
                           ),
@@ -2795,8 +2857,8 @@ class _XrayCoreSettingsScreenState
                           controller: _versionMaximumController,
                           autocorrect: false,
                           enableSuggestions: false,
-                          decoration: const InputDecoration(
-                            labelText: 'Maximum version',
+                          decoration: InputDecoration(
+                            labelText: context.tr('Maximum version'),
                             hintText: '26.9.9',
                             border: OutlineInputBorder(),
                           ),
@@ -2869,12 +2931,13 @@ class _XrayCoreSettingsScreenState
                       fontFamily: 'monospace',
                       fontSize: 12,
                     ),
-                    decoration: const InputDecoration(
-                      labelText: 'FinalMask object',
+                    decoration: InputDecoration(
+                      labelText: context.tr('FinalMask object'),
                       hintText:
                           '{"tcp":[{"type":"fragment","settings":{"packets":"tlshello","lengths":["100-200"]}}]}',
-                      helperText:
-                          'Use Xray FinalMask JSON: tcp, udp, and/or quicParams. Leave {} to remove app-level overrides.',
+                      helperText: context.tr(
+                        'Use Xray FinalMask JSON: tcp, udp, and/or quicParams. Leave {} to remove app-level overrides.',
+                      ),
                       alignLabelWithHint: true,
                       border: OutlineInputBorder(),
                     ),
@@ -2937,8 +3000,8 @@ class _XrayCoreSettingsScreenState
                   enableSuggestions: false,
                   keyboardType: TextInputType.multiline,
                   style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-                  decoration: const InputDecoration(
-                    labelText: 'Xray config object',
+                  decoration: InputDecoration(
+                    labelText: context.tr('Xray config object'),
                     hintText: '{"routing":{"domainStrategy":"IPIfNonMatch"}}',
                     alignLabelWithHint: true,
                     border: OutlineInputBorder(),
@@ -3018,6 +3081,26 @@ class _XrayCoreSettingsScreenState
     );
   }
 }
+
+Widget _categoryHeader(String title) => Builder(
+  builder: (context) {
+    final muted = Theme.of(context).brightness == Brightness.dark
+        ? AppTheme.foregroundMuted
+        : AppTheme.lightForegroundMuted;
+    return Padding(
+      padding: const EdgeInsets.only(left: 3, top: 2),
+      child: Text(
+        title.toUpperCase(),
+        style: TextStyle(
+          color: muted,
+          fontSize: 9,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 1.1,
+        ),
+      ),
+    );
+  },
+);
 
 String _routingRuleSummary(XrayRoutingRule rule) {
   final parts = <String>[
@@ -3200,8 +3283,8 @@ class _RoutingRuleDialogState extends State<_RoutingRuleDialog> {
                 key: const ValueKey('xray-route-action'),
                 initialValue: _action,
                 isExpanded: true,
-                decoration: const InputDecoration(
-                  labelText: 'Route traffic to',
+                decoration: InputDecoration(
+                  labelText: context.tr('Route traffic to'),
                 ),
                 items: const [
                   DropdownMenuItem(
@@ -3229,11 +3312,12 @@ class _RoutingRuleDialogState extends State<_RoutingRuleDialog> {
                 maxLines: 3,
                 autocorrect: false,
                 enableSuggestions: false,
-                decoration: const InputDecoration(
-                  labelText: 'Domains',
+                decoration: InputDecoration(
+                  labelText: context.tr('Domains'),
                   hintText: 'example.com\nfull:login.example.com',
-                  helperText:
-                      'One per line. Also supports geosite: and keyword:.',
+                  helperText: context.tr(
+                    'One per line. Also supports geosite: and keyword:.',
+                  ),
                   border: OutlineInputBorder(),
                 ),
               ),
@@ -3245,8 +3329,8 @@ class _RoutingRuleDialogState extends State<_RoutingRuleDialog> {
                 maxLines: 3,
                 autocorrect: false,
                 enableSuggestions: false,
-                decoration: const InputDecoration(
-                  labelText: 'IP / CIDR',
+                decoration: InputDecoration(
+                  labelText: context.tr('IP / CIDR'),
                   hintText: '192.168.1.0/24\ngeoip:private',
                   border: OutlineInputBorder(),
                 ),
@@ -3257,8 +3341,8 @@ class _RoutingRuleDialogState extends State<_RoutingRuleDialog> {
                 controller: _ports,
                 autocorrect: false,
                 enableSuggestions: false,
-                decoration: const InputDecoration(
-                  labelText: 'Destination ports',
+                decoration: InputDecoration(
+                  labelText: context.tr('Destination ports'),
                   hintText: '443, 8000-8100',
                   border: OutlineInputBorder(),
                 ),
@@ -3295,8 +3379,8 @@ class _RoutingRuleDialogState extends State<_RoutingRuleDialog> {
                   TextField(
                     key: const ValueKey('xray-route-source-ports'),
                     controller: _sourcePorts,
-                    decoration: const InputDecoration(
-                      labelText: 'Source ports',
+                    decoration: InputDecoration(
+                      labelText: context.tr('Source ports'),
                       hintText: '53, 1000-2000',
                       border: OutlineInputBorder(),
                     ),
@@ -3305,8 +3389,8 @@ class _RoutingRuleDialogState extends State<_RoutingRuleDialog> {
                   TextField(
                     key: const ValueKey('xray-route-local-ports'),
                     controller: _localPorts,
-                    decoration: const InputDecoration(
-                      labelText: 'Local inbound ports',
+                    decoration: InputDecoration(
+                      labelText: context.tr('Local inbound ports'),
                       hintText: '1080, 8000-8100',
                       border: OutlineInputBorder(),
                     ),
@@ -3319,8 +3403,8 @@ class _RoutingRuleDialogState extends State<_RoutingRuleDialog> {
                     maxLines: 3,
                     autocorrect: false,
                     enableSuggestions: false,
-                    decoration: const InputDecoration(
-                      labelText: 'Source IP / CIDR',
+                    decoration: InputDecoration(
+                      labelText: context.tr('Source IP / CIDR'),
                       hintText: '192.168.1.0/24',
                       border: OutlineInputBorder(),
                     ),
@@ -3333,8 +3417,8 @@ class _RoutingRuleDialogState extends State<_RoutingRuleDialog> {
                     maxLines: 3,
                     autocorrect: false,
                     enableSuggestions: false,
-                    decoration: const InputDecoration(
-                      labelText: 'Local inbound IP / CIDR',
+                    decoration: InputDecoration(
+                      labelText: context.tr('Local inbound IP / CIDR'),
                       hintText: '127.0.0.1\ngeoip:private',
                       border: OutlineInputBorder(),
                     ),
@@ -3347,8 +3431,8 @@ class _RoutingRuleDialogState extends State<_RoutingRuleDialog> {
                     maxLines: 3,
                     autocorrect: false,
                     enableSuggestions: false,
-                    decoration: const InputDecoration(
-                      labelText: 'Inbound tags',
+                    decoration: InputDecoration(
+                      labelText: context.tr('Inbound tags'),
                       hintText: 'tun-in',
                       border: OutlineInputBorder(),
                     ),
@@ -3361,8 +3445,8 @@ class _RoutingRuleDialogState extends State<_RoutingRuleDialog> {
                     maxLines: 3,
                     autocorrect: false,
                     enableSuggestions: false,
-                    decoration: const InputDecoration(
-                      labelText: 'User / email',
+                    decoration: InputDecoration(
+                      labelText: context.tr('User / email'),
                       hintText: 'client@example.com',
                       border: OutlineInputBorder(),
                     ),
@@ -3375,10 +3459,12 @@ class _RoutingRuleDialogState extends State<_RoutingRuleDialog> {
                     maxLines: 3,
                     autocorrect: false,
                     enableSuggestions: false,
-                    decoration: const InputDecoration(
-                      labelText: 'Process name / path',
+                    decoration: InputDecoration(
+                      labelText: context.tr('Process name / path'),
                       hintText: 'browser\nC:/Apps/app.exe',
-                      helperText: 'Supported by Xray on Windows and Linux.',
+                      helperText: context.tr(
+                        'Supported by Xray on Windows and Linux.',
+                      ),
                       border: OutlineInputBorder(),
                     ),
                   ),
@@ -3420,11 +3506,12 @@ class _RoutingRuleDialogState extends State<_RoutingRuleDialog> {
                     maxLines: 4,
                     autocorrect: false,
                     enableSuggestions: false,
-                    decoration: const InputDecoration(
-                      labelText: 'HTTP headers / method / path',
+                    decoration: InputDecoration(
+                      labelText: context.tr('HTTP headers / method / path'),
                       hintText: ':method=GET\n:path=/api\naccept=text/html',
-                      helperText:
-                          'Values are regular expressions. Requires traffic sniffing.',
+                      helperText: context.tr(
+                        'Values are regular expressions. Requires traffic sniffing.',
+                      ),
                       border: OutlineInputBorder(),
                     ),
                   ),
@@ -3433,8 +3520,8 @@ class _RoutingRuleDialogState extends State<_RoutingRuleDialog> {
                     key: const ValueKey('xray-route-rule-tag'),
                     controller: _ruleTag,
                     maxLength: 128,
-                    decoration: const InputDecoration(
-                      labelText: 'Rule name (optional)',
+                    decoration: InputDecoration(
+                      labelText: context.tr('Rule name (optional)'),
                       hintText: 'Direct local API',
                       border: OutlineInputBorder(),
                     ),
@@ -3458,11 +3545,12 @@ class _RoutingRuleDialogState extends State<_RoutingRuleDialog> {
                     keyboardType: TextInputType.url,
                     autocorrect: false,
                     enableSuggestions: false,
-                    decoration: const InputDecoration(
-                      labelText: 'Webhook URL',
+                    decoration: InputDecoration(
+                      labelText: context.tr('Webhook URL'),
                       hintText: 'https://hooks.example.com/route',
-                      helperText:
-                          'Xray sends matching connection details to this address.',
+                      helperText: context.tr(
+                        'Xray sends matching connection details to this address.',
+                      ),
                       border: OutlineInputBorder(),
                     ),
                   ),
@@ -3471,8 +3559,8 @@ class _RoutingRuleDialogState extends State<_RoutingRuleDialog> {
                     key: const ValueKey('xray-route-webhook-deduplication'),
                     controller: _webhookDeduplication,
                     keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'Duplicate suppression (seconds)',
+                    decoration: InputDecoration(
+                      labelText: context.tr('Duplicate suppression (seconds)'),
                       border: OutlineInputBorder(),
                     ),
                   ),
@@ -3484,8 +3572,8 @@ class _RoutingRuleDialogState extends State<_RoutingRuleDialog> {
                     maxLines: 5,
                     autocorrect: false,
                     enableSuggestions: false,
-                    decoration: const InputDecoration(
-                      labelText: 'Webhook headers (JSON object)',
+                    decoration: InputDecoration(
+                      labelText: context.tr('Webhook headers (JSON object)'),
                       hintText: '{"X-API-Key": "…"}',
                       border: OutlineInputBorder(),
                     ),

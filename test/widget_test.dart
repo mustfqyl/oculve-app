@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:oculve/features/auth/presentation/login_screen.dart';
@@ -54,6 +55,33 @@ class _AccountSession extends SessionController {
   }
 }
 
+class _TotpSetupApi extends OculveApi {
+  @override
+  Future<Map<String, dynamic>> request(
+    String path, {
+    Map<String, dynamic>? body,
+    String? method,
+    Map<String, String>? headers,
+  }) async {
+    if (path == '/api/user/security/totp/setup') {
+      return {
+        'manualEntryKey': 'JBSWY3DPEHPK3PXP',
+        'setupToken': 'test-setup-token',
+        'qrDataUrl': '',
+      };
+    }
+    return {};
+  }
+}
+
+class _UnconfiguredTotpSession extends _AccountSession {
+  _UnconfiguredTotpSession() {
+    final data = Map<String, dynamic>.from(state.valueOrNull!.data)
+      ..['security'] = <String, dynamic>{};
+    state = AsyncValue.data(Account(data, const []));
+  }
+}
+
 class _SignupSession extends SessionController {
   _SignupSession() : super(OculveApi());
 
@@ -68,29 +96,26 @@ class _VlessSession extends SessionController {
 }
 
 void main() {
-  testWidgets(
-    'home wordmark uses the website system type at header size',
-    (tester) async {
-      for (final (theme, color) in [
-        (AppTheme.darkTheme, AppTheme.foreground),
-        (AppTheme.lightTheme, AppTheme.lightForeground),
-      ]) {
-        await tester.pumpWidget(
-          MaterialApp(
-            theme: theme,
-            home: Scaffold(
-              body: OculveWordmark(color: color),
-            ),
-          ),
-        );
-        final mark = find.byType(OculveWordmark);
-        expect(tester.getSize(mark), const Size(108, 24));
-        final wordmark = tester.widget<Text>(find.text('oculve'));
-        expect(wordmark.style?.color, color);
-        expect(wordmark.style?.fontSize, 22.8);
-      }
-    },
-  );
+  testWidgets('home wordmark uses the website system type at header size', (
+    tester,
+  ) async {
+    for (final (theme, color) in [
+      (AppTheme.darkTheme, AppTheme.foreground),
+      (AppTheme.lightTheme, AppTheme.lightForeground),
+    ]) {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: theme,
+          home: Scaffold(body: OculveWordmark(color: color)),
+        ),
+      );
+      final mark = find.byType(OculveWordmark);
+      expect(tester.getSize(mark), const Size(108, 24));
+      final wordmark = tester.widget<Text>(find.text('oculve'));
+      expect(wordmark.style?.color, color);
+      expect(wordmark.style?.fontSize, 22.8);
+    }
+  });
 
   testWidgets(
     'account shows real fields in a compact window and keeps access code hidden',
@@ -101,6 +126,18 @@ void main() {
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
+      String? copiedCode;
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'Clipboard.setData') {
+          copiedCode = (call.arguments as Map)['text'] as String?;
+        }
+        return null;
+      });
+      addTearDown(
+        () => messenger.setMockMethodCallHandler(SystemChannels.platform, null),
+      );
       await tester.pumpWidget(
         ProviderScope(
           overrides: [sessionProvider.overrideWith((ref) => session)],
@@ -113,26 +150,55 @@ void main() {
       await tester.pump();
       expect(session.refreshCount, 1);
       expect(tester.takeException(), isNull);
-      expect(find.text('ABCD-EFGH-IJKL'), findsNothing);
-      expect(find.text('••••-••••-••••'), findsOneWidget);
+      expect(find.text('ABCD-EFGH-IJKL'), findsOneWidget);
+      expect(find.text('••••-••••-••••'), findsNothing);
+      expect(find.byTooltip('Show code'), findsNothing);
+      expect(find.text('Export'), findsNothing);
+      final blur = find.byType(TweenAnimationBuilder<double>);
+      expect(tester.widget<TweenAnimationBuilder<double>>(blur).tween.end, 8);
       expect(find.text('Premium'), findsOneWidget);
       expect(find.text('SUBSCRIPTION LINK'), findsNothing);
-      expect(find.textContaining('days remaining'), findsOneWidget);
-      await tester.tap(find.byTooltip('Show code'));
-      await tester.pump();
-      expect(find.text('ABCD-EFGH-IJKL'), findsOneWidget);
-      await tester.scrollUntilVisible(
-        find.text('Security methods'),
-        220,
-        scrollable: find.byType(Scrollable).first,
+      expect(find.textContaining('d remaining'), findsOneWidget);
+      expect(find.byType(Scrollable), findsNothing);
+      expect(
+        tester.getCenter(find.text('Delete account')).dy,
+        lessThan(tester.getCenter(find.text('Log out')).dy),
       );
-      await tester.drag(find.byType(Scrollable).first, const Offset(0, -120));
-      await tester.pump(const Duration(milliseconds: 250));
-      await tester.tap(find.text('Security methods'));
+      expect(
+        tester
+            .getSize(
+              find.ancestor(
+                of: find.text('Delete account'),
+                matching: find.byType(OutlinedButton),
+              ),
+            )
+            .height,
+        greaterThanOrEqualTo(44),
+      );
+      expect(
+        tester
+            .getSize(
+              find.ancestor(
+                of: find.text('Log out'),
+                matching: find.byType(FilledButton),
+              ),
+            )
+            .height,
+        greaterThanOrEqualTo(44),
+      );
+      await tester.tap(find.text('ABCD-EFGH-IJKL'));
+      await tester.pump(const Duration(milliseconds: 350));
+      expect(tester.widget<TweenAnimationBuilder<double>>(blur).tween.end, 0);
+      expect(copiedCode, isNull);
+      await tester.tap(find.text('ABCD-EFGH-IJKL'));
       await tester.pump();
+      expect(copiedCode, 'ABCD-EFGH-IJKL');
+      await tester.tap(find.text('Security'));
+      await tester.pump(const Duration(milliseconds: 300));
       expect(tester.takeException(), isNull);
       expect(find.text('2FA / TOTP'), findsOneWidget);
       expect(find.text('Passkeys'), findsOneWidget);
+      expect(find.text('Add passkey on website'), findsNothing);
       await tester.pump(const Duration(seconds: 30));
       expect(session.refreshCount, 2);
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
@@ -159,11 +225,6 @@ void main() {
           ),
         ),
       );
-      await tester.scrollUntilVisible(
-        find.text('Delete account'),
-        220,
-        scrollable: find.byType(Scrollable).first,
-      );
       await tester.tap(find.text('Delete account'));
       await tester.pump(const Duration(milliseconds: 300));
       expect(find.textContaining('Type DELETE MY ACCOUNT'), findsOneWidget);
@@ -173,6 +234,42 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+  testWidgets('TOTP setup fits the compact app window in the app theme', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 568);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sessionProvider.overrideWith((ref) => _UnconfiguredTotpSession()),
+          apiProvider.overrideWithValue(_TotpSetupApi()),
+        ],
+        child: MaterialApp(
+          theme: AppTheme.darkTheme,
+          home: const AccountScreen(),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.text('Security'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.tap(find.text('2FA / TOTP'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('Set up authenticator'), findsOneWidget);
+    expect(find.text('MANUAL SETUP KEY'), findsOneWidget);
+    expect(find.text('JBSWY3DPEHPK3PXP'), findsOneWidget);
+    expect(tester.getSize(find.byType(Dialog)).width, lessThanOrEqualTo(320));
+    expect(tester.getSize(find.byType(Dialog)).width, greaterThan(280));
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.text('Cancel'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+  });
   testWidgets('sign-in asks for existing account code, not subscription URL', (
     tester,
   ) async {
@@ -260,7 +357,7 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(find.text('CONNECT'), findsOneWidget);
       expect(find.text('CONNECTED'), findsNothing);
-      expect(find.text('Choose location'), findsNothing);
+      expect(find.text('Choose location'), findsOneWidget);
     }
   });
 

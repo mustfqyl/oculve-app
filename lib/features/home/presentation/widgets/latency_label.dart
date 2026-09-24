@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:oculve/core/theme/app_theme.dart';
+import 'package:oculve/core/localization/app_strings.dart';
 
 /// Three-bar indicator backed by the node's direct TCP connect time.
 class LatencyLabel extends StatelessWidget {
@@ -33,8 +34,10 @@ class LatencyLabel extends StatelessWidget {
         ? '—'
         : '${ms}ms';
     final accessibleLabel = ms == null
-        ? (latency.isLoading ? 'Measuring VPN server ping' : 'Ping unavailable')
-        : '$ms milliseconds';
+        ? (latency.isLoading
+              ? context.tr('Measuring VPN server ping')
+              : context.tr('Ping unavailable'))
+        : '$ms ${context.tr('milliseconds')}';
 
     return Tooltip(
       message: label,

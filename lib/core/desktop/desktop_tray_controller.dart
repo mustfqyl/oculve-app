@@ -8,7 +8,9 @@ import 'package:screen_retriever/screen_retriever.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
+import '../localization/app_strings.dart';
 import '../models/vpn_state.dart';
+import '../providers/locale_provider.dart';
 import '../providers/vpn_provider.dart';
 
 const desktopWindowSize = Size(320, 568);
@@ -19,6 +21,7 @@ class DesktopTrayController with TrayListener, WindowListener {
   final ProviderContainer container;
   bool _quitting = false;
   bool _ready = false;
+  ProviderSubscription<Locale>? _localeSubscription;
 
   Future<void> initialize() async {
     windowManager.addListener(this);
@@ -27,25 +30,23 @@ class DesktopTrayController with TrayListener, WindowListener {
       await windowManager.setPreventClose(true);
       await windowManager.setResizable(false);
       await trayManager.setIcon(
-        Platform.isMacOS
-            ? 'assets/tray_icon_macos.png'
-            : 'assets/tray_icon_windows.ico',
+        switch (Platform.operatingSystem) {
+          'macos' => 'assets/tray_icon_macos.png',
+          'linux' => 'assets/tray_icon_linux.png',
+          _ => 'assets/tray_icon_windows.ico',
+        },
         isTemplate: Platform.isMacOS,
         iconSize: 18,
       );
       await trayManager.setToolTip('Oculve VPN');
-      await trayManager.setContextMenu(
-        Menu(
-          items: [
-            MenuItem(key: 'open', label: 'Open Oculve'),
-            MenuItem.separator(),
-            MenuItem(key: 'quit', label: 'Quit Oculve'),
-          ],
-        ),
-      );
+      _localeSubscription = container.listen(localeProvider, (_, locale) {
+        unawaited(_setContextMenu(locale.languageCode));
+      });
+      await _setContextMenu(container.read(localeProvider).languageCode);
       await windowManager.hide();
       _ready = true;
     } catch (_) {
+      _localeSubscription?.close();
       trayManager.removeListener(this);
       windowManager.removeListener(this);
       try {
@@ -55,6 +56,23 @@ class DesktopTrayController with TrayListener, WindowListener {
       rethrow;
     }
   }
+
+  Future<void> _setContextMenu(String languageCode) =>
+      trayManager.setContextMenu(
+        Menu(
+          items: [
+            MenuItem(
+              key: 'open',
+              label: AppStrings.translate('Open Oculve', languageCode),
+            ),
+            MenuItem.separator(),
+            MenuItem(
+              key: 'quit',
+              label: AppStrings.translate('Quit Oculve', languageCode),
+            ),
+          ],
+        ),
+      );
 
   @override
   void onTrayIconMouseDown() => unawaited(toggleWindow());
@@ -137,6 +155,7 @@ class DesktopTrayController with TrayListener, WindowListener {
     }
     trayManager.removeListener(this);
     windowManager.removeListener(this);
+    _localeSubscription?.close();
     await trayManager.destroy();
     await windowManager.setPreventClose(false);
     await windowManager.destroy();

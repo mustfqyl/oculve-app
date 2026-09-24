@@ -1,0 +1,64 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:oculve/core/localization/app_strings.dart';
+import 'package:oculve/core/localization/localized_text.dart' as localized;
+import 'package:oculve/core/providers/locale_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUp(() => SharedPreferences.setMockInitialValues({}));
+
+  test('English is the default and language choice is persisted', () async {
+    final notifier = LocaleNotifier();
+    expect(notifier.state, const Locale('en'));
+
+    await notifier.setLanguage('tr');
+
+    expect(notifier.state, const Locale('tr'));
+    final preferences = await SharedPreferences.getInstance();
+    expect(preferences.getString('app_language'), 'tr');
+    notifier.dispose();
+  });
+
+  testWidgets('reviewed interface labels render in Spanish and Turkish', (
+    tester,
+  ) async {
+    for (final (locale, expected) in [
+      (const Locale('es'), 'CONECTAR'),
+      (const Locale('tr'), 'BAĞLAN'),
+    ]) {
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: locale,
+          supportedLocales: supportedAppLocales,
+          localizationsDelegates: GlobalMaterialLocalizations.delegates,
+          home: const Scaffold(body: localized.Text('CONNECT')),
+        ),
+      );
+
+      expect(find.text(expected), findsOneWidget);
+    }
+  });
+
+  testWidgets('relative day labels use locale-appropriate grammar', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('es'),
+        supportedLocales: supportedAppLocales,
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => localized.Text(context.daysRemaining(1)),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('1 día restante'), findsOneWidget);
+  });
+}

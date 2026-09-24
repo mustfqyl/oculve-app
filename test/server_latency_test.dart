@@ -531,6 +531,7 @@ void main() {
         overrides: [
           sessionProvider.overrideWith((ref) => _SessionWithServers()),
           serverLatencyProbeProvider.overrideWithValue(_FixedProbe()),
+          selectedServerProvider.overrideWith((ref) => 'fast'),
         ],
         child: MaterialApp(
           theme: AppTheme.darkTheme,
@@ -541,22 +542,28 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
     expect(find.byTooltip('25ms'), findsOneWidget);
     expect(find.byTooltip('180ms'), findsOneWidget);
+    expect(find.text('Optimal'), findsOneWidget);
+    expect(find.text('Automatic selection'), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.text('Optimal')).dy,
+      lessThan(tester.getTopLeft(find.text('Zurich')).dy),
+    );
+    final selectedCard = tester.widget<FrostedCard>(
+      find.byKey(const ValueKey('server-fast')),
+    );
+    expect(selectedCard.borderColor, isNotNull);
+    expect(find.byIcon(Icons.check), findsNothing);
     expect(find.text('25 ms'), findsNothing);
     expect(
       tester.getTopLeft(find.text('Zurich')).dy,
       lessThan(tester.getTopLeft(find.text('Amsterdam')).dy),
     );
     expect(tester.takeException(), isNull);
-    expect(find.byTooltip('Sort servers'), findsOneWidget);
-    await tester.tap(find.byTooltip('Sort servers'));
+    expect(find.byTooltip('Sort alphabetically'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('server-sort-toggle')));
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 500));
-    expect(find.text('Alphabetical'), findsOneWidget);
-    final menu = tester.widget<PopupMenuButton<ServerSort>>(
-      find.byType(PopupMenuButton<ServerSort>),
-    );
-    menu.onSelected!(ServerSort.alphabetical);
-    await tester.pump();
+    expect(find.byType(PopupMenuButton<ServerSort>), findsNothing);
+    expect(find.byTooltip('Sort by ping'), findsOneWidget);
     expect(
       tester.getTopLeft(find.text('Amsterdam')).dy,
       lessThan(tester.getTopLeft(find.text('Zurich')).dy),

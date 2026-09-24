@@ -1,7 +1,9 @@
 import 'dart:math' as math;
 
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:oculve/core/theme/app_theme.dart';
+import 'package:oculve/core/localization/localized_text.dart';
+import 'package:oculve/core/localization/app_strings.dart';
 
 /// A shared page frame keeps headers and scrollable content aligned at every
 /// window size used by the client.
@@ -36,7 +38,7 @@ class AppPage extends StatelessWidget {
                       child: Padding(
                         padding: const EdgeInsets.only(left: 16),
                         child: IconButton(
-                          tooltip: 'Back',
+                          tooltip: context.tr('Back'),
                           icon: const Icon(Icons.arrow_back_ios_new, size: 18),
                           color: foreground,
                           onPressed: () => Navigator.of(context).pop(),

@@ -5,6 +5,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:oculve/core/models/vpn_state.dart';
 import 'package:oculve/core/network/oculve_api.dart';
 import 'package:oculve/core/providers/vpn_provider.dart';
+import 'package:oculve/core/vpn/profile.dart';
+import 'package:oculve/core/vpn/server_latency.dart';
 import 'package:oculve/core/vpn/xray_preferences.dart';
 import 'package:oculve/features/auth/data/auth_repository.dart';
 import 'dart:convert';
@@ -41,6 +43,7 @@ class TestPlatform extends VlessPlatform {
   bool permission = true;
   int starts = 0;
   String? lastConfig;
+  String? lastRemark;
   @override
   Future<void> initializeVless({
     required void Function(VlessStatus) onStatusChanged,
@@ -70,6 +73,7 @@ class TestPlatform extends VlessPlatform {
     expect(proxyOnly, false);
     expect(androidDnsPolicy, AndroidDnsPolicy.proxy);
     starts++;
+    lastRemark = remark;
     lastConfig = config;
   }
 
@@ -79,17 +83,32 @@ class TestPlatform extends VlessPlatform {
   }
 }
 
+class _FastestProbe extends ServerLatencyProbe {
+  final checkedNames = <String>[];
+
+  @override
+  Future<int?> measure(VpnProfile profile) async {
+    checkedNames.add(profile.name);
+    return profile.name == 'Fast route' ? 23 : 160;
+  }
+}
+
 void main() {
   late TestPlatform platform;
   late TestApi api;
   late ProviderContainer container;
+  late _FastestProbe probe;
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
     platform = TestPlatform();
     VlessPlatform.instance = platform;
     api = TestApi();
+    probe = _FastestProbe();
     container = ProviderContainer(
-      overrides: [apiProvider.overrideWithValue(api)],
+      overrides: [
+        apiProvider.overrideWithValue(api),
+        serverLatencyProbeProvider.overrideWithValue(probe),
+      ],
     );
     // Mimic the app's session restore, which is the initial subscription load.
     await container.read(sessionProvider.notifier).refresh();
@@ -126,6 +145,31 @@ void main() {
       expect(container.read(vpnProvider), VpnState.connected);
       platform.emit(VlessStatus(state: 'DISCONNECTED'));
       expect(container.read(vpnProvider), VpnState.error);
+    },
+  );
+  test(
+    'Optimal measures every profile and starts the lowest-latency server',
+    () async {
+      final slow = VpnProfile.parseSubscription(
+        testLink.replaceFirst('#Test%20location', '#Slow%20route'),
+      ).single;
+      final fast = VpnProfile.parseSubscription(
+        testLink
+            .replaceFirst('127.0.0.1:443', '127.0.0.1:444')
+            .replaceFirst('#Test%20location', '#Fast%20route'),
+      ).single;
+      container.read(sessionProvider.notifier).state = AsyncValue.data(
+        Account({'status': 'active'}, [slow, fast]),
+      );
+      container.read(selectedServerProvider.notifier).state = optimalServerId;
+
+      await container.read(vpnProvider.notifier).connect();
+
+      expect(probe.checkedNames, ['Slow route', 'Fast route']);
+      expect(platform.lastRemark, 'Fast route');
+      final config = jsonDecode(platform.lastConfig!) as Map<String, dynamic>;
+      final outbound = (config['outbounds'] as List).single;
+      expect(outbound['settings']['vnext'][0]['port'], 444);
     },
   );
   test('permission denial never starts Xray', () async {

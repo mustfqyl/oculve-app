@@ -5,9 +5,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_vless/flutter_vless.dart';
 import '../models/vpn_state.dart';
 import '../vpn/xray_preferences.dart';
+import '../vpn/server_latency.dart';
+import '../vpn/profile.dart';
 import '../../features/auth/data/auth_repository.dart';
 
 final selectedServerProvider = StateProvider<String?>((ref) => null);
+const optimalServerId = '__oculve_optimal__';
 final vpnErrorProvider = StateProvider<String?>((ref) => null);
 final trafficProvider = StateProvider<VlessStatus?>((ref) => null);
 final vpnProvider = StateNotifierProvider<VpnNotifier, VpnState>(
@@ -96,10 +99,12 @@ class VpnNotifier extends StateNotifier<VpnState> {
         throw StateError('No compatible servers are available.');
       }
       final selected = ref.read(selectedServerProvider);
-      final profile = account.profiles.firstWhere(
-        (p) => p.id == selected,
-        orElse: () => account.profiles.first,
-      );
+      final profile = selected == optimalServerId
+          ? await _chooseOptimalProfile(account.profiles)
+          : account.profiles.firstWhere(
+              (p) => p.id == selected,
+              orElse: () => account.profiles.first,
+            );
       await initialize();
       if (!await _engine.requestPermission()) {
         throw StateError('VPN permission was not granted.');
@@ -175,6 +180,16 @@ class VpnNotifier extends StateNotifier<VpnState> {
     } finally {
       _busy = false;
     }
+  }
+
+  Future<VpnProfile> _chooseOptimalProfile(List<VpnProfile> profiles) async {
+    final probe = ref.read(serverLatencyProbeProvider);
+    final samples = await Future.wait(profiles.map(probe.measure));
+    final latencyById = <String, int?>{
+      for (var index = 0; index < profiles.length; index++)
+        profiles[index].id: samples[index],
+    };
+    return sortProfilesByLatency(profiles, latencyById).first;
   }
 
   void _fail(String message) {

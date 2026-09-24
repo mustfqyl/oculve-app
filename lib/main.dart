@@ -1,10 +1,13 @@
 import 'dart:io';
 
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'core/desktop/desktop_tray_controller.dart';
+import 'core/providers/locale_provider.dart';
+import 'core/localization/localized_text.dart';
 import 'core/theme/app_theme.dart';
 import 'core/providers/theme_provider.dart';
 import 'features/auth/data/auth_repository.dart';
@@ -53,10 +56,15 @@ class MyApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final themeMode = ref.watch(themeProvider);
+    final locale = ref.watch(localeProvider);
 
     return MaterialApp(
       title: 'Oculve',
       debugShowCheckedModeBanner: false,
+      locale: locale,
+      supportedLocales: supportedAppLocales,
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
+      scrollBehavior: const _HiddenScrollbarBehavior(),
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
       themeMode: switch (themeMode) {
@@ -67,6 +75,17 @@ class MyApp extends ConsumerWidget {
       home: const SessionGate(),
     );
   }
+}
+
+class _HiddenScrollbarBehavior extends MaterialScrollBehavior {
+  const _HiddenScrollbarBehavior();
+
+  @override
+  Widget buildScrollbar(
+    BuildContext context,
+    Widget child,
+    ScrollableDetails details,
+  ) => child;
 }
 
 class SessionGate extends ConsumerStatefulWidget {

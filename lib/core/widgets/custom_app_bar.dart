@@ -1,8 +1,9 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import '../theme/app_theme.dart';
 import 'package:flutter/services.dart';
+import 'package:oculve/core/localization/localized_text.dart';
 
 class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
   final String title;

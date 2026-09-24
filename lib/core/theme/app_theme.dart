@@ -381,6 +381,8 @@ class FrostedCard extends StatelessWidget {
   final double borderRadius;
   final double blurAmount;
   final Color? color;
+  final Color? borderColor;
+  final double borderWidth;
 
   const FrostedCard({
     super.key,
@@ -389,6 +391,8 @@ class FrostedCard extends StatelessWidget {
     this.borderRadius = 16,
     this.blurAmount = 30,
     this.color,
+    this.borderColor,
+    this.borderWidth = 0.5,
   });
 
   @override
@@ -406,7 +410,10 @@ class FrostedCard extends StatelessWidget {
           decoration: BoxDecoration(
             color: color ?? defaultBg,
             borderRadius: BorderRadius.circular(borderRadius),
-            border: Border.all(color: borderColor, width: 0.5),
+            border: Border.all(
+              color: this.borderColor ?? borderColor,
+              width: borderWidth,
+            ),
           ),
           child: Material(type: MaterialType.transparency, child: child),
         ),

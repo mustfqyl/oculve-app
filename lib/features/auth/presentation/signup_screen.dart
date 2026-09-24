@@ -1,4 +1,6 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
+import 'package:oculve/core/localization/localized_text.dart';
+import 'package:oculve/core/localization/app_strings.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:oculve/core/theme/app_theme.dart';
@@ -315,19 +317,23 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
                                           fontSize: 13,
                                           height: 1.4,
                                         ),
-                                        children: const [
+                                        children: [
                                           TextSpan(
-                                            text:
-                                                'I have securely saved my access code. I understand that if I lose it, ',
+                                            text: context.tr(
+                                              'I have securely saved my access code. I understand that if I lose it, ',
+                                            ),
                                           ),
                                           TextSpan(
-                                            text:
-                                                'I will permanently lose access',
+                                            text: context.tr(
+                                              'I will permanently lose access',
+                                            ),
                                             style: TextStyle(
                                               fontWeight: FontWeight.w700,
                                             ),
                                           ),
-                                          TextSpan(text: ' to my account.'),
+                                          TextSpan(
+                                            text: context.tr(' to my account.'),
+                                          ),
                                         ],
                                       ),
                                     ),
