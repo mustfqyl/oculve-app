@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart' hide Text;
 import 'package:oculve/core/localization/localized_text.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -27,6 +29,7 @@ class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
   ServerSort _sort = ServerSort.latency;
   bool _refreshingSubscription = true;
   bool _subscriptionRefreshFailed = false;
+  Timer? _refreshFailureTimer;
 
   @override
   void initState() {
@@ -36,7 +39,13 @@ class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
       try {
         await ref.read(sessionProvider.notifier).refresh();
       } catch (_) {
-        if (mounted) setState(() => _subscriptionRefreshFailed = true);
+        if (mounted) {
+          _refreshFailureTimer?.cancel();
+          setState(() => _subscriptionRefreshFailed = true);
+          _refreshFailureTimer = Timer(const Duration(seconds: 6), () {
+            if (mounted) setState(() => _subscriptionRefreshFailed = false);
+          });
+        }
       }
       if (!mounted) return;
       final profiles = ref.read(sessionProvider).valueOrNull?.profiles ?? [];
@@ -45,6 +54,12 @@ class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
       }
       setState(() => _refreshingSubscription = false);
     });
+  }
+
+  @override
+  void dispose() {
+    _refreshFailureTimer?.cancel();
+    super.dispose();
   }
 
   @override
@@ -150,7 +165,7 @@ class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
                     : ServerSort.latency,
               ),
               child: Container(
-                height: 34,
+                height: 38,
                 padding: const EdgeInsets.symmetric(horizontal: 9),
                 decoration: BoxDecoration(
                   color: dark
@@ -170,18 +185,33 @@ class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
                       _sort == ServerSort.latency
                           ? Icons.sort_by_alpha_rounded
                           : Icons.speed_rounded,
-                      size: 15,
+                      size: 16,
                       color: sortForeground,
                     ),
-                    const SizedBox(width: 6),
-                    Text(
-                      _sort == ServerSort.latency ? 'PING' : 'A–Z',
-                      style: TextStyle(
-                        color: sortForeground,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: .65,
-                      ),
+                    const SizedBox(width: 7),
+                    Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          context.tr('SORT'),
+                          style: TextStyle(
+                            color: sortForeground.withValues(alpha: .7),
+                            fontSize: 8,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: .8,
+                          ),
+                        ),
+                        Text(
+                          _sort == ServerSort.latency ? 'PING' : 'A–Z',
+                          style: TextStyle(
+                            color: sortForeground,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: .4,
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),

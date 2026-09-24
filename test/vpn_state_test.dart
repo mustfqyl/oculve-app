@@ -201,73 +201,84 @@ void main() {
         servers: ['https://dns.google/dns-query'],
         queryStrategy: DnsQueryStrategy.useSystem,
         enableParallelQuery: true,
+        clientIp: '192.0.2.45',
+        hosts: {'private.example': '192.0.2.1'},
       ),
     );
     await container.read(vpnProvider.notifier).connect();
     final config = jsonDecode(platform.lastConfig!) as Map<String, dynamic>;
     expect(config['dns']['servers'], ['https://dns.google/dns-query']);
     expect(config['dns']['queryStrategy'], 'UseSystem');
-    expect(config['dns']['enableParallelQuery'], true);
+    expect(config['dns']['enableParallelQuery'], isFalse);
+    expect(config['dns'].containsKey('clientIp'), isFalse);
+    expect(config['dns'].containsKey('hosts'), isFalse);
   });
 
-  test('saved core version guard reaches the native Xray config', () async {
+  test('legacy core version guard does not alter the client profile', () async {
     await XrayPreferences.setVersionRequirement(
       const XrayVersionRequirement(minimum: '25.8.3', maximum: '26.9.9'),
     );
     await container.read(vpnProvider.notifier).connect();
     final config = jsonDecode(platform.lastConfig!) as Map<String, dynamic>;
-    expect(config['version'], {'min': '25.8.3', 'max': '26.9.9'});
-  });
-
-  test('saved FinalMask settings reach the native Xray config', () async {
-    await XrayPreferences.setFinalMaskSettings(
-      XrayFinalMaskSettings.fromJsonText(
-        '{"tcp":[{"type":"fragment","settings":{"packets":"tlshello","lengths":["100-200"]}}]}',
-      ),
-    );
-    await container.read(vpnProvider.notifier).connect();
-    final config = jsonDecode(platform.lastConfig!) as Map<String, dynamic>;
-    final outbound = (config['outbounds'] as List).single;
-    expect(
-      outbound['streamSettings']['finalmask']['tcp'][0]['type'],
-      'fragment',
-    );
-  });
-
-  test('saved split-routing rules reach the Xray config on connect', () async {
-    await XrayPreferences.setRoutingRules(const [
-      XrayRoutingRule(
-        action: XrayRoutingAction.direct,
-        domains: ['full:login.example.com'],
-        ips: ['192.168.0.0/16'],
-      ),
-      XrayRoutingRule(
-        action: XrayRoutingAction.block,
-        ports: ['53'],
-        networks: ['udp'],
-      ),
-    ]);
-
-    await container.read(vpnProvider.notifier).connect();
-
-    final config = jsonDecode(platform.lastConfig!) as Map<String, dynamic>;
-    final rules = config['routing']['rules'] as List;
-    expect(rules[0]['domain'], ['full:login.example.com']);
-    expect(rules[0]['ip'], ['192.168.0.0/16']);
-    expect(rules[0]['outboundTag'], 'direct');
-    expect(rules[1]['port'], '53');
-    expect(rules[1]['network'], 'udp');
-    expect(rules[1]['outboundTag'], 'block');
-    expect(
-      (config['outbounds'] as List).singleWhere(
-        (outbound) => outbound['tag'] == 'block',
-      )['protocol'],
-      'blackhole',
-    );
+    expect(config.containsKey('version'), isFalse);
   });
 
   test(
-    'saved sniffing preferences reach the native Xray config on connect',
+    'supported TLS hello fragmentation reaches the native Xray config',
+    () async {
+      await XrayPreferences.setTlsHelloFragmentation(true);
+      await container.read(vpnProvider.notifier).connect();
+      final config = jsonDecode(platform.lastConfig!) as Map<String, dynamic>;
+      final outbound = (config['outbounds'] as List).single;
+      expect(outbound['streamSettings']['finalmask'], {
+        'tcp': [
+          {
+            'type': 'fragment',
+            'settings': {
+              'packets': 'tlshello',
+              'lengths': ['100-200'],
+              'delays': ['10-20'],
+              'maxSplit': '3-6',
+            },
+          },
+        ],
+      });
+    },
+  );
+
+  test(
+    'domain bypass remains active while advanced split rules are ignored',
+    () async {
+      await XrayPreferences.setBypassDomains(['example.net']);
+      await XrayPreferences.setRoutingRules(const [
+        XrayRoutingRule(
+          action: XrayRoutingAction.direct,
+          domains: ['full:login.example.com'],
+          ips: ['192.168.0.0/16'],
+        ),
+        XrayRoutingRule(
+          action: XrayRoutingAction.block,
+          ports: ['53'],
+          networks: ['udp'],
+        ),
+      ]);
+
+      await container.read(vpnProvider.notifier).connect();
+
+      final config = jsonDecode(platform.lastConfig!) as Map<String, dynamic>;
+      final rules = config['routing']['rules'] as List;
+      expect(rules, hasLength(1));
+      expect(rules.single['domain'], ['domain:example.net']);
+      expect(rules.single['outboundTag'], 'direct');
+      expect(
+        (config['outbounds'] as List).any((item) => item['tag'] == 'block'),
+        isFalse,
+      );
+    },
+  );
+
+  test(
+    'legacy sniffing overrides do not replace imported profile defaults',
     () async {
       await XrayPreferences.setSniffingSettings(
         const XraySniffingSettings(
@@ -286,17 +297,14 @@ void main() {
       final sniffing = (config['inbounds'] as List).single['sniffing'];
       expect(sniffing, {
         'enabled': true,
-        'destOverride': ['http', 'tls'],
+        'destOverride': ['http', 'tls', 'quic'],
         'routeOnly': true,
-        'metadataOnly': true,
-        'domainsExcluded': ['domain:push.example.com'],
-        'ipsExcluded': ['10.0.0.0/8'],
       });
     },
   );
 
   test(
-    'saved Xray policy reaches the native tunnel config on connect',
+    'low-level server policy controls do not enter the client config',
     () async {
       await XrayPreferences.setPolicySettings(
         const XrayPolicySettings(
@@ -307,22 +315,18 @@ void main() {
       );
       await container.read(vpnProvider.notifier).connect();
       final config = jsonDecode(platform.lastConfig!) as Map<String, dynamic>;
-      final policy = config['policy'] as Map<String, dynamic>;
-      expect(policy['levels']['0']['handshake'], 47);
-      expect(policy['levels']['0']['statsUserOnline'], true);
-      expect(policy['system']['statsOutboundUplink'], false);
-      expect(policy['system']['statsInboundUplink'], true);
-      expect(config['stats'], isA<Map<String, dynamic>>());
+      expect(config.containsKey('policy'), isFalse);
+      expect(config.containsKey('stats'), isFalse);
     },
   );
 
-  test('saved custom Xray JSON reaches the native tunnel config', () async {
+  test('arbitrary saved Xray JSON cannot override the client config', () async {
     await XrayPreferences.setCustomConfigSource(
       '{"routing":{"domainStrategy":"IPIfNonMatch"}}',
     );
     await container.read(vpnProvider.notifier).connect();
     final config = jsonDecode(platform.lastConfig!) as Map<String, dynamic>;
-    expect(config['routing']['domainStrategy'], 'IPIfNonMatch');
+    expect(config.containsKey('routing'), isFalse);
     expect(config['outbounds'], hasLength(1));
   });
 }

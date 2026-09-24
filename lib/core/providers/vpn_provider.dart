@@ -124,23 +124,12 @@ class VpnNotifier extends StateNotifier<VpnState> {
       }
       _requested = true;
       final fingerprint = await XrayPreferences.fingerprint();
-      final tlsSettings = await XrayPreferences.tlsSettings();
       final logLevel = await XrayPreferences.logLevel();
-      final dnsSettings = await XrayPreferences.dnsSettings();
-      final xhttpSettings = await XrayPreferences.xhttpSettings();
-      final policySettings = await XrayPreferences.policySettings();
-      final tcpSettings = await XrayPreferences.tcpSettings();
-      final muxSettings = await XrayPreferences.muxSettings();
-      final sniffingSettings = await XrayPreferences.sniffingSettings();
-      final versionRequirement = await XrayPreferences.versionRequirement();
-      final finalMaskSettings = await XrayPreferences.finalMaskSettings();
-      final customConfigOverrides =
-          await XrayPreferences.customConfigOverrides();
-      final vlessEncryptionSettings = profile.proxyProtocol == 'vless'
-          ? await XrayPreferences.vlessEncryptionSettingsFor(profile.id)
-          : null;
+      final dnsSettings = await XrayPreferences.userDnsSettings();
+      final finalMaskSettings = profile.supportsTlsHelloFragmentation
+          ? await XrayPreferences.userFinalMaskSettings()
+          : const XrayFinalMaskSettings();
       final bypassDomains = await XrayPreferences.bypassDomains();
-      final routingRules = await XrayPreferences.routingRules();
       final blockedApps = Platform.isAndroid
           ? await XrayPreferences.blockedApps()
           : const <String>[];
@@ -149,21 +138,13 @@ class VpnNotifier extends StateNotifier<VpnState> {
         remark: profile.name,
         config: XrayPreferences.configure(
           profile.config,
-          fingerprint,
-          tlsSettings: tlsSettings,
+          profile.supportsTlsFingerprint
+              ? fingerprint
+              : RealityFingerprint.serverDefault,
           logLevel: logLevel,
           bypassDomains: bypassDomains,
-          routingRules: routingRules,
           dnsSettings: dnsSettings,
-          xhttpSettings: xhttpSettings,
-          policySettings: policySettings,
-          tcpSettings: tcpSettings,
-          muxSettings: muxSettings,
-          vlessEncryptionSettings: vlessEncryptionSettings,
-          sniffingSettings: sniffingSettings,
-          versionRequirement: versionRequirement,
           finalMaskSettings: finalMaskSettings,
-          customConfigOverrides: customConfigOverrides,
         ),
         androidDnsPolicy: AndroidDnsPolicy.proxy,
         androidDnsProxyOutboundTag: 'proxy',

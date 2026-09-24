@@ -6,6 +6,9 @@ import 'package:oculve/core/models/vpn_state.dart';
 import 'package:oculve/core/providers/vpn_provider.dart';
 import 'package:oculve/core/theme/app_theme.dart';
 
+/// The primary action is a compact power control, with a clear status ring.
+/// Its circular footprint keeps it visually distinct from the smaller
+/// location selector beneath it.
 class ConnectButton extends ConsumerWidget {
   const ConnectButton({super.key});
 
@@ -15,29 +18,20 @@ class ConnectButton extends ConsumerWidget {
     final connected = state == VpnState.connected;
     final busy =
         state == VpnState.connecting || state == VpnState.disconnecting;
-    final dark = Theme.of(context).brightness == Brightness.dark;
     final failed = state == VpnState.error;
-    final foreground = connected || failed
-        ? Colors.white
-        : dark
-        ? AppTheme.backgroundColor
-        : Colors.white;
-    final fill = connected
-        ? const Color(0xFF168D6A)
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final accent = connected
+        ? AppTheme.successColor
         : failed
         ? AppTheme.errorColor
-        : dark
-        ? Colors.white
-        : AppTheme.lightForeground;
+        : (dark ? AppTheme.foregroundMuted : AppTheme.lightForegroundMuted);
+    final foreground = dark ? AppTheme.foreground : AppTheme.lightForeground;
     final label = switch (state) {
-      VpnState.connected => context.tr('DISCONNECT'),
+      VpnState.connected => context.tr('CONNECTED'),
       VpnState.connecting => context.tr('CONNECTING'),
       VpnState.disconnecting => context.tr('STOPPING'),
       _ => context.tr('CONNECT'),
     };
-    final icon = failed
-        ? Icons.refresh_rounded
-        : Icons.power_settings_new_rounded;
 
     return Semantics(
       button: true,
@@ -47,89 +41,103 @@ class ConnectButton extends ConsumerWidget {
           : busy
           ? context.tr('VPN connection in progress')
           : context.tr('Tap to connect to the VPN'),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 240),
-        curve: Curves.easeOutCubic,
-        width: 216,
-        height: 56,
-        decoration: BoxDecoration(
-          color: fill,
-          borderRadius: BorderRadius.circular(28),
-          border: Border.all(
-            color: connected
-                ? const Color(0xFF63E0B1).withValues(alpha: .7)
-                : failed
-                ? Colors.white.withValues(alpha: .35)
-                : (dark ? Colors.white : Colors.black).withValues(alpha: .14),
-            width: connected || failed ? 1.4 : 1,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color:
-                  (connected
-                          ? const Color(0xFF168D6A)
-                          : failed
-                          ? AppTheme.errorColor
-                          : Colors.black)
-                      .withValues(alpha: dark ? .24 : .12),
-              blurRadius: connected ? 20 : 13,
-              offset: const Offset(0, 5),
+      child: SizedBox.square(
+        dimension: 142,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 260),
+              curve: Curves.easeOutCubic,
+              width: 142,
+              height: 142,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: accent.withValues(alpha: connected ? .42 : .18),
+                  width: connected ? 1.4 : 1,
+                ),
+                boxShadow: [
+                  if (connected || failed)
+                    BoxShadow(
+                      color: accent.withValues(alpha: .14),
+                      blurRadius: 22,
+                      spreadRadius: 1,
+                    ),
+                ],
+              ),
             ),
-          ],
-        ),
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            customBorder: const StadiumBorder(),
-            onTap: busy ? null : () => ref.read(vpnProvider.notifier).toggle(),
-            child: Center(
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 180),
-                switchInCurve: Curves.easeOutCubic,
-                switchOutCurve: Curves.easeInCubic,
-                child: Row(
-                  key: ValueKey(state),
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
-                      width: 30,
-                      height: 30,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: foreground.withValues(alpha: .12),
-                        border: Border.all(
-                          color: foreground.withValues(alpha: .12),
-                        ),
-                      ),
-                      child: Center(
+            Material(
+              color: Colors.transparent,
+              child: InkResponse(
+                key: const ValueKey('vpn-connect-control'),
+                radius: 66,
+                containedInkWell: true,
+                highlightShape: BoxShape.circle,
+                onTap: busy
+                    ? null
+                    : () => ref.read(vpnProvider.notifier).toggle(),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 260),
+                  curve: Curves.easeOutCubic,
+                  width: 108,
+                  height: 108,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: dark
+                        ? Colors.white.withValues(
+                            alpha: connected ? .085 : .045,
+                          )
+                        : Colors.white.withValues(alpha: connected ? .92 : .72),
+                    border: Border.all(
+                      color: accent.withValues(alpha: connected ? .6 : .2),
+                      width: connected ? 1.5 : 1,
+                    ),
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 180),
                         child: busy
                             ? SizedBox(
-                                width: 15,
-                                height: 15,
+                                key: ValueKey('busy-$state'),
+                                width: 27,
+                                height: 27,
                                 child: CircularProgressIndicator(
                                   strokeWidth: 2,
-                                  color: foreground,
+                                  color: accent,
                                 ),
                               )
-                            : Icon(icon, size: 17, color: foreground),
+                            : Icon(
+                                failed
+                                    ? Icons.refresh_rounded
+                                    : Icons.power_settings_new_rounded,
+                                key: ValueKey('power-$state'),
+                                size: 31,
+                                color: accent,
+                              ),
                       ),
-                    ),
-                    const SizedBox(width: 11),
-                    Text(
-                      label,
-                      style: TextStyle(
-                        color: foreground,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: .8,
+                      const SizedBox(height: 9),
+                      AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 180),
+                        child: Text(
+                          label,
+                          key: ValueKey('label-$state'),
+                          style: TextStyle(
+                            color: foreground.withValues(alpha: .76),
+                            fontSize: 9,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 1.55,
+                          ),
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
+          ],
         ),
       ),
     );

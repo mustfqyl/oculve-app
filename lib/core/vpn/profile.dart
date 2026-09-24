@@ -16,6 +16,35 @@ class VpnProfile {
   final String? flag;
   final String config;
   final ServerAddressResolutionSettings? serverAddressResolution;
+  Map<String, dynamic>? get proxyOutbound {
+    try {
+      final decoded = jsonDecode(config);
+      if (decoded is! Map || decoded['outbounds'] is! List) return null;
+      final outbounds = (decoded['outbounds'] as List).whereType<Map>();
+      return Map<String, dynamic>.from(
+        outbounds.firstWhere(
+          (item) => item['tag'] == 'proxy',
+          orElse: () => outbounds.firstWhere(
+            (item) => supportedProxyProtocols.contains(item['protocol']),
+          ),
+        ),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String? get transportNetwork =>
+      (proxyOutbound?['streamSettings'] as Map?)?['network']?.toString();
+  String? get transportSecurity =>
+      (proxyOutbound?['streamSettings'] as Map?)?['security']?.toString();
+  bool get supportsTlsFingerprint =>
+      const {'tls', 'reality'}.contains(transportSecurity?.toLowerCase());
+  bool get supportsTlsHelloFragmentation =>
+      proxyOutbound?['protocol'] == 'vless' &&
+      transportNetwork?.toLowerCase() == 'tcp' &&
+      transportSecurity?.toLowerCase() == 'reality';
+
   String? get proxyProtocol {
     try {
       final decoded = jsonDecode(config);

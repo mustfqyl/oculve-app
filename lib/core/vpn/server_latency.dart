@@ -170,24 +170,21 @@ class ServerLatencyProbe {
   Future<bool> verifyReality(VpnProfile profile) async {
     try {
       final fingerprint = await XrayPreferences.fingerprint();
-      final tlsSettings = await XrayPreferences.tlsSettings();
-      final dnsSettings = await XrayPreferences.dnsSettings();
-      final xhttpSettings = await XrayPreferences.xhttpSettings();
-      final policySettings = await XrayPreferences.policySettings();
-      final versionRequirement = await XrayPreferences.versionRequirement();
-      final finalMaskSettings = await XrayPreferences.finalMaskSettings();
-      final customConfigOverrides =
-          await XrayPreferences.customConfigOverrides();
+      final dnsSettings = await XrayPreferences.userDnsSettings();
+      final finalMaskSettings = profile.supportsTlsHelloFragmentation
+          ? await XrayPreferences.userFinalMaskSettings()
+          : const XrayFinalMaskSettings();
+      final bypassDomains = await XrayPreferences.bypassDomains();
+      final logLevel = await XrayPreferences.logLevel();
       final config = XrayPreferences.configure(
         profile.config,
-        fingerprint,
-        tlsSettings: tlsSettings,
+        profile.supportsTlsFingerprint
+            ? fingerprint
+            : RealityFingerprint.serverDefault,
         dnsSettings: dnsSettings,
-        xhttpSettings: xhttpSettings,
-        policySettings: policySettings,
-        versionRequirement: versionRequirement,
+        bypassDomains: bypassDomains,
+        logLevel: logLevel,
         finalMaskSettings: finalMaskSettings,
-        customConfigOverrides: customConfigOverrides,
       );
       return await _verifyReality(config);
     } catch (_) {

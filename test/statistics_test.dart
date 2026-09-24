@@ -44,7 +44,7 @@ void main() {
   testWidgets(
     'account statistics show API usage, monthly history and devices',
     (tester) async {
-      tester.view.physicalSize = const Size(360, 640);
+      tester.view.physicalSize = const Size(320, 568);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
@@ -76,6 +76,18 @@ void main() {
           reason: '$target should fit in the compact statistics view',
         );
       }
+      final statisticsScroll = find.byType(SingleChildScrollView);
+      final scrollable = find.descendant(
+        of: statisticsScroll,
+        matching: find.byType(Scrollable),
+      );
+      final position = tester.state<ScrollableState>(scrollable).position;
+      expect(
+        position.maxScrollExtent,
+        0,
+        reason:
+            'Compact statistics should fit in one screen without scrolling.',
+      );
     },
   );
 }

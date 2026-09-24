@@ -89,24 +89,35 @@ class _ActionSetting extends StatelessWidget {
           title,
           style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
         ),
-        DropdownButtonHideUnderline(
-          child: DropdownButton<TrayClickAction>(
-            value: value,
-            isExpanded: true,
-            isDense: true,
-            onChanged: enabled
-                ? (action) {
-                    if (action != null) onChanged(action);
-                  }
-                : null,
-            items: TrayClickAction.values
-                .map(
-                  (action) => DropdownMenuItem(
-                    value: action,
-                    child: Text(_actionLabel(context, action)),
-                  ),
-                )
-                .toList(),
+        PopupMenuButton<TrayClickAction>(
+          key: ValueKey(
+            'tray-action-${title.toLowerCase().replaceAll(' ', '-')}',
+          ),
+          enabled: enabled,
+          initialValue: value,
+          onSelected: onChanged,
+          itemBuilder: (context) => TrayClickAction.values
+              .map(
+                (action) => PopupMenuItem(
+                  value: action,
+                  child: Text(_actionLabel(context, action)),
+                ),
+              )
+              .toList(),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: Row(
+              children: [
+                Expanded(child: Text(_actionLabel(context, value))),
+                Icon(
+                  Icons.expand_more_rounded,
+                  color: Theme.of(context).brightness == Brightness.dark
+                      ? AppTheme.foregroundMuted
+                      : AppTheme.lightForegroundMuted,
+                  size: 17,
+                ),
+              ],
+            ),
           ),
         ),
       ],

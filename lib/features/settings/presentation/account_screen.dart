@@ -124,11 +124,52 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
               onPressed: () => Navigator.pop(dialogContext, true),
               child: Text(context.tr(action)),
             );
-            if (Platform.isMacOS || Platform.isIOS) {
-              return cupertino.CupertinoAlertDialog(
-                title: Text(context.tr(title)),
-                content: Text(context.tr(description)),
-                actions: [cancel, confirm],
+            if (Platform.isIOS) {
+              return Dialog(
+                backgroundColor: Colors.transparent,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 360),
+                  child: FrostedCard(
+                    padding: const EdgeInsets.fromLTRB(20, 18, 20, 10),
+                    borderRadius: 20,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          context.tr(title),
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          context.tr(description),
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: _muted, fontSize: 13),
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextButton(
+                                onPressed: cancel.onPressed,
+                                child: cancel.child,
+                              ),
+                            ),
+                            Expanded(
+                              child: TextButton(
+                                onPressed: confirm.onPressed,
+                                child: confirm.child,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               );
             }
             return AlertDialog(
@@ -475,12 +516,6 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
         ) ??
         false;
     if (!phraseAccepted || !mounted) return;
-    final finalConfirmed = await _confirm(
-      'Permanently delete?',
-      'Your account and VPN access cannot be restored.',
-      'Delete permanently',
-    );
-    if (!finalConfirmed || !mounted) return;
     await _run(() async {
       await ref.read(vpnProvider.notifier).disconnect();
       await ref.read(apiProvider).request('/api/user/me', method: 'DELETE');
@@ -1020,19 +1055,21 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
                                       builder: (context, blur, child) =>
                                           ClipRRect(
                                             borderRadius: BorderRadius.circular(
-                                              12,
+                                              10,
                                             ),
-                                            child: Padding(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                    horizontal: 7,
-                                                    vertical: 3,
-                                                  ),
-                                              child: ImageFiltered(
-                                                imageFilter: ImageFilter.blur(
-                                                  sigmaX: blur,
-                                                  sigmaY: blur,
-                                                ),
+                                            child: ImageFiltered(
+                                              imageFilter: ImageFilter.blur(
+                                                sigmaX: blur,
+                                                sigmaY: blur,
+                                              ),
+                                              // Give the blur room to fade out
+                                              // before clipping its rounded edge.
+                                              child: Padding(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 16,
+                                                      vertical: 8,
+                                                    ),
                                                 child: child,
                                               ),
                                             ),
@@ -1193,7 +1230,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
                     OutlinedButton.icon(
                       style: OutlinedButton.styleFrom(
                         foregroundColor: AppTheme.dangerColor,
-                        minimumSize: const Size.fromHeight(53),
+                        minimumSize: const Size.fromHeight(48),
                         side: BorderSide(
                           color: AppTheme.dangerColor.withValues(alpha: .42),
                           width: 1.5,
@@ -1216,7 +1253,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
                     const SizedBox(height: 7),
                     FilledButton.icon(
                       style: FilledButton.styleFrom(
-                        minimumSize: const Size.fromHeight(53),
+                        minimumSize: const Size.fromHeight(48),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
@@ -1287,8 +1324,8 @@ class _DeleteAccountConfirmationDialogState
     final phrase = context.tr('DELETE MY ACCOUNT');
     final canDelete =
         _controller.text.trim().toUpperCase() == phrase.trim().toUpperCase();
-    final appleStyle = Platform.isMacOS || Platform.isIOS;
-    final confirmationInput = appleStyle
+    final iosStyle = Platform.isIOS;
+    final confirmationInput = iosStyle
         ? cupertino.CupertinoTextField(
             controller: _controller,
             autofocus: true,
@@ -1337,28 +1374,162 @@ class _DeleteAccountConfirmationDialogState
       ],
     );
 
-    if (appleStyle) {
-      return cupertino.CupertinoAlertDialog(
-        title: Text(context.tr('Delete account?')),
-        content: Padding(
-          padding: const EdgeInsets.only(top: 12),
-          child: content,
+    if (iosStyle) {
+      return Dialog(
+        backgroundColor: Colors.transparent,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 380),
+          child: FrostedCard(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 10),
+            borderRadius: 20,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  context.tr('Delete account?'),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                content,
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextButton(
+                        onPressed: () => Navigator.pop(context, false),
+                        child: Text(context.tr('Cancel')),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: FilledButton(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppTheme.dangerColor,
+                          foregroundColor: Colors.white,
+                          minimumSize: const Size.fromHeight(40),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(11),
+                          ),
+                        ),
+                        onPressed: canDelete
+                            ? () => Navigator.pop(context, true)
+                            : null,
+                        child: Text(context.tr('Delete account')),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
         ),
-        actions: [
-          cupertino.CupertinoDialogAction(
-            onPressed: () => Navigator.pop(context, false),
-            child: Text(context.tr('Cancel')),
-          ),
-          cupertino.CupertinoDialogAction(
-            isDestructiveAction: true,
-            onPressed: canDelete ? () => Navigator.pop(context, true) : null,
-            child: Text(context.tr('Delete account')),
-          ),
-        ],
       );
     }
 
     final dark = Theme.of(context).brightness == Brightness.dark;
+    if (Platform.isMacOS) {
+      final foreground = dark ? AppTheme.foreground : AppTheme.lightForeground;
+      final muted = dark
+          ? AppTheme.foregroundMuted
+          : AppTheme.lightForegroundMuted;
+      return Dialog(
+        backgroundColor: Colors.transparent,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 370),
+          child: FrostedCard(
+            padding: const EdgeInsets.fromLTRB(22, 20, 22, 14),
+            borderRadius: 20,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Icon(
+                  Icons.delete_forever_outlined,
+                  color: AppTheme.dangerColor,
+                  size: 24,
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  context.tr('Delete account?'),
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: foreground,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 7),
+                Text(
+                  context.tr(
+                    'This permanently deletes your Oculve account and VPN access.',
+                  ),
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: muted, fontSize: 12, height: 1.4),
+                ),
+                const SizedBox(height: 7),
+                Text(
+                  context.tr(
+                    'This action cannot be undone. Type the phrase below to confirm.',
+                  ),
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: muted, fontSize: 11, height: 1.35),
+                ),
+                const SizedBox(height: 14),
+                TextField(
+                  key: const ValueKey('delete-account-confirmation-field'),
+                  controller: _controller,
+                  autofocus: true,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  textCapitalization: TextCapitalization.characters,
+                  onChanged: (_) => setState(() {}),
+                  decoration: InputDecoration(
+                    labelText: context.tr('Confirmation phrase'),
+                    hintText: phrase,
+                    isDense: true,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(11),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextButton(
+                        onPressed: () => Navigator.pop(context, false),
+                        child: Text(context.tr('Cancel')),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: FilledButton(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppTheme.dangerColor,
+                          foregroundColor: Colors.white,
+                          minimumSize: const Size.fromHeight(40),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(11),
+                          ),
+                        ),
+                        onPressed: canDelete
+                            ? () => Navigator.pop(context, true)
+                            : null,
+                        child: Text(context.tr('Delete account')),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
     return AlertDialog(
       icon: const Icon(
         Icons.delete_forever_outlined,

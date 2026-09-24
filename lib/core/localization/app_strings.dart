@@ -547,6 +547,44 @@ class AppStrings {
     'Open Oculve': 'Abrir Oculve',
     'Network & DNS': 'Red y DNS',
     'DNS provider': 'Proveedor DNS',
+    'SORT': 'ORDENAR',
+    'DNS & IP': 'DNS e IP',
+    'Choose a private DNS service and IP family.':
+        'Elige un DNS privado y la familia de direcciones IP.',
+    'Automatic': 'Automático',
+    'IPv4 + IPv6': 'IPv4 + IPv6',
+    'Connection privacy': 'Privacidad de conexión',
+    'Use the server profile defaults.': 'Usar los ajustes del servidor.',
+    'The selected server does not use TLS or Reality.':
+        'El servidor seleccionado no usa TLS ni Reality.',
+    'TLS fingerprint': 'Huella TLS',
+    'Server default': 'Predeterminada del servidor',
+    'The fingerprint should match your server and takes effect after reconnecting.':
+        'La huella debe coincidir con tu servidor y se aplica al volver a conectarte.',
+    'Bypass domains': 'Dominios excluidos de la VPN',
+    'Enter one domain per line. These sites bypass the VPN.':
+        'Escribe un dominio por línea. Estos sitios omiten la VPN.',
+    'Android app routing': 'Enrutamiento de aplicaciones Android',
+    'Advanced': 'Avanzado',
+    'Diagnostics and optional connection behavior.':
+        'Diagnóstico y opciones adicionales de conexión.',
+    'Diagnostic detail': 'Detalle de diagnóstico',
+    'Only errors, warnings and basic connection information are recorded.':
+        'Solo se registran errores, advertencias e información básica de conexión.',
+    'TLS hello fragmentation': 'Fragmentación del saludo TLS',
+    'Can help on restricted networks, but may reduce speed. Use only when needed.':
+        'Puede ayudar en redes restringidas, pero reducir la velocidad. Úsala solo si hace falta.',
+    'Fragmentation is available for VLESS Reality over TCP.':
+        'La fragmentación está disponible para VLESS Reality sobre TCP.',
+    'Choose sites that should use your regular connection.':
+        'Elige los sitios que usarán tu conexión normal.',
+    'Choose option': 'Elegir opción',
+    'Error': 'Error',
+    'Warning': 'Advertencia',
+    'Info': 'Información',
+    'Chrome': 'Chrome',
+    'Firefox': 'Firefox',
+    'Safari': 'Safari',
     'Choose a DNS provider. The provider can see the domain names you look up.':
         'Elige un proveedor DNS. Este proveedor podrá ver los nombres de dominio que consultas.',
     'Changes apply after you reconnect.':
@@ -1178,6 +1216,45 @@ class AppStrings {
     'Open Oculve': 'Oculve’yi aç',
     'Network & DNS': 'Ağ ve DNS',
     'DNS provider': 'DNS sağlayıcısı',
+    'SORT': 'SIRALA',
+    'DNS & IP': 'DNS ve IP',
+    'Choose a private DNS service and IP family.':
+        'Özel DNS sağlayıcısı ve IP ailesi seç.',
+    'Automatic': 'Otomatik',
+    'IPv4 + IPv6': 'IPv4 + IPv6',
+    'Connection privacy': 'Bağlantı gizliliği',
+    'Use the server profile defaults.':
+        'Sunucu profilinin varsayılanlarını kullan.',
+    'The selected server does not use TLS or Reality.':
+        'Seçili sunucu TLS veya Reality kullanmıyor.',
+    'TLS fingerprint': 'TLS parmak izi',
+    'Server default': 'Sunucu varsayılanı',
+    'The fingerprint should match your server and takes effect after reconnecting.':
+        'Parmak izi sunucunla eşleşmeli; yeniden bağlandığında uygulanır.',
+    'Bypass domains': 'VPN dışında kalacak alan adları',
+    'Enter one domain per line. These sites bypass the VPN.':
+        'Her satıra bir alan adı yaz. Bu siteler VPN dışından bağlanır.',
+    'Android app routing': 'Android uygulama yönlendirmesi',
+    'Advanced': 'Gelişmiş',
+    'Diagnostics and optional connection behavior.':
+        'Tanılama ve isteğe bağlı bağlantı davranışları.',
+    'Diagnostic detail': 'Tanılama ayrıntısı',
+    'Only errors, warnings and basic connection information are recorded.':
+        'Yalnızca hatalar, uyarılar ve temel bağlantı bilgileri kaydedilir.',
+    'TLS hello fragmentation': 'TLS el sıkışma parçalama',
+    'Can help on restricted networks, but may reduce speed. Use only when needed.':
+        'Kısıtlı ağlarda yardımcı olabilir ancak hızı düşürebilir. Yalnızca gerektiğinde kullan.',
+    'Fragmentation is available for VLESS Reality over TCP.':
+        'Parçalama yalnızca TCP üzerinden VLESS Reality için kullanılabilir.',
+    'Choose sites that should use your regular connection.':
+        'Normal internet bağlantını kullanacak siteleri seç.',
+    'Choose option': 'Seçenek belirle',
+    'Error': 'Hata',
+    'Warning': 'Uyarı',
+    'Info': 'Bilgi',
+    'Chrome': 'Chrome',
+    'Firefox': 'Firefox',
+    'Safari': 'Safari',
     'Choose a DNS provider. The provider can see the domain names you look up.':
         'Bir DNS sağlayıcısı seç. Sorguladığın alan adlarını bu sağlayıcı görebilir.',
     'Changes apply after you reconnect.':

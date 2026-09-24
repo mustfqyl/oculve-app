@@ -2308,6 +2308,19 @@ class XrayPreferences {
   static const _tcpAdvancedSettingsKey = 'xray.tcp.advanced.v1';
   static const _vlessEncryptionOverridesKey =
       'xray.vless.encryption.profiles.v1';
+  static const _userTlsHelloFragmentation = <String, dynamic>{
+    'tcp': [
+      {
+        'type': 'fragment',
+        'settings': {
+          'packets': 'tlshello',
+          'lengths': ['100-200'],
+          'delays': ['10-20'],
+          'maxSplit': '3-6',
+        },
+      },
+    ],
+  };
 
   static Future<XrayVlessEncryptionSettings?> vlessEncryptionSettingsFor(
     String profileId,
@@ -2507,6 +2520,52 @@ class XrayPreferences {
     await preferences.setString(_dnsSettingsKey, jsonEncode(settings.toJson()));
   }
 
+  /// Returns only DNS controls intended for regular VPN users. Older builds
+  /// stored low-level options such as EDNS client IP and custom host overrides;
+  /// those are deliberately discarded so they cannot silently affect a new
+  /// connection after the settings screen has been simplified.
+  static Future<XrayDnsSettings> userDnsSettings() async {
+    final stored = await dnsSettings();
+    const known = {
+      'https://cloudflare-dns.com/dns-query',
+      'https://dns.google/dns-query',
+      'https://dns.quad9.net/dns-query',
+    };
+    const legacy = {
+      'tcp://1.1.1.1': 'https://cloudflare-dns.com/dns-query',
+      'tcp://8.8.8.8': 'https://dns.google/dns-query',
+      'tcp://9.9.9.9': 'https://dns.quad9.net/dns-query',
+    };
+    final first = stored.servers.firstOrNull;
+    final endpoint = first == null
+        ? null
+        : known.contains(first)
+        ? first
+        : legacy[first];
+    return XrayDnsSettings(
+      servers: [endpoint ?? 'https://cloudflare-dns.com/dns-query'],
+      queryStrategy: stored.queryStrategy,
+    );
+  }
+
+  /// Persists the small, validated DNS surface exposed by Oculve's UI.
+  static Future<void> setUserDnsSettings(XrayDnsSettings settings) async {
+    if (settings.servers.length != 1 ||
+        !const {
+          'https://cloudflare-dns.com/dns-query',
+          'https://dns.google/dns-query',
+          'https://dns.quad9.net/dns-query',
+        }.contains(settings.servers.single)) {
+      throw const FormatException('Choose a supported DNS provider.');
+    }
+    await setDnsSettings(
+      XrayDnsSettings(
+        servers: settings.servers,
+        queryStrategy: settings.queryStrategy,
+      ),
+    );
+  }
+
   static Future<XrayXhttpSettings> xhttpSettings() async {
     final preferences = await SharedPreferences.getInstance();
     final saved = preferences.getString(_xhttpSettingsKey);
@@ -2605,6 +2664,48 @@ class XrayPreferences {
     } else {
       await preferences.setString(_finalMaskSettingsKey, settings.json);
     }
+  }
+
+  static Future<bool> tlsHelloFragmentationEnabled() async {
+    final actual = (await finalMaskSettings()).toXrayJson();
+    final expectedTcp = _userTlsHelloFragmentation['tcp'] as List;
+    final actualTcp = actual['tcp'];
+    if (actual.length != 1 || actualTcp is! List || actualTcp.length != 1) {
+      return false;
+    }
+    final expected = Map<String, dynamic>.from(expectedTcp.single as Map);
+    final item = actualTcp.single;
+    if (item is! Map ||
+        item['type'] != 'fragment' ||
+        item['settings'] is! Map) {
+      return false;
+    }
+    final settings = Map<String, dynamic>.from(item['settings'] as Map);
+    final expectedSettings = Map<String, dynamic>.from(
+      expected['settings'] as Map,
+    );
+    return settings.keys.toSet().containsAll(expectedSettings.keys) &&
+        expectedSettings.keys.toSet().containsAll(settings.keys) &&
+        expectedSettings.entries.every(
+          (entry) => jsonEncode(settings[entry.key]) == jsonEncode(entry.value),
+        );
+  }
+
+  static Future<XrayFinalMaskSettings> userFinalMaskSettings() async =>
+      await tlsHelloFragmentationEnabled()
+      ? XrayFinalMaskSettings.fromJsonText(
+          jsonEncode(_userTlsHelloFragmentation),
+        )
+      : const XrayFinalMaskSettings();
+
+  static Future<void> setTlsHelloFragmentation(bool enabled) async {
+    await setFinalMaskSettings(
+      enabled
+          ? XrayFinalMaskSettings.fromJsonText(
+              jsonEncode(_userTlsHelloFragmentation),
+            )
+          : const XrayFinalMaskSettings(),
+    );
   }
 
   static Future<void> setVersionRequirement(
