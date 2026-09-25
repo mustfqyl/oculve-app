@@ -85,6 +85,18 @@ jobs:
       - name: Check out source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
+      - name: Add Windows SDK manifest tool to PATH
+        shell: pwsh
+        run: |
+          $sdkBin = Join-Path ${env:ProgramFiles(x86)} "Windows Kits\10\bin"
+          $mt = Get-ChildItem $sdkBin -Filter mt.exe -File -Recurse |
+            Where-Object { $_.Directory.Name -eq "x64" } |
+            Sort-Object { [version]$_.Directory.Parent.Name } -Descending |
+            Select-Object -First 1
+          if (-not $mt) { throw "Windows SDK x64 mt.exe was not found under $sdkBin" }
+          Add-Content $env:GITHUB_PATH $mt.DirectoryName
+          Write-Output "Using Windows SDK manifest tool: $($mt.FullName)"
+
       - name: Set up Flutter
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
