@@ -81,9 +81,9 @@ class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
     final nextSortIcon = nextSort == ServerSort.alphabetical
         ? Icons.sort_by_alpha_rounded
         : Icons.speed_rounded;
-    final nextSortLabel = nextSort == ServerSort.alphabetical
-        ? 'A–Z'
-        : context.tr('Ping');
+    final sortHint = _sort == ServerSort.latency
+        ? context.tr('Sorted by ping. Tap to sort alphabetically.')
+        : context.tr('Sorted alphabetically. Tap to sort by ping.');
     final latencies = {
       for (final profile in profiles)
         profile.id: ref.watch(serverLatencyProvider(profile.id)),
@@ -119,96 +119,96 @@ class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
         });
       }
     }
-    final serverRows = Column(
-      key: ValueKey(orderedIds.join('\u0000')),
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: ordered.map((profile) {
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: FrostedCard(
-            key: ValueKey('server-${profile.id}'),
-            padding: EdgeInsets.zero,
-            borderColor: selected == profile.id
-                ? (dark
-                      ? Colors.white.withValues(alpha: .58)
-                      : Colors.black.withValues(alpha: .42))
-                : null,
-            borderWidth: selected == profile.id ? 1.1 : .5,
-            child: ListTile(
-              leading: FrostedCircle(
-                size: 34,
-                blurAmount: 15,
-                child: CountryIcon(flag: profile.flag, size: 24),
+    const serverRowHeight = 56.0;
+    const serverRowSpacing = 8.0;
+    final serverRows = SizedBox(
+      height: ordered.isEmpty
+          ? 0
+          : ordered.length * (serverRowHeight + serverRowSpacing) -
+                serverRowSpacing,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          for (var index = 0; index < ordered.length; index++)
+            AnimatedPositioned(
+              key: ValueKey('server-position-${ordered[index].id}'),
+              duration: const Duration(milliseconds: 380),
+              curve: Curves.easeInOutCubic,
+              top: index * (serverRowHeight + serverRowSpacing),
+              left: 0,
+              right: 0,
+              height: serverRowHeight,
+              child: FrostedCard(
+                key: ValueKey('server-${ordered[index].id}'),
+                padding: EdgeInsets.zero,
+                borderColor: selected == ordered[index].id
+                    ? (dark
+                          ? Colors.white.withValues(alpha: .58)
+                          : Colors.black.withValues(alpha: .42))
+                    : null,
+                borderWidth: selected == ordered[index].id ? 1.1 : .5,
+                child: SizedBox(
+                  height: serverRowHeight,
+                  child: ListTile(
+                    dense: true,
+                    minTileHeight: serverRowHeight,
+                    leading: FrostedCircle(
+                      size: 34,
+                      blurAmount: 15,
+                      child: CountryIcon(flag: ordered[index].flag, size: 24),
+                    ),
+                    title: Text(ordered[index].name),
+                    trailing: LatencyLabel(
+                      latency: latencies[ordered[index].id]!,
+                    ),
+                    enabled: enabled,
+                    onTap: () {
+                      ref.read(selectedServerProvider.notifier).state =
+                          ordered[index].id;
+                      Navigator.pop(context);
+                    },
+                  ),
+                ),
               ),
-              title: Text(profile.name),
-              trailing: LatencyLabel(latency: latencies[profile.id]!),
-              enabled: enabled,
-              onTap: () {
-                ref.read(selectedServerProvider.notifier).state = profile.id;
-                Navigator.pop(context);
-              },
             ),
-          ),
-        );
-      }).toList(),
+        ],
+      ),
     );
     return AppPage(
       title: context.tr('Locations'),
       action: Semantics(
         button: true,
-        label: _sort == ServerSort.latency
-            ? context.tr('Sorted by ping. Tap to sort alphabetically.')
-            : context.tr('Sorted alphabetically. Tap to sort by ping.'),
+        label: sortHint,
         child: Tooltip(
-          message: _sort == ServerSort.latency
-              ? context.tr('Sorted by ping. Tap to sort alphabetically.')
-              : context.tr('Sorted alphabetically. Tap to sort by ping.'),
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              key: const ValueKey('server-sort-toggle'),
-              borderRadius: BorderRadius.circular(11),
-              onTap: () => setState(
-                () => _sort = _sort == ServerSort.latency
-                    ? ServerSort.alphabetical
-                    : ServerSort.latency,
+          message: sortHint,
+          child: OutlinedButton.icon(
+            key: const ValueKey('server-sort-toggle'),
+            onPressed: () => setState(
+              () => _sort = _sort == ServerSort.latency
+                  ? ServerSort.alphabetical
+                  : ServerSort.latency,
+            ),
+            icon: Icon(nextSortIcon, size: 15),
+            label: Text(
+              context.tr('Sort'),
+              style: const TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+                letterSpacing: .2,
               ),
-              child: Container(
-                height: 34,
-                padding: const EdgeInsets.symmetric(horizontal: 9),
-                decoration: BoxDecoration(
-                  color: Colors.transparent,
-                  border: Border.all(
-                    color: dark
-                        ? Colors.white.withValues(alpha: .16)
-                        : Colors.black.withValues(alpha: .14),
-                  ),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.sort_rounded, size: 15, color: sortForeground),
-                    const SizedBox(width: 7),
-                    Container(
-                      width: 1,
-                      height: 16,
-                      color: sortForeground.withValues(alpha: .25),
-                    ),
-                    const SizedBox(width: 7),
-                    Icon(nextSortIcon, size: 15, color: sortForeground),
-                    const SizedBox(width: 5),
-                    Text(
-                      nextSortLabel,
-                      style: TextStyle(
-                        color: sortForeground,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: .25,
-                      ),
-                    ),
-                  ],
-                ),
+            ),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: sortForeground,
+              minimumSize: const Size(0, 34),
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              visualDensity: VisualDensity.compact,
+              side: BorderSide(
+                color: dark
+                    ? Colors.white.withValues(alpha: .16)
+                    : Colors.black.withValues(alpha: .14),
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
               ),
             ),
           ),
@@ -300,14 +300,7 @@ class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
                   : Colors.black.withValues(alpha: .1),
             ),
           ),
-          if (ordered.isNotEmpty)
-            AnimatedSwitcher(
-              duration: const Duration(milliseconds: 260),
-              reverseDuration: const Duration(milliseconds: 180),
-              switchInCurve: Curves.easeOutCubic,
-              switchOutCurve: Curves.easeInCubic,
-              child: serverRows,
-            ),
+          if (ordered.isNotEmpty) serverRows,
         ],
       ),
     );

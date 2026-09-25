@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart' as cupertino;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -98,7 +99,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: ThemeData(platform: TargetPlatform.macOS),
-        scrollBehavior: const AppScrollBehavior(),
+        scrollBehavior: const AppScrollBehavior().copyWith(scrollbars: false),
         home: Scaffold(
           body: Center(
             child: PopupMenuButton<int>(
@@ -286,6 +287,65 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+  testWidgets('account deletion follows native iOS and macOS dialog patterns', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(360, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    for (final platform in [TargetPlatform.iOS, TargetPlatform.macOS]) {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [sessionProvider.overrideWith((ref) => _AccountSession())],
+          child: MaterialApp(
+            theme: AppTheme.darkTheme.copyWith(platform: platform),
+            home: const AccountScreen(),
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 350));
+      await tester.ensureVisible(find.text('Delete account'));
+      await tester.tap(find.text('Delete account').first);
+      await tester.pump(const Duration(milliseconds: 350));
+
+      final field = find.byKey(
+        const ValueKey('delete-account-confirmation-field'),
+      );
+      expect(field, findsOneWidget);
+      if (platform == TargetPlatform.iOS) {
+        expect(find.byType(cupertino.CupertinoAlertDialog), findsOneWidget);
+        final action = find
+            .descendant(
+              of: find.byType(cupertino.CupertinoAlertDialog),
+              matching: find.byType(cupertino.CupertinoDialogAction),
+            )
+            .last;
+        expect(
+          tester.widget<cupertino.CupertinoDialogAction>(action).onPressed,
+          isNull,
+        );
+        await tester.enterText(field, 'DELETE MY ACCOUNT');
+        await tester.pump();
+        expect(
+          tester.widget<cupertino.CupertinoDialogAction>(action).onPressed,
+          isNotNull,
+        );
+      } else {
+        final action = find.byKey(
+          const ValueKey('delete-account-confirm-action'),
+        );
+        expect(tester.widget<TextButton>(action).onPressed, isNull);
+        await tester.enterText(field, 'DELETE MY ACCOUNT');
+        await tester.pump();
+        expect(tester.widget<TextButton>(action).onPressed, isNotNull);
+      }
+      await tester.tap(find.text('Cancel').last);
+      await tester.pump(const Duration(milliseconds: 350));
+      expect(tester.takeException(), isNull, reason: '$platform dialog');
+    }
+  });
   testWidgets('TOTP setup fits the compact app window in the app theme', (
     tester,
   ) async {
@@ -468,10 +528,14 @@ void main() {
     );
     await tester.pump(const Duration(milliseconds: 500));
 
-    expect(find.text('DNS'), findsOneWidget);
-    expect(find.text('TLS identity'), findsOneWidget);
-    expect(find.text('Split tunneling'), findsOneWidget);
-    expect(find.text('Fragmentation'), findsOneWidget);
+    expect(find.text('Connection settings'), findsOneWidget);
+    expect(
+      find.text('Most users can leave these settings as they are.'),
+      findsOneWidget,
+    );
+    expect(find.text('DNS & network'), findsOneWidget);
+    expect(find.text('Traffic routing'), findsOneWidget);
+    expect(find.text('Secure connection'), findsOneWidget);
     expect(find.text('Diagnostics'), findsOneWidget);
     for (final removed in [
       'XHTTP transport',
@@ -485,7 +549,7 @@ void main() {
       expect(find.text(removed), findsNothing);
     }
 
-    await tester.tap(find.byKey(const ValueKey('xray-section-DNS')));
+    await tester.tap(find.byKey(const ValueKey('xray-section-DNS & network')));
     await tester.pump(const Duration(milliseconds: 250));
     await tester.tap(
       find.byKey(const ValueKey('xray-choice-DNS provider-Google')),
@@ -506,10 +570,10 @@ void main() {
     );
 
     await tester.ensureVisible(
-      find.byKey(const ValueKey('xray-section-Split tunneling')),
+      find.byKey(const ValueKey('xray-section-Traffic routing')),
     );
     await tester.tap(
-      find.byKey(const ValueKey('xray-section-Split tunneling')),
+      find.byKey(const ValueKey('xray-section-Traffic routing')),
     );
     await tester.pump(const Duration(milliseconds: 250));
     final domains = find.byKey(const ValueKey('bypass-domains-field'));
@@ -523,9 +587,11 @@ void main() {
     ]);
 
     await tester.ensureVisible(
-      find.byKey(const ValueKey('xray-section-Fragmentation')),
+      find.byKey(const ValueKey('xray-section-Secure connection')),
     );
-    await tester.tap(find.byKey(const ValueKey('xray-section-Fragmentation')));
+    await tester.tap(
+      find.byKey(const ValueKey('xray-section-Secure connection')),
+    );
     await tester.pump(const Duration(milliseconds: 250));
     final fragmentation = find.byKey(
       const ValueKey('xray-fragmentation-switch'),

@@ -42,7 +42,7 @@ class SettingsScreen extends ConsumerWidget {
           const SizedBox(height: 12),
           _SettingsTile(
             icon: Icons.tune,
-            title: 'Xray core',
+            title: 'Connection settings',
             onTap: () => Navigator.push(
               context,
               appRoute(const XrayCoreSettingsScreen()),

@@ -1074,24 +1074,63 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
                                         milliseconds: 300,
                                       ),
                                       curve: Curves.easeOutCubic,
-                                      builder: (context, blur, child) =>
-                                          ImageFiltered(
-                                            imageFilter: ImageFilter.blur(
-                                              sigmaX: blur,
-                                              sigmaY: blur,
-                                            ),
-                                            // Leave a transparent falloff around
-                                            // the glyphs; clipping blurred edges
-                                            // was creating the visible corners.
-                                            child: Padding(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                    horizontal: 17,
-                                                    vertical: 12,
-                                                  ),
-                                              child: child,
-                                            ),
+                                      builder: (context, blur, child) {
+                                        final edgeOpacity = (1 - blur / 5)
+                                            .clamp(0.0, 1.0);
+                                        final blurred = ImageFiltered(
+                                          imageFilter: ImageFilter.blur(
+                                            sigmaX: blur,
+                                            sigmaY: blur,
                                           ),
+                                          child: Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 24,
+                                              vertical: 16,
+                                            ),
+                                            child: child,
+                                          ),
+                                        );
+                                        final softenedHorizontally = ShaderMask(
+                                          blendMode: BlendMode.dstIn,
+                                          shaderCallback: (bounds) =>
+                                              LinearGradient(
+                                                begin: Alignment.centerLeft,
+                                                end: Alignment.centerRight,
+                                                colors: [
+                                                  Colors.white.withValues(
+                                                    alpha: edgeOpacity,
+                                                  ),
+                                                  Colors.white,
+                                                  Colors.white,
+                                                  Colors.white.withValues(
+                                                    alpha: edgeOpacity,
+                                                  ),
+                                                ],
+                                                stops: const [0, .16, .84, 1],
+                                              ).createShader(bounds),
+                                          child: blurred,
+                                        );
+                                        return ShaderMask(
+                                          blendMode: BlendMode.dstIn,
+                                          shaderCallback: (bounds) =>
+                                              LinearGradient(
+                                                begin: Alignment.topCenter,
+                                                end: Alignment.bottomCenter,
+                                                colors: [
+                                                  Colors.white.withValues(
+                                                    alpha: edgeOpacity,
+                                                  ),
+                                                  Colors.white,
+                                                  Colors.white,
+                                                  Colors.white.withValues(
+                                                    alpha: edgeOpacity,
+                                                  ),
+                                                ],
+                                                stops: const [0, .18, .82, 1],
+                                              ).createShader(bounds),
+                                          child: softenedHorizontally,
+                                        );
+                                      },
                                       child: ExcludeSemantics(
                                         child: Text(
                                           account?.authCode.isNotEmpty == true
@@ -1342,9 +1381,12 @@ class _DeleteAccountConfirmationDialogState
     final phrase = context.tr('DELETE MY ACCOUNT');
     final canDelete =
         _controller.text.trim().toUpperCase() == phrase.trim().toUpperCase();
-    final iosStyle = Platform.isIOS;
+    final platform = Theme.of(context).platform;
+    final iosStyle = platform == TargetPlatform.iOS;
+    final macStyle = platform == TargetPlatform.macOS;
     final confirmationInput = iosStyle
         ? cupertino.CupertinoTextField(
+            key: const ValueKey('delete-account-confirmation-field'),
             controller: _controller,
             autofocus: true,
             autocorrect: false,
@@ -1354,6 +1396,7 @@ class _DeleteAccountConfirmationDialogState
             placeholder: phrase,
           )
         : TextField(
+            key: const ValueKey('delete-account-confirmation-field'),
             controller: _controller,
             autofocus: true,
             autocorrect: false,
@@ -1392,76 +1435,48 @@ class _DeleteAccountConfirmationDialogState
       ],
     );
 
+    final dark = Theme.of(context).brightness == Brightness.dark;
     if (iosStyle) {
-      final separator = cupertino.CupertinoColors.separator.resolveFrom(
-        context,
-      );
-      return cupertino.CupertinoPopupSurface(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 380),
+      return cupertino.CupertinoAlertDialog(
+        title: Text(context.tr('Delete account?')),
+        content: Padding(
+          padding: const EdgeInsets.only(top: 8),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(22, 18, 22, 14),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      context.tr('Delete account?'),
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    content,
-                  ],
+              Text(
+                context.tr(
+                  'This permanently deletes your Oculve account and VPN access.',
                 ),
               ),
-              Container(
-                height: 1 / MediaQuery.devicePixelRatioOf(context),
-                color: separator,
+              const SizedBox(height: 14),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  context.tr('Confirmation phrase'),
+                  style: const TextStyle(fontSize: 12),
+                ),
               ),
-              Row(
-                children: [
-                  Expanded(
-                    child: cupertino.CupertinoButton(
-                      onPressed: () => Navigator.pop(context, false),
-                      child: Text(context.tr('Cancel')),
-                    ),
-                  ),
-                  Container(
-                    width: 1 / MediaQuery.devicePixelRatioOf(context),
-                    height: 44,
-                    color: separator,
-                  ),
-                  Expanded(
-                    child: cupertino.CupertinoButton(
-                      onPressed: canDelete
-                          ? () => Navigator.pop(context, true)
-                          : null,
-                      child: Text(
-                        context.tr('Delete account'),
-                        style: TextStyle(
-                          color: cupertino.CupertinoColors.systemRed
-                              .resolveFrom(context)
-                              .withValues(alpha: canDelete ? 1 : .45),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+              const SizedBox(height: 6),
+              confirmationInput,
             ],
           ),
         ),
+        actions: [
+          cupertino.CupertinoDialogAction(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(context.tr('Cancel')),
+          ),
+          cupertino.CupertinoDialogAction(
+            isDestructiveAction: true,
+            onPressed: canDelete ? () => Navigator.pop(context, true) : null,
+            child: Text(context.tr('Delete account')),
+          ),
+        ],
       );
     }
 
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    if (Platform.isMacOS) {
+    if (macStyle) {
       final foreground = dark ? AppTheme.foreground : AppTheme.lightForeground;
       final muted = dark
           ? AppTheme.foregroundMuted
@@ -1472,85 +1487,83 @@ class _DeleteAccountConfirmationDialogState
           constraints: const BoxConstraints(maxWidth: 370),
           child: FrostedCard(
             padding: const EdgeInsets.fromLTRB(22, 20, 22, 14),
-            borderRadius: 20,
+            borderRadius: 14,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Icon(
-                  Icons.delete_forever_outlined,
-                  color: AppTheme.dangerColor,
-                  size: 24,
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(
+                      Icons.warning_amber_rounded,
+                      color: AppTheme.dangerColor,
+                      size: 21,
+                    ),
+                    const SizedBox(width: 11),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            context.tr('Delete account?'),
+                            style: TextStyle(
+                              color: foreground,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            context.tr(
+                              'This permanently deletes your Oculve account and VPN access.',
+                            ),
+                            style: TextStyle(
+                              color: muted,
+                              fontSize: 12,
+                              height: 1.4,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 12),
                 Text(
-                  context.tr('Delete account?'),
-                  textAlign: TextAlign.center,
+                  context.tr('Confirmation phrase'),
                   style: TextStyle(
-                    color: foreground,
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700,
+                    color: muted,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
-                const SizedBox(height: 7),
-                Text(
-                  context.tr(
-                    'This permanently deletes your Oculve account and VPN access.',
-                  ),
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: muted, fontSize: 12, height: 1.4),
-                ),
-                const SizedBox(height: 7),
+                const SizedBox(height: 5),
+                confirmationInput,
+                const SizedBox(height: 6),
                 Text(
                   context.tr(
                     'This action cannot be undone. Type the phrase below to confirm.',
                   ),
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: muted, fontSize: 11, height: 1.35),
+                  style: TextStyle(color: muted, fontSize: 10, height: 1.35),
                 ),
                 const SizedBox(height: 14),
-                TextField(
-                  key: const ValueKey('delete-account-confirmation-field'),
-                  controller: _controller,
-                  autofocus: true,
-                  autocorrect: false,
-                  enableSuggestions: false,
-                  textCapitalization: TextCapitalization.characters,
-                  onChanged: (_) => setState(() {}),
-                  decoration: InputDecoration(
-                    labelText: context.tr('Confirmation phrase'),
-                    hintText: phrase,
-                    isDense: true,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(11),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
                 Row(
                   children: [
-                    Expanded(
-                      child: TextButton(
-                        onPressed: () => Navigator.pop(context, false),
-                        child: Text(context.tr('Cancel')),
-                      ),
+                    const Spacer(),
+                    TextButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      child: Text(context.tr('Cancel')),
                     ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: FilledButton(
-                        style: FilledButton.styleFrom(
-                          backgroundColor: AppTheme.dangerColor,
-                          foregroundColor: Colors.white,
-                          minimumSize: const Size.fromHeight(40),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(11),
-                          ),
-                        ),
-                        onPressed: canDelete
-                            ? () => Navigator.pop(context, true)
-                            : null,
-                        child: Text(context.tr('Delete account')),
+                    TextButton(
+                      key: const ValueKey('delete-account-confirm-action'),
+                      onPressed: canDelete
+                          ? () => Navigator.pop(context, true)
+                          : null,
+                      style: TextButton.styleFrom(
+                        foregroundColor: AppTheme.dangerColor,
                       ),
+                      child: Text(context.tr('Delete account')),
                     ),
                   ],
                 ),

@@ -54,6 +54,7 @@ class AppStrings {
     'Disconnect VPN': 'Desconectar VPN',
     'VPN connection in progress': 'Conexión VPN en curso',
     'Tap to connect to the VPN': 'Toca para conectar la VPN',
+    'Tap to retry.': 'Toca para volver a intentarlo.',
     'Dismiss': 'Cerrar',
     'The VPN runtime failed. Check permissions and connection settings.':
         'El servicio VPN ha fallado. Comprueba los permisos y la conexión.',
@@ -74,6 +75,19 @@ class AppStrings {
     'Sorted alphabetically. Tap to sort by ping.':
         'Ordenado alfabéticamente. Toca para ordenar por latencia.',
     'Connection': 'Conexión',
+    'Connection settings': 'Ajustes de conexión',
+    'Most users can leave these settings as they are.':
+        'La mayoría puede dejar estos ajustes tal como están.',
+    'DNS & network': 'DNS y red',
+    'Choose how names are looked up and which IP versions to use.':
+        'Elige cómo resolver nombres y qué versiones de IP usar.',
+    'Choose which sites or Android apps bypass the VPN.':
+        'Elige qué sitios o aplicaciones Android omiten la VPN.',
+    'Secure connection': 'Conexión segura',
+    'Optional connection details. The server defaults work for most people.':
+        'Opciones de conexión. La configuración del servidor funciona para la mayoría.',
+    'Connection fingerprint': 'Huella de conexión',
+    'Connection fragmentation': 'Fragmentación de la conexión',
     'Connection optimization': 'Optimización de conexión',
     'Connection policy': 'Política de conexión',
     'Continue': 'Continuar',
@@ -763,6 +777,7 @@ class AppStrings {
     'Disconnect VPN': 'VPN bağlantısını kes',
     'VPN connection in progress': 'VPN bağlantısı sürüyor',
     'Tap to connect to the VPN': 'VPN’e bağlanmak için dokunun',
+    'Tap to retry.': 'Yeniden denemek için dokunun.',
     'Dismiss': 'Kapat',
     'The VPN runtime failed. Check permissions and connection settings.':
         'VPN altyapısı çalışmadı. İzinleri ve bağlantı ayarlarını kontrol edin.',
@@ -782,6 +797,19 @@ class AppStrings {
     'Sorted alphabetically. Tap to sort by ping.':
         'Alfabetik sıralı. Ping değerine göre sıralamak için dokunun.',
     'Connection': 'Bağlantı',
+    'Connection settings': 'Bağlantı ayarları',
+    'Most users can leave these settings as they are.':
+        'Çoğu kullanıcı bu ayarları olduğu gibi bırakabilir.',
+    'DNS & network': 'DNS ve ağ',
+    'Choose how names are looked up and which IP versions to use.':
+        'Alan adlarının nasıl çözümleneceğini ve hangi IP sürümlerinin kullanılacağını seç.',
+    'Choose which sites or Android apps bypass the VPN.':
+        'VPN dışından bağlanacak siteleri veya Android uygulamalarını seç.',
+    'Secure connection': 'Güvenli bağlantı',
+    'Optional connection details. The server defaults work for most people.':
+        'İsteğe bağlı bağlantı ayrıntıları. Sunucunun varsayılanları çoğu kullanıcı için uygundur.',
+    'Connection fingerprint': 'Bağlantı parmak izi',
+    'Connection fragmentation': 'Bağlantı parçalama',
     'Connection optimization': 'Bağlantı iyileştirme',
     'Connection policy': 'Bağlantı ilkesi',
     'Continue': 'Devam et',

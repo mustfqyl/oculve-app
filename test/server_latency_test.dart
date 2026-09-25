@@ -82,6 +82,23 @@ void main() {
   );
 
   test(
+    'a stopped VPN error does not prevent fresh server ping checks',
+    () async {
+      final container = ProviderContainer(
+        overrides: [
+          sessionProvider.overrideWith((ref) => _SessionWithServers()),
+          vpnProvider.overrideWith((ref) => _ErrorVpnNotifier(ref)),
+          serverLatencyProbeProvider.overrideWithValue(_FixedProbe()),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      expect(await container.read(serverLatencyProvider('fast').future), 25);
+      expect(container.read(serverLatencyLastKnownProvider)['fast'], 25);
+    },
+  );
+
+  test(
     'TCP reachability ping does not launch a Reality health request',
     () async {
       final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);

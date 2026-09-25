@@ -66,7 +66,7 @@ class MyApp extends ConsumerWidget {
       locale: locale,
       supportedLocales: supportedAppLocales,
       localizationsDelegates: GlobalMaterialLocalizations.delegates,
-      scrollBehavior: const AppScrollBehavior(),
+      scrollBehavior: const AppScrollBehavior().copyWith(scrollbars: false),
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
       themeMode: switch (themeMode) {

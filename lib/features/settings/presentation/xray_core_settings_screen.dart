@@ -212,12 +212,21 @@ class _XrayCoreSettingsScreenState
         : AppTheme.lightForegroundMuted;
 
     return AppPage(
-      title: 'Xray core',
+      title: context.tr('Connection settings'),
       child: _loading
           ? const Center(child: CircularProgressIndicator())
           : ListView(
               padding: const EdgeInsets.fromLTRB(14, 4, 14, 10),
               children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(3, 0, 3, 10),
+                  child: Text(
+                    context.tr(
+                      'Most users can leave these settings as they are.',
+                    ),
+                    style: TextStyle(color: muted, fontSize: 11, height: 1.35),
+                  ),
+                ),
                 if (_error != null) ...[
                   _MessageCard(
                     message: _error!,
@@ -226,13 +235,13 @@ class _XrayCoreSettingsScreenState
                   const SizedBox(height: 8),
                 ],
                 _GroupCard(
-                  title: 'DNS',
+                  title: 'DNS & network',
                   subtitle: context.tr(
-                    'Choose an encrypted DNS provider and lookup address family.',
+                    'Choose how names are looked up and which IP versions to use.',
                   ),
                   icon: Icons.dns_outlined,
-                  expanded: _expanded.contains('DNS'),
-                  onToggle: () => _toggleGroup('DNS'),
+                  expanded: _expanded.contains('DNS & network'),
+                  onToggle: () => _toggleGroup('DNS & network'),
                   children: [
                     _OptionRow<String>(
                       label: context.tr('DNS provider'),
@@ -263,50 +272,13 @@ class _XrayCoreSettingsScreenState
                   ],
                 ),
                 _GroupCard(
-                  title: 'TLS identity',
-                  subtitle: profile == null
-                      ? context.tr('Use the server profile defaults.')
-                      : '${profile.name} · ${profile.proxyProtocol?.toUpperCase() ?? context.tr('Server')}',
-                  icon: Icons.shield_outlined,
-                  expanded: _expanded.contains('TLS identity'),
-                  onToggle: () => _toggleGroup('TLS identity'),
-                  children: [
-                    if (!supportsFingerprint)
-                      Text(
-                        context.tr(
-                          'The selected server does not use TLS or Reality.',
-                        ),
-                        style: TextStyle(color: muted, fontSize: 11),
-                      )
-                    else
-                      _OptionRow<RealityFingerprint>(
-                        label: context.tr('TLS fingerprint'),
-                        value: _fingerprint!,
-                        values: const [
-                          RealityFingerprint.serverDefault,
-                          RealityFingerprint.chrome,
-                          RealityFingerprint.firefox,
-                          RealityFingerprint.safari,
-                        ],
-                        valueLabel: (value) => context.tr(value.label),
-                        onSelected: _saveFingerprint,
-                      ),
-                    Text(
-                      context.tr(
-                        'This changes the TLS ClientHello only. Keep the server default unless you need another profile.',
-                      ),
-                      style: TextStyle(color: muted, fontSize: 10),
-                    ),
-                  ],
-                ),
-                _GroupCard(
-                  title: 'Split tunneling',
+                  title: 'Traffic routing',
                   subtitle: context.tr(
-                    'Choose domains or apps that use your regular connection.',
+                    'Choose which sites or Android apps bypass the VPN.',
                   ),
                   icon: Icons.alt_route_rounded,
-                  expanded: _expanded.contains('Split tunneling'),
-                  onToggle: () => _toggleGroup('Split tunneling'),
+                  expanded: _expanded.contains('Traffic routing'),
+                  onToggle: () => _toggleGroup('Traffic routing'),
                   children: [
                     TextField(
                       key: const ValueKey('bypass-domains-field'),
@@ -316,7 +288,7 @@ class _XrayCoreSettingsScreenState
                       autocorrect: false,
                       enableSuggestions: false,
                       decoration: InputDecoration(
-                        labelText: context.tr('Bypass domains'),
+                        labelText: context.tr('Sites outside the VPN'),
                         hintText: 'example.com\nsubdomain.example.org',
                         helperText: context.tr(
                           'Enter one domain per line. These sites bypass the VPN.',
@@ -348,19 +320,53 @@ class _XrayCoreSettingsScreenState
                   ],
                 ),
                 _GroupCard(
-                  title: 'Fragmentation',
+                  title: 'Secure connection',
                   subtitle: context.tr(
-                    'Optional TLS hello splitting for supported TCP servers.',
+                    'Optional connection details. The server defaults work for most people.',
                   ),
-                  icon: Icons.call_split_rounded,
-                  expanded: _expanded.contains('Fragmentation'),
-                  onToggle: () => _toggleGroup('Fragmentation'),
+                  icon: Icons.shield_outlined,
+                  expanded: _expanded.contains('Secure connection'),
+                  onToggle: () => _toggleGroup('Secure connection'),
                   children: [
+                    if (profile != null)
+                      Text(
+                        '${profile.name} · ${profile.proxyProtocol?.toUpperCase() ?? context.tr('Server')}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: muted, fontSize: 10),
+                      ),
+                    if (!supportsFingerprint)
+                      Text(
+                        context.tr(
+                          'The selected server does not use TLS or Reality.',
+                        ),
+                        style: TextStyle(color: muted, fontSize: 11),
+                      )
+                    else
+                      _OptionRow<RealityFingerprint>(
+                        label: context.tr('Connection fingerprint'),
+                        value: _fingerprint!,
+                        values: const [
+                          RealityFingerprint.serverDefault,
+                          RealityFingerprint.chrome,
+                          RealityFingerprint.firefox,
+                          RealityFingerprint.safari,
+                        ],
+                        valueLabel: (value) => context.tr(value.label),
+                        onSelected: _saveFingerprint,
+                      ),
+                    Text(
+                      context.tr(
+                        'This changes the TLS ClientHello only. Keep the server default unless you need another profile.',
+                      ),
+                      style: TextStyle(color: muted, fontSize: 10),
+                    ),
+                    const SizedBox(height: 4),
                     if (supportsFragmentation)
                       SwitchListTile.adaptive(
                         key: const ValueKey('xray-fragmentation-switch'),
                         contentPadding: EdgeInsets.zero,
-                        title: Text(context.tr('TLS hello fragmentation')),
+                        title: Text(context.tr('Connection fragmentation')),
                         subtitle: Text(
                           context.tr(
                             'Can help on restricted networks, but may reduce speed. Use only when needed.',
@@ -447,9 +453,9 @@ class _GroupCard extends StatelessWidget {
             ),
             subtitle: Text(
               subtitle,
-              maxLines: 1,
+              maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 9),
+              style: const TextStyle(fontSize: 10, height: 1.2),
             ),
             trailing: Icon(
               expanded ? Icons.expand_less_rounded : Icons.expand_more_rounded,
