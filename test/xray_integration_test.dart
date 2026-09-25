@@ -27,7 +27,9 @@ void main() {
       Future<File> write(String name, Map<String, dynamic> data) async {
         final file = File('${dir.path}/$name');
         await file.writeAsString(jsonEncode(data));
-        await Process.run('chmod', ['600', file.path]);
+        if (!Platform.isWindows) {
+          await Process.run('chmod', ['600', file.path]);
+        }
         return file;
       }
 
