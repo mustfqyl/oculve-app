@@ -46,15 +46,36 @@ jobs:
         run: python3 tool/prepare_desktop.py linux
 
       - name: Run Flutter tests and real Xray integration tests
-        run: flutter test --reporter compact
+        run: |
+          set +e
+          flutter test --reporter expanded > "$RUNNER_TEMP/flutter-tests.log" 2>&1
+          result=$?
+          if [ "$result" -ne 0 ]; then
+            python3 tool/ci_failure_annotation.py "$RUNNER_TEMP/flutter-tests.log" "Linux Flutter tests"
+          fi
+          exit "$result"
         env:
           XRAY_TEST_BINARY: linux/xray/xray
 
       - name: Build Linux desktop app
-        run: flutter build linux --debug
+        run: |
+          set +e
+          flutter build linux --debug > "$RUNNER_TEMP/linux-build.log" 2>&1
+          result=$?
+          if [ "$result" -ne 0 ]; then
+            python3 tool/ci_failure_annotation.py "$RUNNER_TEMP/linux-build.log" "Linux desktop build"
+          fi
+          exit "$result"
 
       - name: Build Android debug APK
-        run: flutter build apk --debug
+        run: |
+          set +e
+          flutter build apk --debug > "$RUNNER_TEMP/android-build.log" 2>&1
+          result=$?
+          if [ "$result" -ne 0 ]; then
+            python3 tool/ci_failure_annotation.py "$RUNNER_TEMP/android-build.log" "Android debug build"
+          fi
+          exit "$result"
 
   windows:
     name: Windows desktop and tests
@@ -77,9 +98,23 @@ jobs:
         run: python tool/prepare_desktop.py windows
 
       - name: Run Flutter tests and real Xray integration tests
-        run: flutter test --reporter compact
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP "flutter-tests.log"
+          flutter test --reporter expanded *> $log
+          $result = $LASTEXITCODE
+          if ($result -ne 0) {
+            python tool/ci_failure_annotation.py $log "Windows Flutter tests"
+          }
+          exit $result
         env:
           XRAY_TEST_BINARY: windows/xray/xray.exe
 
       - name: Build Windows desktop app
-        run: flutter build windows --debug
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP "windows-build.log"
+          flutter build windows --debug *> $log
+          $result = $LASTEXITCODE
+          if ($result -ne 0) {
+            python tool/ci_failure_annotation.py $log "Windows desktop build"
+          }
+          exit $result
