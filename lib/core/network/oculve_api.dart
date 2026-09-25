@@ -35,7 +35,15 @@ class OculveApi {
     // mobile client pinned to the canonical API origin so it never has to
     // repeat a credential-bearing request through a redirect.
     : origin = origin ?? Uri.parse('https://www.oculve.com'),
-      _storage = storage ?? const FlutterSecureStorage();
+      _storage =
+          storage ??
+          const FlutterSecureStorage(
+            aOptions: AndroidOptions(
+              migrateOnAlgorithmChange: true,
+              migrateWithBackup: true,
+              resetOnError: false,
+            ),
+          );
   final Uri origin;
   final FlutterSecureStorage _storage;
   String? _token;
