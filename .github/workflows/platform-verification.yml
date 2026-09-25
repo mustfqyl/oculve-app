@@ -25,7 +25,7 @@ jobs:
       - name: Install Linux build dependencies
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev libstdc++-12-dev libsecret-1-dev
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev libstdc++-12-dev libsecret-1-dev libayatana-appindicator3-dev
 
       - name: Set up Flutter
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
@@ -115,6 +115,22 @@ jobs:
           flutter build windows --debug --verbose *> $log
           $result = $LASTEXITCODE
           if ($result -ne 0) {
+            $mt = Get-Command mt.exe -ErrorAction SilentlyContinue
+            if ($mt) {
+              Add-Content $log "mt.exe path: $($mt.Source)"
+              $merged = Join-Path $env:RUNNER_TEMP "oculve-merged.manifest"
+              & $mt.Source -nologo -manifest "windows\runner\runner.exe.manifest" "-out:$merged" *>> $log
+              Add-Content $log "Standalone manifest merge exit code: $LASTEXITCODE"
+              $exe = Get-ChildItem "build\windows\x64\runner" -Filter "oculve.exe" -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+              if ($exe) {
+                & $mt.Source -nologo -manifest "windows\runner\runner.exe.manifest" "-outputresource:$($exe.FullName);#1" *>> $log
+                Add-Content $log "Manual executable manifest embed exit code: $LASTEXITCODE"
+              } else {
+                Add-Content $log "No linked executable was available for manual manifest embedding."
+              }
+            } else {
+              Add-Content $log "mt.exe was not found on PATH."
+            }
             python tool/ci_failure_annotation.py $log "Windows desktop build"
           }
           exit $result
