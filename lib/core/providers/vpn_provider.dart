@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import '../vpn/linux_platform.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_vless/flutter_vless.dart';
 import '../models/vpn_state.dart';
@@ -23,7 +22,6 @@ final vpnProvider = StateNotifierProvider<VpnNotifier, VpnState>(
 
 class VpnNotifier extends StateNotifier<VpnState> {
   VpnNotifier(this.ref) : super(VpnState.disconnected) {
-    if (Platform.isLinux) VlessPlatform.instance = LinuxXrayPlatform();
     _engine = FlutterVless(onStatusChanged: _onStatus);
   }
   final Ref ref;

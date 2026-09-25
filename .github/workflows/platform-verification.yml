@@ -112,7 +112,7 @@ jobs:
       - name: Build Windows desktop app
         run: |
           $log = Join-Path $env:RUNNER_TEMP "windows-build.log"
-          flutter build windows --debug *> $log
+          flutter build windows --debug --verbose *> $log
           $result = $LASTEXITCODE
           if ($result -ne 0) {
             python tool/ci_failure_annotation.py $log "Windows desktop build"

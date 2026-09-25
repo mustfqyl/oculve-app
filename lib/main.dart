@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart' hide Text;
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_vless/flutter_vless.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'core/desktop/desktop_tray_controller.dart';
@@ -12,12 +13,14 @@ import 'core/localization/localized_text.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/app_scroll_behavior.dart';
 import 'core/providers/theme_provider.dart';
+import 'core/vpn/linux_platform.dart';
 import 'features/auth/data/auth_repository.dart';
 import 'features/auth/presentation/login_screen.dart';
 import 'features/home/presentation/home_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  if (Platform.isLinux) VlessPlatform.instance = LinuxXrayPlatform();
   final container = ProviderContainer();
 
   if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
