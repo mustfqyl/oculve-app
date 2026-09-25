@@ -84,6 +84,8 @@ class AppStrings {
     'Choose which sites or Android apps bypass the VPN.':
         'Elige qué sitios o aplicaciones Android omiten la VPN.',
     'Secure connection': 'Conexión segura',
+    'Keep the server defaults unless troubleshooting a connection.':
+        'Mantén los valores predeterminados del servidor, salvo que estés solucionando un problema de conexión.',
     'Optional connection details. The server defaults work for most people.':
         'Opciones de conexión. La configuración del servidor funciona para la mayoría.',
     'Connection fingerprint': 'Huella de conexión',
@@ -806,6 +808,8 @@ class AppStrings {
     'Choose which sites or Android apps bypass the VPN.':
         'VPN dışından bağlanacak siteleri veya Android uygulamalarını seç.',
     'Secure connection': 'Güvenli bağlantı',
+    'Keep the server defaults unless troubleshooting a connection.':
+        'Bağlantı sorunlarını giderirken değiştirmediğin sürece sunucu varsayılanlarını kullan.',
     'Optional connection details. The server defaults work for most people.':
         'İsteğe bağlı bağlantı ayrıntıları. Sunucunun varsayılanları çoğu kullanıcı için uygundur.',
     'Connection fingerprint': 'Bağlantı parmak izi',

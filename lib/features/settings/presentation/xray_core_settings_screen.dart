@@ -184,7 +184,13 @@ class _XrayCoreSettingsScreenState
   }
 
   void _toggleGroup(String title) => setState(() {
-    if (!_expanded.add(title)) _expanded.remove(title);
+    if (_expanded.contains(title)) {
+      _expanded.clear();
+    } else {
+      _expanded
+        ..clear()
+        ..add(title);
+    }
   });
 
   String _selectedDnsServer(XrayDnsSettings settings) {
@@ -235,13 +241,13 @@ class _XrayCoreSettingsScreenState
                   const SizedBox(height: 8),
                 ],
                 _GroupCard(
-                  title: 'DNS & network',
+                  title: 'DNS & IP',
                   subtitle: context.tr(
                     'Choose how names are looked up and which IP versions to use.',
                   ),
                   icon: Icons.dns_outlined,
-                  expanded: _expanded.contains('DNS & network'),
-                  onToggle: () => _toggleGroup('DNS & network'),
+                  expanded: _expanded.contains('DNS & IP'),
+                  onToggle: () => _toggleGroup('DNS & IP'),
                   children: [
                     _OptionRow<String>(
                       label: context.tr('DNS provider'),
@@ -272,13 +278,13 @@ class _XrayCoreSettingsScreenState
                   ],
                 ),
                 _GroupCard(
-                  title: 'Traffic routing',
+                  title: 'Split tunneling',
                   subtitle: context.tr(
                     'Choose which sites or Android apps bypass the VPN.',
                   ),
                   icon: Icons.alt_route_rounded,
-                  expanded: _expanded.contains('Traffic routing'),
-                  onToggle: () => _toggleGroup('Traffic routing'),
+                  expanded: _expanded.contains('Split tunneling'),
+                  onToggle: () => _toggleGroup('Split tunneling'),
                   children: [
                     TextField(
                       key: const ValueKey('bypass-domains-field'),
@@ -320,13 +326,13 @@ class _XrayCoreSettingsScreenState
                   ],
                 ),
                 _GroupCard(
-                  title: 'Secure connection',
+                  title: 'Advanced',
                   subtitle: context.tr(
-                    'Optional connection details. The server defaults work for most people.',
+                    'Keep the server defaults unless troubleshooting a connection.',
                   ),
-                  icon: Icons.shield_outlined,
-                  expanded: _expanded.contains('Secure connection'),
-                  onToggle: () => _toggleGroup('Secure connection'),
+                  icon: Icons.tune_rounded,
+                  expanded: _expanded.contains('Advanced'),
+                  onToggle: () => _toggleGroup('Advanced'),
                   children: [
                     if (profile != null)
                       Text(

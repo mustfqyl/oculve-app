@@ -14,6 +14,7 @@ import 'package:window_manager/window_manager.dart';
 
 import '../localization/app_strings.dart';
 import '../models/vpn_state.dart';
+import '../navigation/app_navigator.dart';
 import '../providers/locale_provider.dart';
 import '../providers/vpn_provider.dart';
 import 'tray_click_preferences.dart';
@@ -398,6 +399,7 @@ class DesktopTrayController with TrayListener, WindowListener {
       case TrayClickAction.chooseServer:
         if (Platform.isLinux) {
           await showWindow();
+          await openServerPicker();
         } else {
           await _showQuickServers();
         }

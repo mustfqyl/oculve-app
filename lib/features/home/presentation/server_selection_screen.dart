@@ -181,34 +181,72 @@ class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
         label: sortHint,
         child: Tooltip(
           message: sortHint,
-          child: OutlinedButton.icon(
-            key: const ValueKey('server-sort-toggle'),
-            onPressed: () => setState(
-              () => _sort = _sort == ServerSort.latency
-                  ? ServerSort.alphabetical
-                  : ServerSort.latency,
-            ),
-            icon: Icon(nextSortIcon, size: 15),
-            label: Text(
-              context.tr('Sort'),
-              style: const TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-                letterSpacing: .2,
-              ),
-            ),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: sortForeground,
-              minimumSize: const Size(0, 34),
-              padding: const EdgeInsets.symmetric(horizontal: 10),
-              visualDensity: VisualDensity.compact,
+          child: Material(
+            color: dark
+                ? Colors.white.withValues(alpha: .045)
+                : Colors.black.withValues(alpha: .035),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(11),
               side: BorderSide(
                 color: dark
-                    ? Colors.white.withValues(alpha: .16)
-                    : Colors.black.withValues(alpha: .14),
+                    ? Colors.white.withValues(alpha: .12)
+                    : Colors.black.withValues(alpha: .1),
               ),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
+            ),
+            child: InkWell(
+              key: const ValueKey('server-sort-toggle'),
+              borderRadius: BorderRadius.circular(11),
+              onTap: () => setState(
+                () => _sort = _sort == ServerSort.latency
+                    ? ServerSort.alphabetical
+                    : ServerSort.latency,
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 7,
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.swap_vert_rounded,
+                      size: 15,
+                      color: sortForeground,
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      context.tr('Sort'),
+                      style: TextStyle(
+                        color: sortForeground,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: .15,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 180),
+                      transitionBuilder: (child, animation) =>
+                          RotationTransition(
+                            turns: Tween<double>(
+                              begin: .08,
+                              end: 0,
+                            ).animate(animation),
+                            child: FadeTransition(
+                              opacity: animation,
+                              child: child,
+                            ),
+                          ),
+                      child: Icon(
+                        nextSortIcon,
+                        key: ValueKey(nextSort),
+                        size: 16,
+                        color: sortForeground,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),

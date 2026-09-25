@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'core/desktop/desktop_tray_controller.dart';
+import 'core/navigation/app_navigator.dart';
 import 'core/providers/locale_provider.dart';
 import 'core/localization/localized_text.dart';
 import 'core/theme/app_theme.dart';
@@ -61,6 +62,7 @@ class MyApp extends ConsumerWidget {
     final locale = ref.watch(localeProvider);
 
     return MaterialApp(
+      navigatorKey: appNavigatorKey,
       title: 'Oculve',
       debugShowCheckedModeBanner: false,
       locale: locale,

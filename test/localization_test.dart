@@ -40,6 +40,11 @@ void main() {
         ),
         RegExp(r"\bText\(\s*(?:const\s*)?'((?:\\.|[^'])*)'", dotAll: true),
         RegExp(r'\bText\(\s*(?:const\s*)?"((?:\\.|[^"])*)"', dotAll: true),
+        RegExp(
+          r'(?:tooltip|labelText|hintText|helperText|semanticsLabel):\s*'
+          r"'((?:\\.|[^'])*)'",
+          dotAll: true,
+        ),
       ];
       for (final entity in Directory('lib').listSync(recursive: true)) {
         if (entity is! File || !entity.path.endsWith('.dart')) continue;
@@ -52,6 +57,11 @@ void main() {
                 source == '.') {
               continue;
             }
+            if (RegExp(r'^[0-9]+$').hasMatch(source) ||
+                source == 'XXXX-XXXX-XXXX' ||
+                source == 'example.com\nsubdomain.example.org') {
+              continue;
+            }
             if (source.toLowerCase() == 'oculve') continue;
             sources.add(source);
           }
@@ -60,6 +70,27 @@ void main() {
 
       for (final language in ['es', 'tr']) {
         for (final source in sources) {
+          expect(
+            AppStrings.hasTranslation(source, language),
+            isTrue,
+            reason: '$language translation missing for "$source"',
+          );
+        }
+      }
+    },
+  );
+
+  test(
+    'connection setting categories are translated in every app language',
+    () {
+      for (final language in ['es', 'tr']) {
+        for (final source in [
+          'DNS & IP',
+          'Split tunneling',
+          'Advanced',
+          'Diagnostics',
+          'Keep the server defaults unless troubleshooting a connection.',
+        ]) {
           expect(
             AppStrings.hasTranslation(source, language),
             isTrue,

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart' as cupertino;
 import 'package:flutter/services.dart';
@@ -18,6 +20,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:oculve/core/theme/app_theme.dart';
 import 'package:oculve/core/theme/app_scroll_behavior.dart';
 import 'package:oculve/core/network/oculve_api.dart';
+import 'package:oculve/core/navigation/app_navigator.dart';
 import 'package:oculve/features/auth/data/auth_repository.dart';
 import 'profile_test.dart' show testLink;
 
@@ -201,6 +204,7 @@ void main() {
       expect(find.text('Export'), findsNothing);
       final blur = find.byType(TweenAnimationBuilder<double>);
       expect(tester.widget<TweenAnimationBuilder<double>>(blur).tween.end, 5);
+      expect(find.byType(ShaderMask), findsNothing);
       expect(find.text('Premium'), findsOneWidget);
       expect(find.text('SUBSCRIPTION LINK'), findsNothing);
       expect(find.textContaining('d remaining'), findsOneWidget);
@@ -314,33 +318,23 @@ void main() {
         const ValueKey('delete-account-confirmation-field'),
       );
       expect(field, findsOneWidget);
-      if (platform == TargetPlatform.iOS) {
-        expect(find.byType(cupertino.CupertinoAlertDialog), findsOneWidget);
-        final action = find
-            .descendant(
-              of: find.byType(cupertino.CupertinoAlertDialog),
-              matching: find.byType(cupertino.CupertinoDialogAction),
-            )
-            .last;
-        expect(
-          tester.widget<cupertino.CupertinoDialogAction>(action).onPressed,
-          isNull,
-        );
-        await tester.enterText(field, 'DELETE MY ACCOUNT');
-        await tester.pump();
-        expect(
-          tester.widget<cupertino.CupertinoDialogAction>(action).onPressed,
-          isNotNull,
-        );
-      } else {
-        final action = find.byKey(
-          const ValueKey('delete-account-confirm-action'),
-        );
-        expect(tester.widget<TextButton>(action).onPressed, isNull);
-        await tester.enterText(field, 'DELETE MY ACCOUNT');
-        await tester.pump();
-        expect(tester.widget<TextButton>(action).onPressed, isNotNull);
-      }
+      expect(find.byType(cupertino.CupertinoAlertDialog), findsOneWidget);
+      final action = find
+          .descendant(
+            of: find.byType(cupertino.CupertinoAlertDialog),
+            matching: find.byType(cupertino.CupertinoDialogAction),
+          )
+          .last;
+      expect(
+        tester.widget<cupertino.CupertinoDialogAction>(action).onPressed,
+        isNull,
+      );
+      await tester.enterText(field, 'DELETE MY ACCOUNT');
+      await tester.pump();
+      expect(
+        tester.widget<cupertino.CupertinoDialogAction>(action).onPressed,
+        isNotNull,
+      );
       await tester.tap(find.text('Cancel').last);
       await tester.pump(const Duration(milliseconds: 350));
       expect(tester.takeException(), isNull, reason: '$platform dialog');
@@ -468,9 +462,42 @@ void main() {
       await tester.pump(const Duration(seconds: 1));
       expect(tester.takeException(), isNull);
       expect(find.text('CONNECT'), findsOneWidget);
+      final connectControl = find.byKey(const ValueKey('vpn-connect-control'));
+      expect(tester.getSize(connectControl).width, 224);
+      expect(tester.getSize(connectControl).height, 62);
       expect(find.text('CONNECTED'), findsNothing);
       expect(find.text('Choose location'), findsOneWidget);
     }
+  });
+
+  testWidgets('tray choose-server action opens the location picker', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sessionProvider.overrideWith((ref) => _LocationPickerSession()),
+        ],
+        child: MaterialApp(
+          navigatorKey: appNavigatorKey,
+          theme: AppTheme.darkTheme,
+          home: const HomeScreen(),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 300));
+
+    unawaited(openServerPicker());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+
+    expect(
+      tester.state<NavigatorState>(find.byType(Navigator)).canPop(),
+      isTrue,
+    );
+    expect(find.byType(ServerSelectionScreen), findsOneWidget);
+    expect(find.text('Locations'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets(
@@ -533,9 +560,9 @@ void main() {
       find.text('Most users can leave these settings as they are.'),
       findsOneWidget,
     );
-    expect(find.text('DNS & network'), findsOneWidget);
-    expect(find.text('Traffic routing'), findsOneWidget);
-    expect(find.text('Secure connection'), findsOneWidget);
+    expect(find.text('DNS & IP'), findsOneWidget);
+    expect(find.text('Split tunneling'), findsOneWidget);
+    expect(find.text('Advanced'), findsOneWidget);
     expect(find.text('Diagnostics'), findsOneWidget);
     for (final removed in [
       'XHTTP transport',
@@ -549,7 +576,7 @@ void main() {
       expect(find.text(removed), findsNothing);
     }
 
-    await tester.tap(find.byKey(const ValueKey('xray-section-DNS & network')));
+    await tester.tap(find.byKey(const ValueKey('xray-section-DNS & IP')));
     await tester.pump(const Duration(milliseconds: 250));
     await tester.tap(
       find.byKey(const ValueKey('xray-choice-DNS provider-Google')),
@@ -570,10 +597,10 @@ void main() {
     );
 
     await tester.ensureVisible(
-      find.byKey(const ValueKey('xray-section-Traffic routing')),
+      find.byKey(const ValueKey('xray-section-Split tunneling')),
     );
     await tester.tap(
-      find.byKey(const ValueKey('xray-section-Traffic routing')),
+      find.byKey(const ValueKey('xray-section-Split tunneling')),
     );
     await tester.pump(const Duration(milliseconds: 250));
     final domains = find.byKey(const ValueKey('bypass-domains-field'));
@@ -587,11 +614,9 @@ void main() {
     ]);
 
     await tester.ensureVisible(
-      find.byKey(const ValueKey('xray-section-Secure connection')),
+      find.byKey(const ValueKey('xray-section-Advanced')),
     );
-    await tester.tap(
-      find.byKey(const ValueKey('xray-section-Secure connection')),
-    );
+    await tester.tap(find.byKey(const ValueKey('xray-section-Advanced')));
     await tester.pump(const Duration(milliseconds: 250));
     final fragmentation = find.byKey(
       const ValueKey('xray-fragmentation-switch'),
@@ -610,4 +635,13 @@ void main() {
     expect(config, contains('"maxSplit":"3-6"'));
     expect(tester.takeException(), isNull);
   });
+}
+
+class _LocationPickerSession extends SessionController {
+  _LocationPickerSession() : super(OculveApi()) {
+    state = AsyncValue.data(Account({}, const []));
+  }
+
+  @override
+  Future<void> refresh() async {}
 }

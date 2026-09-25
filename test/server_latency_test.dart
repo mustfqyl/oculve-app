@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -44,6 +45,13 @@ class _FixedProbe extends ServerLatencyProbe {
   @override
   Future<int?> measure(VpnProfile profile) async =>
       profile.id == 'fast' ? 25 : 180;
+}
+
+class _GatedProbe extends ServerLatencyProbe {
+  final gates = {'fast': Completer<int?>(), 'slow': Completer<int?>()};
+
+  @override
+  Future<int?> measure(VpnProfile profile) => gates[profile.id]!.future;
 }
 
 class _ErrorVpnNotifier extends VpnNotifier {
@@ -714,5 +722,53 @@ void main() {
     await tester.pump();
     expect(tester.getTopLeft(find.byType(ServerCard)), before);
     expect(find.text('Could not connect'), findsOneWidget);
+  });
+
+  testWidgets('ping refresh keeps rows in place until every probe settles', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(360, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final probe = _GatedProbe();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sessionProvider.overrideWith((ref) => _SessionWithServers()),
+          serverLatencyProbeProvider.overrideWithValue(probe),
+        ],
+        child: MaterialApp(
+          theme: AppTheme.darkTheme,
+          home: const ServerSelectionScreen(),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 120));
+
+    final amsterdam = find.text('Amsterdam');
+    final zurich = find.text('Zurich');
+    expect(
+      tester.getTopLeft(amsterdam).dy,
+      lessThan(tester.getTopLeft(zurich).dy),
+    );
+
+    probe.gates['fast']!.complete(25);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 120));
+    expect(
+      tester.getTopLeft(amsterdam).dy,
+      lessThan(tester.getTopLeft(zurich).dy),
+    );
+
+    probe.gates['slow']!.complete(180);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 420));
+    expect(
+      tester.getTopLeft(zurich).dy,
+      lessThan(tester.getTopLeft(amsterdam).dy),
+    );
+    expect(tester.takeException(), isNull);
   });
 }
