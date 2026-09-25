@@ -103,6 +103,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
       await ref
           .read(sessionProvider.notifier)
           .login(_code.text, challenge: _challenge);
+      if (mounted && Navigator.canPop(context)) {
+        Navigator.popUntil(context, (route) => route.isFirst);
+      }
     } on SecondFactorRequired catch (e) {
       if (mounted) {
         setState(() {
@@ -219,10 +222,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                   if (_isAccessCode) ...[
                     const SizedBox(height: 20),
                     TextButton(
-                      onPressed: () => Navigator.push(
-                        context,
-                        appRoute(const SignUpScreen()),
-                      ),
+                      onPressed: () {
+                        if (Navigator.canPop(context)) {
+                          Navigator.pop(context);
+                        } else {
+                          Navigator.push(
+                            context,
+                            appRoute(const SignUpScreen()),
+                          );
+                        }
+                      },
                       child: const Text('New to Oculve? Create account'),
                     ),
                   ],

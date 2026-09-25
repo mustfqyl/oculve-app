@@ -222,15 +222,42 @@ class _XrayCoreSettingsScreenState
       child: _loading
           ? const Center(child: CircularProgressIndicator())
           : ListView(
-              padding: const EdgeInsets.fromLTRB(14, 4, 14, 10),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(3, 0, 3, 10),
-                  child: Text(
-                    context.tr(
-                      'Most users can leave these settings as they are.',
+                Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 9,
+                  ),
+                  decoration: BoxDecoration(
+                    color: dark
+                        ? Colors.white.withValues(alpha: 0.03)
+                        : Colors.black.withValues(alpha: 0.02),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: dark
+                          ? Colors.white.withValues(alpha: 0.05)
+                          : Colors.black.withValues(alpha: 0.04),
                     ),
-                    style: TextStyle(color: muted, fontSize: 11, height: 1.35),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.info_outline_rounded, size: 16, color: muted),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          context.tr(
+                            'Most users can leave these settings as they are.',
+                          ),
+                          style: TextStyle(
+                            color: muted,
+                            fontSize: 11.5,
+                            height: 1.3,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 if (_error != null) ...[
@@ -238,14 +265,14 @@ class _XrayCoreSettingsScreenState
                     message: _error!,
                     onDismiss: () => setState(() => _error = null),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 10),
                 ],
                 _GroupCard(
                   title: 'DNS & network',
                   subtitle: context.tr(
                     'Choose an encrypted DNS provider and lookup address family.',
                   ),
-                  icon: Icons.dns_outlined,
+                  icon: Icons.dns_rounded,
                   expanded: _expanded.contains('DNS & network'),
                   onToggle: () => _toggleGroup('DNS & network'),
                   children: [
@@ -258,6 +285,7 @@ class _XrayCoreSettingsScreenState
                           .key,
                       onSelected: (server) => _saveDns(server: server),
                     ),
+                    const SizedBox(height: 4),
                     _OptionRow<DnsQueryStrategy>(
                       label: context.tr('DNS address family'),
                       value: _dns!.queryStrategy,
@@ -271,9 +299,10 @@ class _XrayCoreSettingsScreenState
                       onSelected: (strategy) =>
                           _saveDns(queryStrategy: strategy),
                     ),
+                    const SizedBox(height: 2),
                     Text(
                       context.tr('Changes apply after you reconnect.'),
-                      style: TextStyle(color: muted, fontSize: 10),
+                      style: TextStyle(color: muted, fontSize: 10.5),
                     ),
                   ],
                 ),
@@ -293,36 +322,56 @@ class _XrayCoreSettingsScreenState
                       maxLines: 4,
                       autocorrect: false,
                       enableSuggestions: false,
+                      style: const TextStyle(fontSize: 12),
                       decoration: InputDecoration(
                         labelText: context.tr('Sites outside the VPN'),
                         hintText: 'example.com\nsubdomain.example.org',
                         helperText: context.tr(
                           'Enter one domain per line. These sites bypass the VPN.',
                         ),
+                        helperMaxLines: 2,
                         isDense: true,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
                         border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(11),
+                          borderRadius: BorderRadius.circular(10),
                         ),
                       ),
                     ),
+                    const SizedBox(height: 6),
                     Align(
                       alignment: Alignment.centerRight,
                       child: FilledButton.tonalIcon(
                         key: const ValueKey('save-bypass-domains'),
                         onPressed: _saving ? null : _saveBypassDomains,
-                        icon: const Icon(Icons.check_rounded, size: 16),
-                        label: Text(context.tr('Save domains')),
+                        style: FilledButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                        ),
+                        icon: const Icon(Icons.check_rounded, size: 15),
+                        label: Text(
+                          context.tr('Save domains'),
+                          style: const TextStyle(fontSize: 11.5),
+                        ),
                       ),
                     ),
-                    if (Theme.of(context).platform == TargetPlatform.android)
+                    if (Theme.of(context).platform ==
+                        TargetPlatform.android) ...[
+                      const SizedBox(height: 6),
                       OutlinedButton.icon(
                         onPressed: () => Navigator.push(
                           context,
                           appRoute(const AndroidAppRoutingScreen()),
                         ),
-                        icon: const Icon(Icons.apps_outlined, size: 17),
+                        icon: const Icon(Icons.apps_rounded, size: 16),
                         label: Text(context.tr('Android app routing')),
                       ),
+                    ],
                   ],
                 ),
                 _GroupCard(
@@ -330,16 +379,23 @@ class _XrayCoreSettingsScreenState
                   subtitle: context.tr(
                     'Optional connection details. The server defaults work for most people.',
                   ),
-                  icon: Icons.shield_outlined,
+                  icon: Icons.security_rounded,
                   expanded: _expanded.contains('Transport & TLS'),
                   onToggle: () => _toggleGroup('Transport & TLS'),
                   children: [
                     if (profile != null)
-                      Text(
-                        '${profile.name} · ${profile.proxyProtocol?.toUpperCase() ?? context.tr('Server')}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: muted, fontSize: 10),
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: Text(
+                          '${profile.name} · ${profile.proxyProtocol?.toUpperCase() ?? context.tr('Server')}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: muted,
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                       ),
                     if (!supportsFingerprint)
                       Text(
@@ -361,23 +417,31 @@ class _XrayCoreSettingsScreenState
                         valueLabel: (value) => context.tr(value.label),
                         onSelected: _saveFingerprint,
                       ),
+                    const SizedBox(height: 2),
                     Text(
                       context.tr(
                         'This changes the TLS ClientHello only. Keep the server default unless you need another profile.',
                       ),
-                      style: TextStyle(color: muted, fontSize: 10),
+                      style: TextStyle(color: muted, fontSize: 10.5),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 6),
                     if (supportsFragmentation)
                       SwitchListTile.adaptive(
                         key: const ValueKey('xray-fragmentation-switch'),
                         contentPadding: EdgeInsets.zero,
-                        title: Text(context.tr('Connection fragmentation')),
+                        dense: true,
+                        title: Text(
+                          context.tr('Connection fragmentation'),
+                          style: const TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                         subtitle: Text(
                           context.tr(
                             'Can help on restricted networks, but may reduce speed. Use only when needed.',
                           ),
-                          style: TextStyle(color: muted, fontSize: 10),
+                          style: TextStyle(color: muted, fontSize: 10.5),
                         ),
                         value: _fragmentationEnabled,
                         onChanged: _saving ? null : _setFragmentation,
@@ -387,7 +451,7 @@ class _XrayCoreSettingsScreenState
                         context.tr(
                           'Fragmentation is available for VLESS Reality over TCP.',
                         ),
-                        style: TextStyle(color: muted, fontSize: 10),
+                        style: TextStyle(color: muted, fontSize: 10.5),
                       ),
                   ],
                 ),
@@ -396,7 +460,7 @@ class _XrayCoreSettingsScreenState
                   subtitle: context.tr(
                     'Choose how much connection information is recorded.',
                   ),
-                  icon: Icons.receipt_long_outlined,
+                  icon: Icons.receipt_long_rounded,
                   expanded: _expanded.contains('Diagnostics'),
                   onToggle: () => _toggleGroup('Diagnostics'),
                   children: [
@@ -411,9 +475,10 @@ class _XrayCoreSettingsScreenState
                       valueLabel: (level) => context.tr(level.label),
                       onSelected: _saveLogLevel,
                     ),
+                    const SizedBox(height: 4),
                     Text(
                       context.tr('Access and DNS query logs are disabled.'),
-                      style: TextStyle(color: muted, fontSize: 10),
+                      style: TextStyle(color: muted, fontSize: 10.5),
                     ),
                   ],
                 ),
@@ -441,55 +506,113 @@ class _GroupCard extends StatelessWidget {
   final List<Widget> children;
 
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 7),
-    child: FrostedCard(
-      padding: EdgeInsets.zero,
-      borderRadius: 14,
-      child: Column(
-        children: [
-          ListTile(
-            key: ValueKey('xray-section-$title'),
-            dense: true,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-            leading: Icon(icon, size: 18),
-            title: Text(
-              context.tr(title),
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
-            ),
-            subtitle: Text(
-              subtitle,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 10, height: 1.2),
-            ),
-            trailing: Icon(
-              expanded ? Icons.expand_less_rounded : Icons.expand_more_rounded,
-              size: 20,
-            ),
-            onTap: onToggle,
-          ),
-          if (expanded)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const Divider(height: 1),
-                  const SizedBox(height: 9),
-                  ...children.map(
-                    (child) => Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: child,
-                    ),
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final fg = dark ? AppTheme.foreground : AppTheme.lightForeground;
+    final muted = dark
+        ? AppTheme.foregroundMuted
+        : AppTheme.lightForegroundMuted;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: FrostedCard(
+        padding: EdgeInsets.zero,
+        borderRadius: 14,
+        child: Column(
+          children: [
+            Material(
+              color: Colors.transparent,
+              borderRadius: BorderRadius.circular(14),
+              child: InkWell(
+                key: ValueKey('xray-section-$title'),
+                borderRadius: BorderRadius.circular(14),
+                onTap: onToggle,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 12,
                   ),
-                ],
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 32,
+                        height: 32,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(9),
+                          color: dark
+                              ? Colors.white.withValues(alpha: 0.06)
+                              : Colors.black.withValues(alpha: 0.04),
+                        ),
+                        child: Center(child: Icon(icon, size: 17, color: fg)),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              context.tr(title),
+                              style: TextStyle(
+                                fontSize: AppTheme.fontSizeBody,
+                                fontWeight: FontWeight.w700,
+                                color: fg,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              subtitle,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: AppTheme.fontSizeCaption,
+                                height: 1.25,
+                                color: muted,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Icon(
+                        expanded
+                            ? Icons.keyboard_arrow_up_rounded
+                            : Icons.keyboard_arrow_down_rounded,
+                        size: 20,
+                        color: muted,
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
-        ],
+            if (expanded)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Divider(
+                      height: 1,
+                      thickness: 0.8,
+                      color: dark
+                          ? Colors.white.withValues(alpha: 0.05)
+                          : Colors.black.withValues(alpha: 0.05),
+                    ),
+                    const SizedBox(height: 10),
+                    ...children.map(
+                      (child) => Padding(
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: child,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class _OptionRow<T> extends StatelessWidget {
@@ -511,9 +634,7 @@ class _OptionRow<T> extends StatelessWidget {
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
     final foreground = dark ? AppTheme.foreground : AppTheme.lightForeground;
-    final muted = dark
-        ? AppTheme.foregroundMuted
-        : AppTheme.lightForegroundMuted;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -521,14 +642,14 @@ class _OptionRow<T> extends StatelessWidget {
           label,
           style: TextStyle(
             color: foreground,
-            fontSize: 10,
+            fontSize: 11,
             fontWeight: FontWeight.w700,
           ),
         ),
-        const SizedBox(height: 5),
+        const SizedBox(height: 6),
         Wrap(
-          spacing: 5,
-          runSpacing: 3,
+          spacing: 6,
+          runSpacing: 5,
           children: [
             for (final option in values)
               ChoiceChip(
@@ -536,9 +657,11 @@ class _OptionRow<T> extends StatelessWidget {
                 label: Text(
                   valueLabel(option),
                   style: TextStyle(
-                    color: foreground,
-                    fontSize: 9,
-                    fontWeight: FontWeight.w600,
+                    color: option == value ? AppTheme.successColor : foreground,
+                    fontSize: 10,
+                    fontWeight: option == value
+                        ? FontWeight.w700
+                        : FontWeight.w500,
                   ),
                 ),
                 selected: option == value,
@@ -547,16 +670,20 @@ class _OptionRow<T> extends StatelessWidget {
                 materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 pressElevation: 0,
                 side: BorderSide(
-                  color: muted.withValues(alpha: option == value ? .42 : .18),
+                  color: option == value
+                      ? AppTheme.successColor.withValues(alpha: .5)
+                      : (dark
+                            ? Colors.white.withValues(alpha: .08)
+                            : Colors.black.withValues(alpha: .07)),
                 ),
-                selectedColor: dark
-                    ? Colors.white.withValues(alpha: .10)
-                    : Colors.black.withValues(alpha: .07),
+                selectedColor: AppTheme.successColor.withValues(
+                  alpha: dark ? .15 : .12,
+                ),
                 backgroundColor: dark
-                    ? Colors.white.withValues(alpha: .025)
+                    ? Colors.white.withValues(alpha: .03)
                     : Colors.black.withValues(alpha: .02),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(9),
+                  borderRadius: BorderRadius.circular(8),
                 ),
                 onSelected: (selected) {
                   if (selected) onSelected(option);
@@ -576,22 +703,22 @@ class _MessageCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => FrostedCard(
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
     borderRadius: 12,
     child: Row(
       children: [
         const Icon(
           Icons.error_outline_rounded,
           color: AppTheme.errorColor,
-          size: 17,
+          size: 16,
         ),
-        const SizedBox(width: 7),
+        const SizedBox(width: 8),
         Expanded(
           child: Text(
             message,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: AppTheme.errorColor, fontSize: 10),
+            style: const TextStyle(color: AppTheme.errorColor, fontSize: 11),
           ),
         ),
         IconButton(

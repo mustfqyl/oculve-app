@@ -471,8 +471,8 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(find.text('CONNECT'), findsOneWidget);
       final connectControl = find.byKey(const ValueKey('vpn-connect-control'));
-      expect(tester.getSize(connectControl).width, 164);
-      expect(tester.getSize(connectControl).height, 164);
+      expect(tester.getSize(connectControl).width, 232);
+      expect(tester.getSize(connectControl).height, 72);
       expect(find.byIcon(Icons.power_settings_new_rounded), findsOneWidget);
       expect(find.text('CONNECTED'), findsNothing);
       expect(find.text('Choose location'), findsOneWidget);

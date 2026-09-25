@@ -631,12 +631,12 @@ void main() {
       find.byTooltip('Sorted by ping. Tap to sort alphabetically.'),
       findsOneWidget,
     );
-    expect(find.text('Sort'), findsOneWidget);
-    expect(find.text('Ping'), findsOneWidget);
-    expect(find.byIcon(Icons.sort_by_alpha_rounded), findsOneWidget);
     expect(
-      tester.getSize(find.byKey(const ValueKey('server-sort-toggle'))).width,
-      lessThanOrEqualTo(132),
+      find.descendant(
+        of: find.byKey(const ValueKey('server-sort-toggle')),
+        matching: find.byIcon(Icons.bolt_rounded),
+      ),
+      findsOneWidget,
     );
     await tester.tap(find.byKey(const ValueKey('server-sort-toggle')));
     await tester.pump(const Duration(milliseconds: 300));
@@ -646,8 +646,7 @@ void main() {
       find.byTooltip('Sorted alphabetically. Tap to sort by ping.'),
       findsOneWidget,
     );
-    expect(find.text('Alphabetical'), findsOneWidget);
-    expect(find.byIcon(Icons.speed_rounded), findsOneWidget);
+    expect(find.byIcon(Icons.sort_by_alpha_rounded), findsOneWidget);
     expect(
       tester.getTopLeft(find.text('Amsterdam')).dy,
       lessThan(tester.getTopLeft(find.text('Zurich')).dy),
@@ -714,7 +713,7 @@ void main() {
       of: find.byType(ServerCard),
       matching: find.byType(FrostedCard),
     );
-    expect(tester.getSize(card).width, lessThanOrEqualTo(212));
+    expect(tester.getSize(card).width, lessThanOrEqualTo(232));
     expect(tester.getSize(card).height, lessThan(60));
     expect(find.text('CONNECT'), findsOneWidget);
     expect(tester.takeException(), isNull);

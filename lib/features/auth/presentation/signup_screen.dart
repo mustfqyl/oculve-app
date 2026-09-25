@@ -5,7 +5,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:oculve/core/theme/app_theme.dart';
 import 'package:oculve/core/account/private_text_export.dart';
+import 'package:oculve/core/widgets/animated_entry.dart';
+import 'package:oculve/core/widgets/app_route.dart';
 import 'package:oculve/features/auth/data/auth_repository.dart';
+import 'package:oculve/features/auth/presentation/login_screen.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class SignUpScreen extends ConsumerStatefulWidget {
@@ -83,7 +86,9 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
     });
     try {
       await ref.read(sessionProvider.notifier).register(code);
-      if (mounted) Navigator.popUntil(context, (route) => route.isFirst);
+      if (mounted && Navigator.canPop(context)) {
+        Navigator.popUntil(context, (route) => route.isFirst);
+      }
     } on RegistrationCreatedButNotReady catch (error) {
       if (mounted) {
         setState(() {
@@ -115,132 +120,135 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
     final subtle = dark
         ? AppTheme.foregroundSubtle
         : AppTheme.lightForegroundSubtle;
+
     return Scaffold(
       body: PremiumBackground(
         child: SafeArea(
           child: Center(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 440),
+                constraints: const BoxConstraints(maxWidth: 360),
                 child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    FrostedCard(
-                      padding: const EdgeInsets.all(24),
-                      borderRadius: 14,
+                    AnimatedEntry(
+                      index: 0,
+                      child: Text(
+                        'Account Setup',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: fg,
+                          fontSize: 22,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.5,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    AnimatedEntry(
+                      index: 1,
+                      child: Text(
+                        'Save your unique access code to initialize your Oculve account.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: muted,
+                          fontSize: 12.5,
+                          height: 1.35,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    AnimatedEntry(
+                      index: 2,
                       child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            'Account Setup',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: fg,
-                              fontSize: 28,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          Text(
-                            'Save your unique access code to initialize your Oculve account.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: muted,
-                              fontSize: 15,
-                              height: 1.5,
-                            ),
-                          ),
-                          const SizedBox(height: 32),
                           Text(
                             'YOUR UNIQUE ACCESS CODE',
                             style: TextStyle(
                               color: subtle,
-                              fontSize: 13,
+                              fontSize: 10.5,
                               fontWeight: FontWeight.w700,
-                              letterSpacing: .65,
+                              letterSpacing: 0.8,
                             ),
                           ),
-                          const SizedBox(height: 10),
-                          Material(
-                            color: Colors.transparent,
-                            child: InkWell(
+                          const SizedBox(height: 8),
+                          Container(
+                            decoration: BoxDecoration(
+                              color: dark
+                                  ? Colors.white.withValues(alpha: 0.04)
+                                  : Colors.black.withValues(alpha: 0.03),
                               borderRadius: BorderRadius.circular(12),
-                              onTap: _code == null || _codeError != null
-                                  ? null
-                                  : _copyCode,
-                              child: AnimatedScale(
-                                scale: _copied ? .98 : 1,
-                                duration: const Duration(milliseconds: 240),
-                                curve: const Cubic(.16, 1, .3, 1),
-                                child: CustomPaint(
-                                  painter: _DashedOutlinePainter(
-                                    color: _codeError != null
-                                        ? AppTheme.errorColor
-                                        : _copied
-                                        ? AppTheme.successColor
-                                        : (dark
-                                                  ? AppTheme.accent
-                                                  : AppTheme.lightAccent)
-                                              .withValues(alpha: .6),
-                                    radius: 12,
-                                    dashed: _codeError == null && !_copied,
-                                  ),
-                                  child: Container(
-                                    height: 76,
-                                    alignment: Alignment.center,
-                                    decoration: BoxDecoration(
-                                      color: _codeError != null
-                                          ? AppTheme.errorColor.withValues(
-                                              alpha: .08,
-                                            )
-                                          : _copied
-                                          ? AppTheme.successColor.withValues(
-                                              alpha: .06,
-                                            )
-                                          : fg.withValues(alpha: .035),
-                                      borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: _codeError != null
+                                    ? AppTheme.errorColor
+                                    : _copied
+                                    ? AppTheme.successColor
+                                    : dark
+                                    ? Colors.white.withValues(alpha: 0.12)
+                                    : Colors.black.withValues(alpha: 0.09),
+                              ),
+                            ),
+                            padding: const EdgeInsets.all(12),
+                            child: Column(
+                              children: [
+                                if (_loading)
+                                  const SizedBox(
+                                    height: 36,
+                                    child: Center(
+                                      child: SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      ),
                                     ),
-                                    child: _loading
-                                        ? const SizedBox(
-                                            width: 20,
-                                            height: 20,
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2,
+                                  )
+                                else if (_codeError != null)
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 6,
+                                    ),
+                                    child: Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        const Icon(
+                                          Icons.error_outline_rounded,
+                                          size: 16,
+                                          color: AppTheme.errorColor,
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Flexible(
+                                          child: Text(
+                                            _codeError!,
+                                            style: const TextStyle(
+                                              color: AppTheme.errorColor,
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w600,
                                             ),
-                                          )
-                                        : _codeError != null
-                                        ? Padding(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 12,
-                                            ),
-                                            child: Row(
-                                              mainAxisAlignment:
-                                                  MainAxisAlignment.center,
-                                              children: [
-                                                const Icon(
-                                                  Icons.error_outline_rounded,
-                                                  size: 18,
-                                                  color: AppTheme.errorColor,
-                                                ),
-                                                const SizedBox(width: 8),
-                                                Flexible(
-                                                  child: Text(
-                                                    _codeError!,
-                                                    textAlign: TextAlign.center,
-                                                    style: const TextStyle(
-                                                      color:
-                                                          AppTheme.errorColor,
-                                                      fontSize: 12,
-                                                      fontWeight:
-                                                          FontWeight.w600,
-                                                    ),
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          )
-                                        : Text(
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  )
+                                else
+                                  InkWell(
+                                    borderRadius: BorderRadius.circular(8),
+                                    onTap: _copyCode,
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 8,
+                                        horizontal: 10,
+                                      ),
+                                      child: Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        children: [
+                                          Text(
                                             _copied
                                                 ? 'COPIED'
                                                 : _code ?? 'XXXX-XXXX-XXXX',
@@ -250,149 +258,176 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
                                                   ? AppTheme.successColor
                                                   : fg,
                                               fontFamily: 'monospace',
-                                              fontSize: 19,
+                                              fontSize: 17,
                                               fontWeight: FontWeight.w800,
-                                              letterSpacing: 1.7,
+                                              letterSpacing: 1.8,
                                             ),
                                           ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                          if (_error != null) ...[
-                            const SizedBox(height: 8),
-                            Text(
-                              _error!,
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                color: AppTheme.errorColor,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ],
-                          if (_code == null && !_loading)
-                            TextButton(
-                              onPressed: _loadCode,
-                              child: const Text('Try again'),
-                            ),
-                          const SizedBox(height: 12),
-                          Container(
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(
-                              color: AppTheme.warningColor.withValues(
-                                alpha: .05,
-                              ),
-                              border: Border.all(
-                                color: AppTheme.warningColor.withValues(
-                                  alpha: .2,
-                                ),
-                              ),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Checkbox(
-                                  value: _saved,
-                                  onChanged: _code == null || _registered
-                                      ? null
-                                      : (value) {
-                                          final checked = value ?? false;
-                                          setState(() => _saved = checked);
-                                          if (checked) _downloadCode();
-                                        },
-                                  visualDensity: VisualDensity.compact,
-                                  materialTapTargetSize:
-                                      MaterialTapTargetSize.shrinkWrap,
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Padding(
-                                    padding: const EdgeInsets.only(top: 4),
-                                    child: Text.rich(
-                                      TextSpan(
-                                        style: TextStyle(
-                                          color: subtle,
-                                          fontSize: 13,
-                                          height: 1.4,
-                                        ),
-                                        children: [
-                                          TextSpan(
-                                            text: context.tr(
-                                              'I have securely saved my access code. I understand that if I lose it, ',
+                                          if (!_copied && _code != null) ...[
+                                            const SizedBox(width: 8),
+                                            Icon(
+                                              Icons.copy_rounded,
+                                              size: 15,
+                                              color: muted,
                                             ),
-                                          ),
-                                          TextSpan(
-                                            text: context.tr(
-                                              'I will permanently lose access',
-                                            ),
-                                            style: TextStyle(
-                                              fontWeight: FontWeight.w700,
-                                            ),
-                                          ),
-                                          TextSpan(
-                                            text: context.tr(' to my account.'),
-                                          ),
+                                          ],
                                         ],
                                       ),
                                     ),
                                   ),
-                                ),
                               ],
-                            ),
-                          ),
-                          const SizedBox(height: 20),
-                          SizedBox(
-                            height: 52,
-                            child: FilledButton(
-                              onPressed:
-                                  _saved &&
-                                      !_loading &&
-                                      !_creating &&
-                                      !_registered
-                                  ? _createAccount
-                                  : null,
-                              child: _creating
-                                  ? const SizedBox(
-                                      width: 18,
-                                      height: 18,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                      ),
-                                    )
-                                  : const Text('GO TO DASHBOARD'),
                             ),
                           ),
                         ],
                       ),
                     ),
+                    if (_error != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        _error!,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: AppTheme.errorColor,
+                          fontSize: 11.5,
+                        ),
+                      ),
+                    ],
+                    if (_code == null && !_loading)
+                      TextButton(
+                        onPressed: _loadCode,
+                        child: const Text('Try again'),
+                      ),
                     const SizedBox(height: 12),
-                    TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text('Back to sign in'),
+                    AnimatedEntry(
+                      index: 3,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppTheme.warningColor.withValues(alpha: .06),
+                          border: Border.all(
+                            color: AppTheme.warningColor.withValues(alpha: .18),
+                          ),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Checkbox(
+                              value: _saved,
+                              onChanged: _code == null || _registered
+                                  ? null
+                                  : (value) {
+                                      final checked = value ?? false;
+                                      setState(() => _saved = checked);
+                                      if (checked) _downloadCode();
+                                    },
+                              visualDensity: VisualDensity.compact,
+                              materialTapTargetSize:
+                                  MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text.rich(
+                                TextSpan(
+                                  style: TextStyle(
+                                    color: subtle,
+                                    fontSize: 11.5,
+                                    height: 1.3,
+                                  ),
+                                  children: [
+                                    TextSpan(
+                                      text: context.tr(
+                                        'I have securely saved my access code. I understand that if I lose it, ',
+                                      ),
+                                    ),
+                                    TextSpan(
+                                      text: context.tr(
+                                        'I will permanently lose access',
+                                      ),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    TextSpan(
+                                      text: context.tr(' to my account.'),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    AnimatedEntry(
+                      index: 4,
+                      child: SizedBox(
+                        height: 48,
+                        child: FilledButton(
+                          onPressed:
+                              _saved && !_loading && !_creating && !_registered
+                              ? _createAccount
+                              : null,
+                          child: _creating
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Text('GO TO DASHBOARD'),
+                        ),
+                      ),
                     ),
                     const SizedBox(height: 8),
-                    Wrap(
-                      alignment: WrapAlignment.center,
-                      children: [
-                        Text(
-                          'By proceeding, you agree to our ',
-                          style: TextStyle(color: muted, fontSize: 12),
-                        ),
-                        InkWell(
-                          onTap: _openTerms,
-                          child: Text(
-                            'Terms',
-                            style: TextStyle(
-                              color: fg,
-                              fontSize: 12,
-                              decoration: TextDecoration.underline,
-                            ),
+                    AnimatedEntry(
+                      index: 5,
+                      child: Column(
+                        children: [
+                          TextButton(
+                            onPressed: () {
+                              if (Navigator.canPop(context)) {
+                                Navigator.pop(context);
+                              } else {
+                                Navigator.push(
+                                  context,
+                                  appRoute(const LoginScreen()),
+                                );
+                              }
+                            },
+                            child: const Text('Back to sign in'),
                           ),
-                        ),
-                        Text('.', style: TextStyle(color: muted, fontSize: 12)),
-                      ],
+                          Wrap(
+                            alignment: WrapAlignment.center,
+                            children: [
+                              Text(
+                                'By proceeding, you agree to our ',
+                                style: TextStyle(color: muted, fontSize: 11),
+                              ),
+                              InkWell(
+                                onTap: _openTerms,
+                                child: Text(
+                                  'Terms',
+                                  style: TextStyle(
+                                    color: fg,
+                                    fontSize: 11,
+                                    decoration: TextDecoration.underline,
+                                  ),
+                                ),
+                              ),
+                              Text(
+                                '.',
+                                style: TextStyle(color: muted, fontSize: 11),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
@@ -403,45 +438,4 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
       ),
     );
   }
-}
-
-class _DashedOutlinePainter extends CustomPainter {
-  const _DashedOutlinePainter({
-    required this.color,
-    required this.radius,
-    required this.dashed,
-  });
-
-  final Color color;
-  final double radius;
-  final bool dashed;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final rect = Offset.zero & size;
-    final path = Path()
-      ..addRRect(
-        RRect.fromRectAndRadius(rect.deflate(1), Radius.circular(radius)),
-      );
-    final paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = dashed ? 1 : 2;
-    if (!dashed) {
-      canvas.drawPath(path, paint);
-      return;
-    }
-    for (final metric in path.computeMetrics()) {
-      for (var distance = 0.0; distance < metric.length; distance += 12) {
-        final end = (distance + 6).clamp(0.0, metric.length);
-        canvas.drawPath(metric.extractPath(distance, end), paint);
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _DashedOutlinePainter oldDelegate) =>
-      color != oldDelegate.color ||
-      radius != oldDelegate.radius ||
-      dashed != oldDelegate.dashed;
 }

@@ -6,22 +6,19 @@ import 'package:oculve/core/models/vpn_state.dart';
 import 'package:oculve/core/providers/vpn_provider.dart';
 import 'package:oculve/core/theme/app_theme.dart';
 
-/// The main action is a single, unmistakable power control.
+/// A sleek, minimalist capsule connection control.
 class ConnectButton extends ConsumerWidget {
   const ConnectButton({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(vpnProvider);
-    final errorMessage = ref.watch(vpnErrorProvider);
     final connected = state == VpnState.connected;
     final busy =
         state == VpnState.connecting || state == VpnState.disconnecting;
     final failed = state == VpnState.error;
     final dark = Theme.of(context).brightness == Brightness.dark;
-    final muted = dark
-        ? AppTheme.foregroundMuted
-        : AppTheme.lightForegroundMuted;
+    final fg = dark ? AppTheme.foreground : AppTheme.lightForeground;
     final accent = connected
         ? AppTheme.successColor
         : failed
@@ -29,6 +26,7 @@ class ConnectButton extends ConsumerWidget {
         : dark
         ? const Color(0xFF9BAAC0)
         : const Color(0xFF58677E);
+
     final title = switch (state) {
       VpnState.connected => context.tr('DISCONNECT'),
       VpnState.connecting => context.tr('CONNECTING'),
@@ -36,16 +34,15 @@ class ConnectButton extends ConsumerWidget {
       VpnState.error => context.tr('TRY AGAIN'),
       VpnState.disconnected => context.tr('CONNECT'),
     };
-    final detail = switch (state) {
-      VpnState.connected => context.tr('Your traffic is protected.'),
-      VpnState.connecting => context.tr('Setting up a secure connection…'),
-      VpnState.disconnecting => context.tr('Disconnecting securely…'),
-      VpnState.error =>
-        errorMessage == null
-            ? context.tr('Tap to retry.')
-            : context.tr(errorMessage),
-      VpnState.disconnected => context.tr('Tap to protect your connection.'),
+
+    final statusBadge = switch (state) {
+      VpnState.connected => context.tr('PROTECTED'),
+      VpnState.connecting => context.tr('CONNECTING…'),
+      VpnState.disconnecting => context.tr('STOPPING…'),
+      VpnState.error => context.tr('UNPROTECTED'),
+      VpnState.disconnected => context.tr('UNPROTECTED'),
     };
+
     final semanticsLabel = connected
         ? context.tr('Connected. Tap to disconnect.')
         : busy
@@ -53,155 +50,182 @@ class ConnectButton extends ConsumerWidget {
         : failed
         ? context.tr('Connection failed. Tap to retry.')
         : context.tr('Tap to connect to the VPN');
-    final faceColor = connected
-        ? dark
-              ? const Color(0xFF172820)
-              : const Color(0xFFEDF8F2)
+
+    final bgColor = connected
+        ? (dark ? const Color(0xFF0F261D) : const Color(0xFFE8F7EE))
         : failed
-        ? dark
-              ? const Color(0xFF2B2023)
-              : const Color(0xFFFFF1F1)
+        ? (dark ? const Color(0xFF261216) : const Color(0xFFFFF0F2))
+        : (dark ? const Color(0xFF131720) : const Color(0xFFF3F5F8));
+
+    final borderColor = connected
+        ? AppTheme.successColor.withValues(alpha: dark ? 0.45 : 0.60)
+        : failed
+        ? AppTheme.errorColor.withValues(alpha: dark ? 0.45 : 0.50)
         : dark
-        ? const Color(0xFF1B2029)
-        : const Color(0xFFF9FAFC);
+        ? Colors.white.withValues(alpha: 0.08)
+        : Colors.black.withValues(alpha: 0.06);
 
     return Semantics(
       button: true,
       enabled: !busy,
       label: semanticsLabel,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Material(
-            color: Colors.transparent,
-            child: InkWell(
-              key: const ValueKey('vpn-connect-control'),
-              customBorder: const CircleBorder(),
-              onTap: busy
-                  ? null
-                  : () => ref.read(vpnProvider.notifier).toggle(),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 260),
-                curve: Curves.easeOutCubic,
-                width: 164,
-                height: 164,
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: accent.withValues(
-                    alpha: connected || failed ? .075 : .025,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          key: const ValueKey('vpn-connect-control'),
+          borderRadius: BorderRadius.circular(20),
+          onTap: busy ? null : () => ref.read(vpnProvider.notifier).toggle(),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 250),
+            curve: Curves.easeOutCubic,
+            width: 232,
+            height: 72,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: bgColor,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: borderColor, width: 1.2),
+              boxShadow: [
+                if (connected)
+                  BoxShadow(
+                    color: AppTheme.successColor.withValues(
+                      alpha: dark ? 0.18 : 0.12,
+                    ),
+                    blurRadius: 24,
+                    spreadRadius: 0,
+                  )
+                else if (failed)
+                  BoxShadow(
+                    color: AppTheme.errorColor.withValues(
+                      alpha: dark ? 0.14 : 0.08,
+                    ),
+                    blurRadius: 20,
+                  )
+                else
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: dark ? 0.20 : 0.03),
+                    blurRadius: 12,
+                    offset: const Offset(0, 3),
                   ),
-                  border: Border.all(
-                    color: accent.withValues(
-                      alpha: connected || failed ? .48 : .14,
-                    ),
-                    width: 1,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
+              ],
+            ),
+            child: Row(
+              children: [
+                // Minimalist State Icon Pill
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 220),
+                  child: Container(
+                    key: ValueKey('icon-box-$state'),
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(13),
                       color: accent.withValues(
-                        alpha: connected || failed ? .12 : .035,
+                        alpha: connected
+                            ? (dark ? 0.18 : 0.14)
+                            : failed
+                            ? 0.12
+                            : (dark ? 0.06 : 0.05),
                       ),
-                      blurRadius: 28,
-                      spreadRadius: 1,
-                    ),
-                  ],
-                ),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 260),
-                  curve: Curves.easeOutCubic,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: faceColor,
-                    border: Border.all(
-                      color: accent.withValues(
-                        alpha: connected || failed ? .2 : .08,
-                      ),
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(
-                          alpha: dark ? .16 : .035,
+                      border: Border.all(
+                        color: accent.withValues(
+                          alpha: connected ? 0.35 : 0.12,
                         ),
-                        blurRadius: 18,
-                        offset: const Offset(0, 5),
                       ),
-                    ],
+                    ),
+                    child: Center(
+                      child: busy
+                          ? SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.2,
+                                valueColor: AlwaysStoppedAnimation(accent),
+                              ),
+                            )
+                          : Icon(
+                              connected
+                                  ? Icons.shield_rounded
+                                  : failed
+                                  ? Icons.refresh_rounded
+                                  : Icons.power_settings_new_rounded,
+                              size: 21,
+                              color: accent,
+                            ),
+                    ),
                   ),
+                ),
+                const SizedBox(width: 14),
+
+                // Center State & Action Labels
+                Expanded(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 220),
-                        switchInCurve: Curves.easeOutCubic,
-                        switchOutCurve: Curves.easeInCubic,
-                        child: busy
-                            ? SizedBox(
-                                key: ValueKey('busy-$state'),
-                                width: 34,
-                                height: 34,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2.4,
-                                  valueColor: AlwaysStoppedAnimation(accent),
-                                ),
-                              )
-                            : Icon(
-                                key: ValueKey('power-$state'),
-                                failed
-                                    ? Icons.refresh_rounded
-                                    : Icons.power_settings_new_rounded,
-                                size: 37,
-                                color: accent,
-                              ),
-                      ),
-                      const SizedBox(height: 9),
                       AnimatedSwitcher(
                         duration: const Duration(milliseconds: 180),
                         child: Text(
                           title,
-                          key: ValueKey('connect-title-$state'),
+                          key: ValueKey('title-$state'),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.center,
                           style: TextStyle(
-                            color: accent,
-                            fontSize: 10,
-                            height: 1.1,
+                            color: connected
+                                ? AppTheme.successColor
+                                : failed
+                                ? AppTheme.errorColor
+                                : fg,
+                            fontSize: 13,
                             fontWeight: FontWeight.w800,
-                            letterSpacing: 1.25,
+                            letterSpacing: 0.8,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 180),
+                        child: Text(
+                          statusBadge,
+                          key: ValueKey('badge-$state'),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: accent.withValues(alpha: 0.85),
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 0.5,
                           ),
                         ),
                       ),
                     ],
                   ),
                 ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 9),
-          SizedBox(
-            width: 248,
-            height: 30,
-            child: Center(
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 180),
-                child: Text(
-                  detail,
-                  key: ValueKey('connection-detail-$state-$errorMessage'),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: failed ? AppTheme.errorColor : muted,
-                    fontSize: 10,
-                    height: 1.25,
-                    fontWeight: FontWeight.w500,
+
+                // Right Glowing Status Beacon
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: accent,
+                    boxShadow: connected
+                        ? [
+                            BoxShadow(
+                              color: AppTheme.successColor.withValues(
+                                alpha: 0.7,
+                              ),
+                              blurRadius: 8,
+                              spreadRadius: 1.5,
+                            ),
+                          ]
+                        : null,
                   ),
                 ),
-              ),
+              ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }

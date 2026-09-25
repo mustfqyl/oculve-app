@@ -27,7 +27,6 @@ class ServerSelectionScreen extends ConsumerStatefulWidget {
 
 class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
   ServerSort _sort = ServerSort.latency;
-  bool _refreshingSubscription = true;
   bool _subscriptionRefreshFailed = false;
   Timer? _refreshFailureTimer;
 
@@ -52,7 +51,6 @@ class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
       for (final profile in profiles) {
         ref.invalidate(serverLatencyProvider(profile.id));
       }
-      setState(() => _refreshingSubscription = false);
     });
   }
 
@@ -73,17 +71,8 @@ class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
         (vpn == VpnState.disconnected || vpn == VpnState.error);
     final dark = Theme.of(context).brightness == Brightness.dark;
     final sortForeground = dark
-        ? AppTheme.foregroundMuted
-        : AppTheme.lightForegroundMuted;
-    final nextSort = _sort == ServerSort.latency
-        ? ServerSort.alphabetical
-        : ServerSort.latency;
-    final nextSortIcon = nextSort == ServerSort.alphabetical
-        ? Icons.sort_by_alpha_rounded
-        : Icons.speed_rounded;
-    final activeSortLabel = _sort == ServerSort.latency
-        ? context.tr('Ping')
-        : context.tr('Alphabetical');
+        ? AppTheme.foreground
+        : AppTheme.lightForeground;
     final sortHint = _sort == ServerSort.latency
         ? context.tr('Sorted by ping. Tap to sort alphabetically.')
         : context.tr('Sorted alphabetically. Tap to sort by ping.');
@@ -130,174 +119,91 @@ class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
         });
       }
     }
-    const serverRowHeight = 56.0;
-    const serverRowSpacing = 8.0;
-    final serverRows = SizedBox(
-      height: ordered.isEmpty
-          ? 0
-          : ordered.length * (serverRowHeight + serverRowSpacing) -
-                serverRowSpacing,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          for (var index = 0; index < ordered.length; index++)
-            AnimatedPositioned(
-              key: ValueKey('server-position-${ordered[index].id}'),
-              duration: const Duration(milliseconds: 380),
-              curve: Curves.easeInOutCubic,
-              top: index * (serverRowHeight + serverRowSpacing),
-              left: 0,
-              right: 0,
-              height: serverRowHeight,
-              child: FrostedCard(
-                key: ValueKey('server-${ordered[index].id}'),
-                padding: EdgeInsets.zero,
-                borderColor: selected == ordered[index].id
-                    ? (dark
-                          ? Colors.white.withValues(alpha: .58)
-                          : Colors.black.withValues(alpha: .42))
-                    : null,
-                borderWidth: selected == ordered[index].id ? 1.1 : .5,
-                child: SizedBox(
-                  height: serverRowHeight,
-                  child: ListTile(
-                    dense: true,
-                    minTileHeight: serverRowHeight,
-                    leading: FrostedCircle(
-                      size: 34,
-                      blurAmount: 15,
-                      child: CountryIcon(flag: ordered[index].flag, size: 24),
-                    ),
-                    title: Text(ordered[index].name),
-                    trailing: LatencyLabel(
-                      latency: latencies[ordered[index].id]!,
-                    ),
-                    enabled: enabled,
-                    onTap: () {
-                      ref.read(selectedServerProvider.notifier).state =
-                          ordered[index].id;
-                      Navigator.pop(context);
-                    },
+    final serverRows = ListView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: ordered.length,
+      itemBuilder: (context, index) {
+        final profile = ordered[index];
+        final isSelected = selected == profile.id;
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 8.0),
+          child: FrostedCard(
+            key: ValueKey('server-${profile.id}'),
+            padding: EdgeInsets.zero,
+            borderRadius: 14,
+            borderColor: isSelected
+                ? (dark
+                      ? Colors.white.withValues(alpha: .58)
+                      : Colors.black.withValues(alpha: .42))
+                : null,
+            borderWidth: isSelected ? 1.1 : 0.5,
+            child: Material(
+              color: Colors.transparent,
+              borderRadius: BorderRadius.circular(14),
+              child: ListTile(
+                dense: true,
+                minTileHeight: 56,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                leading: FrostedCircle(
+                  size: 34,
+                  blurAmount: 15,
+                  child: CountryIcon(flag: profile.flag, size: 24),
+                ),
+                title: Text(
+                  profile.name,
+                  style: const TextStyle(
+                    fontSize: AppTheme.fontSizeBody,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
-              ),
-            ),
-        ],
-      ),
-    );
-    return AppPage(
-      title: context.tr('Locations'),
-      action: Semantics(
-        button: true,
-        label: sortHint,
-        child: Tooltip(
-          message: sortHint,
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              key: const ValueKey('server-sort-toggle'),
-              borderRadius: BorderRadius.circular(12),
-              onTap: () => setState(
-                () => _sort = _sort == ServerSort.latency
-                    ? ServerSort.alphabetical
-                    : ServerSort.latency,
-              ),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 180),
-                constraints: const BoxConstraints(minWidth: 104, minHeight: 42),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 5,
-                ),
-                decoration: BoxDecoration(
-                  color: dark
-                      ? Colors.white.withValues(alpha: .035)
-                      : Colors.black.withValues(alpha: .025),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: dark
-                        ? Colors.white.withValues(alpha: .1)
-                        : Colors.black.withValues(alpha: .09),
-                  ),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          context.tr('Sort'),
-                          style: TextStyle(
-                            color: sortForeground.withValues(alpha: .72),
-                            fontSize: 8,
-                            height: 1.1,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: .85,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          activeSortLabel,
-                          style: TextStyle(
-                            color: sortForeground,
-                            fontSize: 10,
-                            height: 1.1,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(width: 10),
-                    AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 180),
-                      transitionBuilder: (child, animation) =>
-                          RotationTransition(
-                            turns: Tween<double>(
-                              begin: .08,
-                              end: 0,
-                            ).animate(animation),
-                            child: FadeTransition(
-                              opacity: animation,
-                              child: child,
-                            ),
-                          ),
-                      child: Icon(
-                        nextSortIcon,
-                        key: ValueKey(nextSort),
-                        size: 17,
-                        color: sortForeground,
-                      ),
-                    ),
-                  ],
-                ),
+                trailing: LatencyLabel(latency: latencies[profile.id]!),
+                enabled: enabled,
+                onTap: () {
+                  ref.read(selectedServerProvider.notifier).state = profile.id;
+                  Navigator.pop(context);
+                },
               ),
             ),
           ),
+        );
+      },
+    );
+    return AppPage(
+      title: context.tr('Locations'),
+      action: IconButton(
+        key: const ValueKey('server-sort-toggle'),
+        tooltip: sortHint,
+        splashRadius: 20,
+        icon: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 200),
+          transitionBuilder: (child, animation) => FadeTransition(
+            opacity: animation,
+            child: ScaleTransition(
+              scale: Tween<double>(begin: 0.85, end: 1.0).animate(animation),
+              child: child,
+            ),
+          ),
+          child: Icon(
+            _sort == ServerSort.latency
+                ? Icons.bolt_rounded
+                : Icons.sort_by_alpha_rounded,
+            key: ValueKey(_sort),
+            size: 21,
+            color: sortForeground,
+          ),
+        ),
+        onPressed: () => setState(
+          () => _sort = _sort == ServerSort.latency
+              ? ServerSort.alphabetical
+              : ServerSort.latency,
         ),
       ),
       child: ListView(
         padding: const EdgeInsets.all(24),
         children: [
-          if (_refreshingSubscription)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: Row(
-                children: [
-                  const SizedBox(
-                    width: 13,
-                    height: 13,
-                    child: CircularProgressIndicator(strokeWidth: 1.8),
-                  ),
-                  const SizedBox(width: 9),
-                  Text(
-                    context.tr('Refreshing servers…'),
-                    style: TextStyle(color: sortForeground, fontSize: 11),
-                  ),
-                ],
-              ),
-            ),
           if (_subscriptionRefreshFailed)
             Padding(
               padding: const EdgeInsets.only(bottom: 10),
@@ -307,13 +213,13 @@ class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
                 ),
                 style: const TextStyle(
                   color: AppTheme.errorColor,
-                  fontSize: 11,
+                  fontSize: AppTheme.fontSizeCaption,
                 ),
               ),
             ),
           if (!enabled)
             Padding(
-              padding: EdgeInsets.only(bottom: 16),
+              padding: const EdgeInsets.only(bottom: 16),
               child: Text(context.tr('Disconnect before changing location.')),
             ),
           if (profiles.isEmpty)
@@ -328,28 +234,43 @@ class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
                   ? AppTheme.successColor.withValues(alpha: .75)
                   : null,
               borderWidth: selected == optimalServerId ? 1.1 : .5,
-              child: ListTile(
-                leading: FrostedCircle(
-                  size: 34,
-                  blurAmount: 15,
-                  color: AppTheme.successColor.withValues(alpha: .1),
-                  child: const Icon(
-                    Icons.bolt_rounded,
-                    size: 21,
-                    color: AppTheme.successColor,
+              child: Material(
+                color: Colors.transparent,
+                borderRadius: BorderRadius.circular(14),
+                child: ListTile(
+                  dense: true,
+                  minTileHeight: 56,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
                   ),
+                  leading: FrostedCircle(
+                    size: 34,
+                    blurAmount: 15,
+                    color: AppTheme.successColor.withValues(alpha: .1),
+                    child: const Icon(
+                      Icons.bolt_rounded,
+                      size: 21,
+                      color: AppTheme.successColor,
+                    ),
+                  ),
+                  title: Text(
+                    context.tr('Optimal'),
+                    style: const TextStyle(
+                      fontSize: AppTheme.fontSizeBody,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  subtitle: Text(
+                    context.tr('Automatic selection'),
+                    style: const TextStyle(fontSize: AppTheme.fontSizeCaption),
+                  ),
+                  enabled: enabled,
+                  onTap: () {
+                    ref.read(selectedServerProvider.notifier).state =
+                        optimalServerId;
+                    Navigator.pop(context);
+                  },
                 ),
-                title: Text(context.tr('Optimal')),
-                subtitle: Text(
-                  context.tr('Automatic selection'),
-                  style: const TextStyle(fontSize: 11),
-                ),
-                enabled: enabled,
-                onTap: () {
-                  ref.read(selectedServerProvider.notifier).state =
-                      optimalServerId;
-                  Navigator.pop(context);
-                },
               ),
             ),
           ),

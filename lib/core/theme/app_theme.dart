@@ -3,6 +3,13 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 
 class AppTheme {
+  // === Typography scale tokens ===
+  static const double fontSizeMicro = 10.0;
+  static const double fontSizeCaption = 11.0;
+  static const double fontSizeBody = 13.0;
+  static const double fontSizeSubtitle = 15.0;
+  static const double fontSizeHeader = 22.0;
+
   // === Website dark theme tokens ===
   static const Color backgroundColor = Color(0xFF020202);
   static const Color backgroundSecondary = Color(0xFF080808);

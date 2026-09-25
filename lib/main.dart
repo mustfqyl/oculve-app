@@ -15,7 +15,7 @@ import 'core/theme/app_scroll_behavior.dart';
 import 'core/providers/theme_provider.dart';
 import 'core/vpn/linux_platform.dart';
 import 'features/auth/data/auth_repository.dart';
-import 'features/auth/presentation/login_screen.dart';
+import 'features/auth/presentation/signup_screen.dart';
 import 'features/home/presentation/home_screen.dart';
 
 void main() async {
@@ -131,6 +131,6 @@ class _SessionGateState extends ConsumerState<SessionGate> {
           ),
         ),
         data: (account) =>
-            account == null ? const LoginScreen() : const HomeScreen(),
+            account == null ? const SignUpScreen() : const HomeScreen(),
       );
 }

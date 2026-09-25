@@ -59,15 +59,15 @@ void main() {
         child: const MaterialApp(home: SignUpScreen()),
       ),
     );
-    await tester.pump();
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('ABCD-EFGH-IJKL'), findsOneWidget);
     expect(
       tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
       isNull,
     );
     await tester.tap(find.byType(Checkbox));
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
     expect(
       tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
       isNotNull,

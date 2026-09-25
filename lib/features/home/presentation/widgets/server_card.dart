@@ -27,50 +27,63 @@ class ServerCard extends ConsumerWidget {
             ref.watch(serverLatencyProvider(profile.id)),
             ref.watch(serverLatencyLastKnownProvider)[profile.id],
           );
-    return GestureDetector(
-      onTap: () =>
-          Navigator.push(context, appRoute(const ServerSelectionScreen())),
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 212),
-          child: FrostedCard(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-            blurAmount: 30,
-            borderRadius: 14,
-            child: Row(
-              children: [
-                FrostedCircle(
-                  size: 30,
-                  blurAmount: 15,
-                  color: isOptimal
-                      ? AppTheme.successColor.withValues(alpha: .1)
-                      : null,
-                  child: isOptimal
-                      ? const Icon(
-                          Icons.bolt_rounded,
-                          size: 19,
-                          color: AppTheme.successColor,
-                        )
-                      : CountryIcon(flag: profile?.flag, size: 22),
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 232),
+        child: FrostedCard(
+          padding: EdgeInsets.zero,
+          blurAmount: 30,
+          borderRadius: 14,
+          child: Material(
+            color: Colors.transparent,
+            borderRadius: BorderRadius.circular(14),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: () => Navigator.push(
+                context,
+                appRoute(const ServerSelectionScreen()),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 7,
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    isOptimal
-                        ? context.tr('Optimal')
-                        : profile?.name ?? context.tr('Choose location'),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
+                child: Row(
+                  children: [
+                    FrostedCircle(
+                      size: 30,
+                      blurAmount: 15,
+                      color: isOptimal
+                          ? AppTheme.successColor.withValues(alpha: .1)
+                          : null,
+                      child: isOptimal
+                          ? const Icon(
+                              Icons.bolt_rounded,
+                              size: 19,
+                              color: AppTheme.successColor,
+                            )
+                          : CountryIcon(flag: profile?.flag, size: 22),
                     ),
-                  ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        isOptimal
+                            ? context.tr('Optimal')
+                            : profile?.name ?? context.tr('Choose location'),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: AppTheme.fontSizeBody,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    if (!isOptimal) LatencyLabel(latency: latency),
+                    const Icon(Icons.chevron_right, size: 16),
+                  ],
                 ),
-                const SizedBox(width: 4),
-                if (!isOptimal) LatencyLabel(latency: latency),
-                const Icon(Icons.chevron_right, size: 16),
-              ],
+              ),
             ),
           ),
         ),
