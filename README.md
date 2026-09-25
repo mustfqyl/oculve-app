@@ -41,7 +41,11 @@ Windows builds need the checksum-verified Xray, tun2socks, and Wintun runtime fi
     python3 tool/prepare_desktop.py windows
     flutter build windows --debug
 
-For a release APK, configure a release signing key instead of the debug key currently used by the local build configuration.
+Release APKs and app bundles require a private release key. Provide it through
+the `OCULVE_ANDROID_KEYSTORE`, `OCULVE_ANDROID_STORE_PASSWORD`,
+`OCULVE_ANDROID_KEY_ALIAS`, and `OCULVE_ANDROID_KEY_PASSWORD` environment
+variables when running Gradle. The keystore stays outside the repository, and
+release packaging stops if those values are missing; debug builds need no key.
 
 macOS packet-tunnel setup:
 
