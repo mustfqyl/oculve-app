@@ -241,13 +241,13 @@ class _XrayCoreSettingsScreenState
                   const SizedBox(height: 8),
                 ],
                 _GroupCard(
-                  title: 'DNS & IP',
+                  title: 'DNS & network',
                   subtitle: context.tr(
-                    'Choose how names are looked up and which IP versions to use.',
+                    'Choose an encrypted DNS provider and lookup address family.',
                   ),
                   icon: Icons.dns_outlined,
-                  expanded: _expanded.contains('DNS & IP'),
-                  onToggle: () => _toggleGroup('DNS & IP'),
+                  expanded: _expanded.contains('DNS & network'),
+                  onToggle: () => _toggleGroup('DNS & network'),
                   children: [
                     _OptionRow<String>(
                       label: context.tr('DNS provider'),
@@ -326,13 +326,13 @@ class _XrayCoreSettingsScreenState
                   ],
                 ),
                 _GroupCard(
-                  title: 'Advanced',
+                  title: 'Transport & TLS',
                   subtitle: context.tr(
-                    'Keep the server defaults unless troubleshooting a connection.',
+                    'Optional connection details. The server defaults work for most people.',
                   ),
-                  icon: Icons.tune_rounded,
-                  expanded: _expanded.contains('Advanced'),
-                  onToggle: () => _toggleGroup('Advanced'),
+                  icon: Icons.shield_outlined,
+                  expanded: _expanded.contains('Transport & TLS'),
+                  onToggle: () => _toggleGroup('Transport & TLS'),
                   children: [
                     if (profile != null)
                       Text(
@@ -350,7 +350,7 @@ class _XrayCoreSettingsScreenState
                       )
                     else
                       _OptionRow<RealityFingerprint>(
-                        label: context.tr('Connection fingerprint'),
+                        label: context.tr('TLS identity'),
                         value: _fingerprint!,
                         values: const [
                           RealityFingerprint.serverDefault,

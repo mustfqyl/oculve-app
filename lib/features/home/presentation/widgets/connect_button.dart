@@ -6,7 +6,7 @@ import 'package:oculve/core/models/vpn_state.dart';
 import 'package:oculve/core/providers/vpn_provider.dart';
 import 'package:oculve/core/theme/app_theme.dart';
 
-/// A clear, compact primary action that reads like a connection control.
+/// The main action is a single, unmistakable power control.
 class ConnectButton extends ConsumerWidget {
   const ConnectButton({super.key});
 
@@ -19,26 +19,16 @@ class ConnectButton extends ConsumerWidget {
         state == VpnState.connecting || state == VpnState.disconnecting;
     final failed = state == VpnState.error;
     final dark = Theme.of(context).brightness == Brightness.dark;
-    final foreground = dark ? AppTheme.foreground : AppTheme.lightForeground;
     final muted = dark
         ? AppTheme.foregroundMuted
         : AppTheme.lightForegroundMuted;
-    final idle = !connected && !busy && !failed;
-    final buttonForeground = idle
-        ? (dark ? const Color(0xFF111318) : Colors.white)
-        : foreground;
-    final detailForeground = idle
-        ? buttonForeground.withValues(alpha: .66)
-        : failed
-        ? AppTheme.errorColor
-        : muted;
     final accent = connected
         ? AppTheme.successColor
         : failed
         ? AppTheme.errorColor
-        : idle
-        ? buttonForeground
-        : muted;
+        : dark
+        ? const Color(0xFF9BAAC0)
+        : const Color(0xFF58677E);
     final title = switch (state) {
       VpnState.connected => context.tr('DISCONNECT'),
       VpnState.connecting => context.tr('CONNECTING'),
@@ -63,155 +53,124 @@ class ConnectButton extends ConsumerWidget {
         : failed
         ? context.tr('Connection failed. Tap to retry.')
         : context.tr('Tap to connect to the VPN');
+    final faceColor = connected
+        ? dark
+              ? const Color(0xFF172820)
+              : const Color(0xFFEDF8F2)
+        : failed
+        ? dark
+              ? const Color(0xFF2B2023)
+              : const Color(0xFFFFF1F1)
+        : dark
+        ? const Color(0xFF1B2029)
+        : const Color(0xFFF9FAFC);
 
     return Semantics(
       button: true,
       enabled: !busy,
       label: semanticsLabel,
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 256),
-          child: SizedBox(
-            width: 240,
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                key: const ValueKey('vpn-connect-control'),
-                borderRadius: BorderRadius.circular(20),
-                onTap: busy
-                    ? null
-                    : () => ref.read(vpnProvider.notifier).toggle(),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              key: const ValueKey('vpn-connect-control'),
+              customBorder: const CircleBorder(),
+              onTap: busy
+                  ? null
+                  : () => ref.read(vpnProvider.notifier).toggle(),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 260),
+                curve: Curves.easeOutCubic,
+                width: 164,
+                height: 164,
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: accent.withValues(
+                    alpha: connected || failed ? .075 : .025,
+                  ),
+                  border: Border.all(
+                    color: accent.withValues(
+                      alpha: connected || failed ? .48 : .14,
+                    ),
+                    width: 1,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: accent.withValues(
+                        alpha: connected || failed ? .12 : .035,
+                      ),
+                      blurRadius: 28,
+                      spreadRadius: 1,
+                    ),
+                  ],
+                ),
                 child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 220),
+                  duration: const Duration(milliseconds: 260),
                   curve: Curves.easeOutCubic,
-                  height: 68,
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
                   decoration: BoxDecoration(
-                    color: idle
-                        ? dark
-                              ? const Color(0xFFF4F5F7)
-                              : const Color(0xFF17191D)
-                        : connected
-                        ? (dark
-                              ? const Color(0xFF182A25)
-                              : const Color(0xFFEAF8F3))
-                        : failed
-                        ? (dark
-                              ? const Color(0xFF321F22)
-                              : const Color(0xFFFFF0F0))
-                        : (dark
-                              ? const Color(0xFF252A31)
-                              : Colors.white.withValues(alpha: .9)),
-                    borderRadius: BorderRadius.circular(20),
+                    shape: BoxShape.circle,
+                    color: faceColor,
                     border: Border.all(
                       color: accent.withValues(
-                        alpha: connected || failed
-                            ? .34
-                            : idle
-                            ? .08
-                            : .12,
+                        alpha: connected || failed ? .2 : .08,
                       ),
                     ),
-                    boxShadow: idle
-                        ? [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: .12),
-                              blurRadius: 18,
-                              offset: const Offset(0, 5),
-                            ),
-                          ]
-                        : null,
-                  ),
-                  child: Row(
-                    children: [
-                      AnimatedContainer(
-                        duration: const Duration(milliseconds: 220),
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color:
-                              (connected || failed ? accent : buttonForeground)
-                                  .withValues(alpha: idle ? .08 : .13),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(
+                          alpha: dark ? .16 : .035,
                         ),
-                        child: Center(
-                          child: AnimatedSwitcher(
-                            duration: const Duration(milliseconds: 180),
-                            switchInCurve: Curves.easeOutCubic,
-                            switchOutCurve: Curves.easeInCubic,
-                            child: busy
-                                ? SizedBox(
-                                    key: ValueKey('busy-$state'),
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: accent,
-                                    ),
-                                  )
-                                : Icon(
-                                    failed
-                                        ? Icons.refresh_rounded
-                                        : Icons.power_settings_new_rounded,
-                                    key: ValueKey('power-$state'),
-                                    size: 20,
-                                    color: accent,
-                                  ),
+                        blurRadius: 18,
+                        offset: const Offset(0, 5),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 220),
+                        switchInCurve: Curves.easeOutCubic,
+                        switchOutCurve: Curves.easeInCubic,
+                        child: busy
+                            ? SizedBox(
+                                key: ValueKey('busy-$state'),
+                                width: 34,
+                                height: 34,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2.4,
+                                  valueColor: AlwaysStoppedAnimation(accent),
+                                ),
+                              )
+                            : Icon(
+                                key: ValueKey('power-$state'),
+                                failed
+                                    ? Icons.refresh_rounded
+                                    : Icons.power_settings_new_rounded,
+                                size: 37,
+                                color: accent,
+                              ),
+                      ),
+                      const SizedBox(height: 9),
+                      AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 180),
+                        child: Text(
+                          title,
+                          key: ValueKey('connect-title-$state'),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: accent,
+                            fontSize: 10,
+                            height: 1.1,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 1.25,
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 11),
-                      Expanded(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            AnimatedSwitcher(
-                              duration: const Duration(milliseconds: 160),
-                              child: Text(
-                                title,
-                                key: ValueKey('connect-title-$state'),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color: buttonForeground,
-                                  fontSize: 14,
-                                  height: 1.1,
-                                  fontWeight: FontWeight.w800,
-                                  letterSpacing: .45,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 3),
-                            AnimatedSwitcher(
-                              duration: const Duration(milliseconds: 160),
-                              child: Text(
-                                detail,
-                                key: ValueKey(
-                                  'connection-detail-$state-$errorMessage',
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color: detailForeground,
-                                  fontSize: 10,
-                                  height: 1.15,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 7),
-                      Icon(
-                        connected
-                            ? Icons.stop_rounded
-                            : failed
-                            ? Icons.refresh_rounded
-                            : Icons.arrow_forward_rounded,
-                        size: 16,
-                        color: accent.withValues(alpha: .8),
                       ),
                     ],
                   ),
@@ -219,7 +178,30 @@ class ConnectButton extends ConsumerWidget {
               ),
             ),
           ),
-        ),
+          const SizedBox(height: 9),
+          SizedBox(
+            width: 248,
+            height: 30,
+            child: Center(
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 180),
+                child: Text(
+                  detail,
+                  key: ValueKey('connection-detail-$state-$errorMessage'),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: failed ? AppTheme.errorColor : muted,
+                    fontSize: 10,
+                    height: 1.25,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

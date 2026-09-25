@@ -207,6 +207,10 @@ class VpnNotifier extends StateNotifier<VpnState> {
     _errorTimer = Timer(const Duration(seconds: 12), () {
       if (mounted && ref.read(vpnErrorProvider) == message) {
         ref.read(vpnErrorProvider.notifier).state = null;
+        if (state == VpnState.error) {
+          _record('error dismissed');
+          state = VpnState.disconnected;
+        }
       }
     });
     _record(message);

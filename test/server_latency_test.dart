@@ -634,6 +634,10 @@ void main() {
     expect(find.text('Sort'), findsOneWidget);
     expect(find.text('Ping'), findsOneWidget);
     expect(find.byIcon(Icons.sort_by_alpha_rounded), findsOneWidget);
+    expect(
+      tester.getSize(find.byKey(const ValueKey('server-sort-toggle'))).width,
+      lessThanOrEqualTo(132),
+    );
     await tester.tap(find.byKey(const ValueKey('server-sort-toggle')));
     await tester.pump(const Duration(milliseconds: 300));
     await tester.pump(const Duration(milliseconds: 350));

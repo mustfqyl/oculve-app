@@ -203,7 +203,14 @@ void main() {
       expect(find.byTooltip('Show code'), findsNothing);
       expect(find.text('Export'), findsNothing);
       final blur = find.byType(TweenAnimationBuilder<double>);
-      expect(tester.widget<TweenAnimationBuilder<double>>(blur).tween.end, 5);
+      expect(tester.widget<TweenAnimationBuilder<double>>(blur).tween.end, 5.5);
+      expect(
+        find.ancestor(
+          of: find.text('ABCD-EFGH-IJKL'),
+          matching: find.byType(ImageFiltered),
+        ),
+        findsOneWidget,
+      );
       expect(find.byType(ShaderMask), findsNothing);
       expect(find.text('Premium'), findsOneWidget);
       expect(find.text('SUBSCRIPTION LINK'), findsNothing);
@@ -222,7 +229,7 @@ void main() {
               ),
             )
             .height,
-        greaterThanOrEqualTo(50),
+        greaterThanOrEqualTo(54),
       );
       expect(
         tester
@@ -233,7 +240,7 @@ void main() {
               ),
             )
             .height,
-        greaterThanOrEqualTo(44),
+        greaterThanOrEqualTo(54),
       );
       await tester.tap(find.text('ABCD-EFGH-IJKL'));
       await tester.pump(const Duration(milliseconds: 350));
@@ -464,8 +471,9 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(find.text('CONNECT'), findsOneWidget);
       final connectControl = find.byKey(const ValueKey('vpn-connect-control'));
-      expect(tester.getSize(connectControl).width, 240);
-      expect(tester.getSize(connectControl).height, 68);
+      expect(tester.getSize(connectControl).width, 164);
+      expect(tester.getSize(connectControl).height, 164);
+      expect(find.byIcon(Icons.power_settings_new_rounded), findsOneWidget);
       expect(find.text('CONNECTED'), findsNothing);
       expect(find.text('Choose location'), findsOneWidget);
     }
@@ -524,11 +532,27 @@ void main() {
         for (final screen in screens) {
           await tester.pumpWidget(
             ProviderScope(
-              child: MaterialApp(theme: AppTheme.darkTheme, home: screen),
+              child: MaterialApp(
+                theme: AppTheme.darkTheme.copyWith(
+                  platform: TargetPlatform.macOS,
+                ),
+                scrollBehavior: const AppScrollBehavior(),
+                home: screen,
+              ),
             ),
           );
           await tester.pump(const Duration(seconds: 1));
           expect(tester.takeException(), isNull, reason: '$screen at $size');
+          expect(
+            find.byWidgetPredicate((widget) => widget is RawScrollbar),
+            findsNothing,
+            reason: 'Scrollbars should stay hidden on $screen at $size',
+          );
+          expect(
+            find.byType(cupertino.CupertinoScrollbar),
+            findsNothing,
+            reason: 'Cupertino indicators should stay hidden on $screen',
+          );
         }
       }
     },
@@ -561,9 +585,10 @@ void main() {
       find.text('Most users can leave these settings as they are.'),
       findsOneWidget,
     );
-    expect(find.text('DNS & IP'), findsOneWidget);
+    expect(find.text('DNS & network'), findsOneWidget);
     expect(find.text('Split tunneling'), findsOneWidget);
-    expect(find.text('Advanced'), findsOneWidget);
+    expect(find.text('Transport & TLS'), findsOneWidget);
+    expect(find.text('Advanced'), findsNothing);
     expect(find.text('Diagnostics'), findsOneWidget);
     for (final removed in [
       'XHTTP transport',
@@ -577,7 +602,7 @@ void main() {
       expect(find.text(removed), findsNothing);
     }
 
-    await tester.tap(find.byKey(const ValueKey('xray-section-DNS & IP')));
+    await tester.tap(find.byKey(const ValueKey('xray-section-DNS & network')));
     await tester.pump(const Duration(milliseconds: 250));
     await tester.tap(
       find.byKey(const ValueKey('xray-choice-DNS provider-Google')),
@@ -615,9 +640,11 @@ void main() {
     ]);
 
     await tester.ensureVisible(
-      find.byKey(const ValueKey('xray-section-Advanced')),
+      find.byKey(const ValueKey('xray-section-Transport & TLS')),
     );
-    await tester.tap(find.byKey(const ValueKey('xray-section-Advanced')));
+    await tester.tap(
+      find.byKey(const ValueKey('xray-section-Transport & TLS')),
+    );
     await tester.pump(const Duration(milliseconds: 250));
     final fragmentation = find.byKey(
       const ValueKey('xray-fragmentation-switch'),

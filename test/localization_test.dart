@@ -9,6 +9,7 @@ import 'package:oculve/core/localization/localized_text.dart' as localized;
 import 'package:oculve/core/providers/locale_provider.dart';
 import 'package:oculve/core/theme/app_theme.dart';
 import 'package:oculve/features/home/presentation/home_screen.dart';
+import 'package:oculve/features/settings/presentation/xray_core_settings_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -83,26 +84,25 @@ void main() {
     },
   );
 
-  test(
-    'connection setting categories are translated in every app language',
-    () {
-      for (final language in ['es', 'tr']) {
-        for (final source in [
-          'DNS & IP',
-          'Split tunneling',
-          'Advanced',
-          'Diagnostics',
-          'Keep the server defaults unless troubleshooting a connection.',
-        ]) {
-          expect(
-            AppStrings.hasTranslation(source, language),
-            isTrue,
-            reason: '$language translation missing for "$source"',
-          );
-        }
+  test('connection setting categories are translated in every app language', () {
+    for (final language in ['es', 'tr']) {
+      for (final source in [
+        'DNS & network',
+        'Split tunneling',
+        'Transport & TLS',
+        'Diagnostics',
+        'Choose an encrypted DNS provider and lookup address family.',
+        'Optional connection details. The server defaults work for most people.',
+        'TLS identity',
+      ]) {
+        expect(
+          AppStrings.hasTranslation(source, language),
+          isTrue,
+          reason: '$language translation missing for "$source"',
+        );
       }
-    },
-  );
+    }
+  });
 
   testWidgets('reviewed interface labels render in Spanish and Turkish', (
     tester,
@@ -150,6 +150,49 @@ void main() {
       );
       await tester.pump(const Duration(milliseconds: 700));
       expect(find.text(connectLabel), findsOneWidget);
+      expect(tester.takeException(), isNull, reason: locale.languageCode);
+    }
+  });
+
+  testWidgets('connection settings categories render in Spanish and Turkish', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(360, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    for (final (locale, dns, split, transport, diagnostics) in [
+      (
+        const Locale('es'),
+        'DNS y red',
+        'Túnel dividido',
+        'Transporte y TLS',
+        'Diagnóstico',
+      ),
+      (
+        const Locale('tr'),
+        'DNS ve ağ',
+        'Bölünmüş tünel',
+        'Taşıma ve TLS',
+        'Tanılama',
+      ),
+    ]) {
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(
+            locale: locale,
+            supportedLocales: supportedAppLocales,
+            localizationsDelegates: GlobalMaterialLocalizations.delegates,
+            theme: AppTheme.darkTheme,
+            home: const XrayCoreSettingsScreen(),
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 500));
+      for (final heading in [dns, split, transport, diagnostics]) {
+        expect(find.text(heading), findsOneWidget, reason: locale.languageCode);
+      }
       expect(tester.takeException(), isNull, reason: locale.languageCode);
     }
   });

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show Platform;
+import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/cupertino.dart' as cupertino;
 import 'package:flutter/material.dart' hide Text;
@@ -1074,54 +1075,44 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
                                     ),
                                     child: TweenAnimationBuilder<double>(
                                       tween: Tween<double>(
-                                        end: _showCode ? 0 : 5,
+                                        end: _showCode ? 0 : 5.5,
                                       ),
                                       duration: const Duration(
                                         milliseconds: 300,
                                       ),
                                       curve: Curves.easeOutCubic,
                                       builder: (context, blur, child) {
-                                        final revealAmount = (1 - blur / 5)
+                                        final revealAmount = (1 - blur / 5.5)
                                             .clamp(0.0, 1.0);
-                                        final shadows = blur == 0
-                                            ? const <Shadow>[]
-                                            : [
-                                                Shadow(
-                                                  color: _fg.withValues(
-                                                    alpha:
-                                                        .5 * (1 - revealAmount),
-                                                  ),
-                                                  blurRadius: blur * 1.6,
-                                                ),
-                                                Shadow(
-                                                  color: _fg.withValues(
-                                                    alpha:
-                                                        .16 *
-                                                        (1 - revealAmount),
-                                                  ),
-                                                  blurRadius: blur * 3,
-                                                ),
-                                              ];
                                         return ExcludeSemantics(
                                           child: child is Text
-                                              ? Text(
-                                                  child.data!,
-                                                  maxLines: child.maxLines,
-                                                  overflow: child.overflow,
-                                                  textAlign: child.textAlign,
-                                                  style:
-                                                      (child.style ??
-                                                              const TextStyle())
-                                                          .copyWith(
-                                                            color: Color.lerp(
-                                                              _fg.withValues(
-                                                                alpha: .025,
+                                              ? ImageFiltered(
+                                                  imageFilter: ImageFilter.blur(
+                                                    sigmaX: blur,
+                                                    sigmaY: blur,
+                                                  ),
+                                                  child: Text(
+                                                    child.data!,
+                                                    maxLines: child.maxLines,
+                                                    overflow: child.overflow,
+                                                    textAlign: child.textAlign,
+                                                    style:
+                                                        (child.style ??
+                                                                const TextStyle())
+                                                            .copyWith(
+                                                              color: Color.lerp(
+                                                                _fg.withValues(
+                                                                  alpha: .16,
+                                                                ),
+                                                                _fg,
+                                                                revealAmount,
                                                               ),
-                                                              _fg,
-                                                              revealAmount,
+                                                              shadows:
+                                                                  const <
+                                                                    Shadow
+                                                                  >[],
                                                             ),
-                                                            shadows: shadows,
-                                                          ),
+                                                  ),
                                                 )
                                               : child,
                                         );
@@ -1279,7 +1270,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
                   children: [
                     FilledButton.icon(
                       style: FilledButton.styleFrom(
-                        minimumSize: const Size.fromHeight(50),
+                        minimumSize: const Size.fromHeight(54),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(13),
                         ),
@@ -1310,7 +1301,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
                     OutlinedButton.icon(
                       style: OutlinedButton.styleFrom(
                         foregroundColor: AppTheme.dangerColor,
-                        minimumSize: const Size.fromHeight(50),
+                        minimumSize: const Size.fromHeight(54),
                         side: BorderSide(
                           color: AppTheme.dangerColor.withValues(alpha: .48),
                           width: 1.6,
@@ -1444,11 +1435,50 @@ class _DeleteAccountConfirmationDialogState
     );
 
     if (appleStyle) {
+      final appleLabel = TextStyle(
+        fontFamily: '.AppleSystemUIFont',
+        color: cupertino.CupertinoColors.secondaryLabel.resolveFrom(context),
+        fontSize: 13,
+        height: 1.3,
+      );
+      final appleContent = Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            context.tr(
+              'This permanently deletes your Oculve account and VPN access.',
+            ),
+            textAlign: TextAlign.center,
+            style: appleLabel.copyWith(
+              color: cupertino.CupertinoColors.label.resolveFrom(context),
+            ),
+          ),
+          const SizedBox(height: 7),
+          Text(
+            context.tr(
+              'This action cannot be undone. Type the phrase below to confirm.',
+            ),
+            textAlign: TextAlign.center,
+            style: appleLabel,
+          ),
+          const SizedBox(height: 13),
+          Text(
+            context.tr('Confirmation phrase'),
+            textAlign: TextAlign.center,
+            style: appleLabel.copyWith(fontSize: 11),
+          ),
+          const SizedBox(height: 6),
+          confirmationInput,
+        ],
+      );
       return cupertino.CupertinoAlertDialog(
-        title: Text(context.tr('Delete account?')),
+        title: Text(
+          context.tr('Delete account?'),
+          style: const TextStyle(fontFamily: '.AppleSystemUIFont'),
+        ),
         content: Padding(
           padding: const EdgeInsets.only(top: 8),
-          child: content,
+          child: appleContent,
         ),
         actions: [
           cupertino.CupertinoDialogAction(

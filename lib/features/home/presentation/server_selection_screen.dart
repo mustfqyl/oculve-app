@@ -193,64 +193,63 @@ class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
         child: Tooltip(
           message: sortHint,
           child: Material(
-            color: dark
-                ? Colors.white.withValues(alpha: .045)
-                : Colors.black.withValues(alpha: .035),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(11),
-              side: BorderSide(
-                color: dark
-                    ? Colors.white.withValues(alpha: .12)
-                    : Colors.black.withValues(alpha: .1),
-              ),
-            ),
+            color: Colors.transparent,
             child: InkWell(
               key: const ValueKey('server-sort-toggle'),
-              borderRadius: BorderRadius.circular(11),
+              borderRadius: BorderRadius.circular(12),
               onTap: () => setState(
                 () => _sort = _sort == ServerSort.latency
                     ? ServerSort.alphabetical
                     : ServerSort.latency,
               ),
-              child: Padding(
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                constraints: const BoxConstraints(minWidth: 104, minHeight: 42),
                 padding: const EdgeInsets.symmetric(
                   horizontal: 10,
-                  vertical: 7,
+                  vertical: 5,
+                ),
+                decoration: BoxDecoration(
+                  color: dark
+                      ? Colors.white.withValues(alpha: .035)
+                      : Colors.black.withValues(alpha: .025),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: dark
+                        ? Colors.white.withValues(alpha: .1)
+                        : Colors.black.withValues(alpha: .09),
+                  ),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.sort_rounded, size: 16, color: sortForeground),
-                    const SizedBox(width: 6),
-                    Text(
-                      context.tr('Sort'),
-                      style: TextStyle(
-                        color: sortForeground,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: .15,
-                      ),
-                    ),
-                    const SizedBox(width: 7),
-                    Container(
-                      padding: const EdgeInsets.only(left: 7),
-                      decoration: BoxDecoration(
-                        border: Border(
-                          left: BorderSide(
-                            color: sortForeground.withValues(alpha: .22),
+                    Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          context.tr('Sort'),
+                          style: TextStyle(
+                            color: sortForeground.withValues(alpha: .72),
+                            fontSize: 8,
+                            height: 1.1,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: .85,
                           ),
                         ),
-                      ),
-                      child: Text(
-                        activeSortLabel,
-                        style: TextStyle(
-                          color: sortForeground,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
+                        const SizedBox(height: 2),
+                        Text(
+                          activeSortLabel,
+                          style: TextStyle(
+                            color: sortForeground,
+                            fontSize: 10,
+                            height: 1.1,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
-                      ),
+                      ],
                     ),
-                    const SizedBox(width: 6),
+                    const SizedBox(width: 10),
                     AnimatedSwitcher(
                       duration: const Duration(milliseconds: 180),
                       transitionBuilder: (child, animation) =>
@@ -267,7 +266,7 @@ class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
                       child: Icon(
                         nextSortIcon,
                         key: ValueKey(nextSort),
-                        size: 16,
+                        size: 17,
                         color: sortForeground,
                       ),
                     ),

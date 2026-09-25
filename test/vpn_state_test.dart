@@ -160,6 +160,7 @@ void main() {
     await tester.pump(const Duration(seconds: 4));
 
     expect(container.read(vpnErrorProvider), isNull);
+    expect(container.read(vpnProvider), VpnState.disconnected);
   });
   test(
     'Optimal measures every profile and starts the lowest-latency server',
