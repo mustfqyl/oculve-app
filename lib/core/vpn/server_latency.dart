@@ -75,6 +75,16 @@ final serverLatencyProvider = FutureProvider.autoDispose.family<int?, String>((
   return lastKnown;
 });
 
+/// Keep a settled value visible while the next probe is loading or unavailable.
+/// Riverpod's loading state otherwise hides the previous ping during a refresh.
+AsyncValue<int?> retainLastKnownLatency(
+  AsyncValue<int?> current,
+  int? lastKnown,
+) {
+  if (current.valueOrNull != null || lastKnown == null) return current;
+  return AsyncValue.data(lastKnown);
+}
+
 List<VpnProfile> sortProfilesByLatency(
   List<VpnProfile> profiles,
   Map<String, int?> latencies,

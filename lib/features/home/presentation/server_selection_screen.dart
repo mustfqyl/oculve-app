@@ -81,17 +81,28 @@ class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
     final nextSortIcon = nextSort == ServerSort.alphabetical
         ? Icons.sort_by_alpha_rounded
         : Icons.speed_rounded;
+    final activeSortLabel = _sort == ServerSort.latency
+        ? context.tr('Ping')
+        : context.tr('Alphabetical');
     final sortHint = _sort == ServerSort.latency
         ? context.tr('Sorted by ping. Tap to sort alphabetically.')
         : context.tr('Sorted alphabetically. Tap to sort by ping.');
-    final latencies = {
+    final rawLatencies = {
       for (final profile in profiles)
         profile.id: ref.watch(serverLatencyProvider(profile.id)),
+    };
+    final lastKnownLatencies = ref.watch(serverLatencyLastKnownProvider);
+    final latencies = {
+      for (final entry in rawLatencies.entries)
+        entry.key: retainLastKnownLatency(
+          entry.value,
+          lastKnownLatencies[entry.key],
+        ),
     };
     final measured = {
       for (final entry in latencies.entries) entry.key: entry.value.valueOrNull,
     };
-    final refreshing = latencies.values.any((value) => value.isLoading);
+    final refreshing = rawLatencies.values.any((value) => value.isLoading);
     final savedIds = ref.watch(serverLatencyDisplayOrderProvider);
     final profileById = {for (final profile in profiles) profile.id: profile};
     final stableProfiles = <VpnProfile>[
@@ -209,19 +220,34 @@ class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(
-                      Icons.swap_vert_rounded,
-                      size: 15,
-                      color: sortForeground,
-                    ),
-                    const SizedBox(width: 5),
+                    Icon(Icons.sort_rounded, size: 16, color: sortForeground),
+                    const SizedBox(width: 6),
                     Text(
                       context.tr('Sort'),
                       style: TextStyle(
                         color: sortForeground,
-                        fontSize: 10,
+                        fontSize: 11,
                         fontWeight: FontWeight.w700,
                         letterSpacing: .15,
+                      ),
+                    ),
+                    const SizedBox(width: 7),
+                    Container(
+                      padding: const EdgeInsets.only(left: 7),
+                      decoration: BoxDecoration(
+                        border: Border(
+                          left: BorderSide(
+                            color: sortForeground.withValues(alpha: .22),
+                          ),
+                        ),
+                      ),
+                      child: Text(
+                        activeSortLabel,
+                        style: TextStyle(
+                          color: sortForeground,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
                     const SizedBox(width: 6),

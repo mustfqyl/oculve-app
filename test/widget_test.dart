@@ -437,7 +437,8 @@ void main() {
     final focused =
         tester.widget<AnimatedContainer>(container).decoration as BoxDecoration;
     expect(focused.boxShadow, isNotEmpty);
-    expect(focused.boxShadow!.single.spreadRadius, 4);
+    expect(focused.boxShadow!.single.blurRadius, 16);
+    expect(focused.boxShadow!.single.spreadRadius, 0.5);
     final focusLift = find
         .ancestor(
           of: find.byType(TextField),
@@ -463,8 +464,8 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(find.text('CONNECT'), findsOneWidget);
       final connectControl = find.byKey(const ValueKey('vpn-connect-control'));
-      expect(tester.getSize(connectControl).width, 224);
-      expect(tester.getSize(connectControl).height, 62);
+      expect(tester.getSize(connectControl).width, 240);
+      expect(tester.getSize(connectControl).height, 68);
       expect(find.text('CONNECTED'), findsNothing);
       expect(find.text('Choose location'), findsOneWidget);
     }

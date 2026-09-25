@@ -3,9 +3,12 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:oculve/core/localization/app_strings.dart';
 import 'package:oculve/core/localization/localized_text.dart' as localized;
 import 'package:oculve/core/providers/locale_provider.dart';
+import 'package:oculve/core/theme/app_theme.dart';
+import 'package:oculve/features/home/presentation/home_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -118,6 +121,36 @@ void main() {
       );
 
       expect(find.text(expected), findsOneWidget);
+    }
+  });
+
+  testWidgets('home controls fit and translate in every supported locale', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(360, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    for (final (locale, connectLabel) in [
+      (const Locale('en'), 'CONNECT'),
+      (const Locale('es'), 'CONECTAR'),
+      (const Locale('tr'), 'BAĞLAN'),
+    ]) {
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(
+            locale: locale,
+            supportedLocales: supportedAppLocales,
+            localizationsDelegates: GlobalMaterialLocalizations.delegates,
+            theme: AppTheme.darkTheme,
+            home: const HomeScreen(),
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 700));
+      expect(find.text(connectLabel), findsOneWidget);
+      expect(tester.takeException(), isNull, reason: locale.languageCode);
     }
   });
 

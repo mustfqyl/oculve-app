@@ -23,7 +23,10 @@ class ServerCard extends ConsumerWidget {
         : profiles.firstWhere((p) => p.id == id, orElse: () => profiles.first);
     final latency = profile == null
         ? const AsyncValue<int?>.data(null)
-        : ref.watch(serverLatencyProvider(profile.id));
+        : retainLastKnownLatency(
+            ref.watch(serverLatencyProvider(profile.id)),
+            ref.watch(serverLatencyLastKnownProvider)[profile.id],
+          );
     return GestureDetector(
       onTap: () =>
           Navigator.push(context, appRoute(const ServerSelectionScreen())),

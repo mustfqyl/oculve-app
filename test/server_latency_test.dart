@@ -61,6 +61,21 @@ class _ErrorVpnNotifier extends VpnNotifier {
 }
 
 void main() {
+  test('last successful ping stays visible while another probe is pending', () {
+    expect(
+      retainLastKnownLatency(const AsyncLoading<int?>(), 24).valueOrNull,
+      24,
+    );
+    expect(
+      retainLastKnownLatency(const AsyncData<int?>(48), 24).valueOrNull,
+      48,
+    );
+    expect(
+      retainLastKnownLatency(const AsyncData<int?>(null), null).valueOrNull,
+      isNull,
+    );
+  });
+
   TestWidgetsFlutterBinding.ensureInitialized();
   SharedPreferences.setMockInitialValues({});
   test('Apple keeps physical-interface TCP probes enabled by default', () {
@@ -616,6 +631,8 @@ void main() {
       find.byTooltip('Sorted by ping. Tap to sort alphabetically.'),
       findsOneWidget,
     );
+    expect(find.text('Sort'), findsOneWidget);
+    expect(find.text('Ping'), findsOneWidget);
     expect(find.byIcon(Icons.sort_by_alpha_rounded), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('server-sort-toggle')));
     await tester.pump(const Duration(milliseconds: 300));
@@ -625,6 +642,7 @@ void main() {
       find.byTooltip('Sorted alphabetically. Tap to sort by ping.'),
       findsOneWidget,
     );
+    expect(find.text('Alphabetical'), findsOneWidget);
     expect(find.byIcon(Icons.speed_rounded), findsOneWidget);
     expect(
       tester.getTopLeft(find.text('Amsterdam')).dy,

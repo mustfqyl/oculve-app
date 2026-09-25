@@ -23,10 +23,21 @@ class ConnectButton extends ConsumerWidget {
     final muted = dark
         ? AppTheme.foregroundMuted
         : AppTheme.lightForegroundMuted;
+    final idle = !connected && !busy && !failed;
+    final buttonForeground = idle
+        ? (dark ? const Color(0xFF111318) : Colors.white)
+        : foreground;
+    final detailForeground = idle
+        ? buttonForeground.withValues(alpha: .66)
+        : failed
+        ? AppTheme.errorColor
+        : muted;
     final accent = connected
         ? AppTheme.successColor
         : failed
         ? AppTheme.errorColor
+        : idle
+        ? buttonForeground
         : muted;
     final title = switch (state) {
       VpnState.connected => context.tr('DISCONNECT'),
@@ -59,48 +70,69 @@ class ConnectButton extends ConsumerWidget {
       label: semanticsLabel,
       child: Center(
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 248),
+          constraints: const BoxConstraints(maxWidth: 256),
           child: SizedBox(
-            width: 224,
+            width: 240,
             child: Material(
               color: Colors.transparent,
               child: InkWell(
                 key: const ValueKey('vpn-connect-control'),
-                borderRadius: BorderRadius.circular(18),
+                borderRadius: BorderRadius.circular(20),
                 onTap: busy
                     ? null
                     : () => ref.read(vpnProvider.notifier).toggle(),
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 220),
                   curve: Curves.easeOutCubic,
-                  height: 62,
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  height: 68,
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
                   decoration: BoxDecoration(
-                    color: connected
+                    color: idle
+                        ? dark
+                              ? const Color(0xFFF4F5F7)
+                              : const Color(0xFF17191D)
+                        : connected
                         ? (dark
                               ? const Color(0xFF182A25)
                               : const Color(0xFFEAF8F3))
+                        : failed
+                        ? (dark
+                              ? const Color(0xFF321F22)
+                              : const Color(0xFFFFF0F0))
                         : (dark
                               ? const Color(0xFF252A31)
                               : Colors.white.withValues(alpha: .9)),
-                    borderRadius: BorderRadius.circular(18),
+                    borderRadius: BorderRadius.circular(20),
                     border: Border.all(
                       color: accent.withValues(
-                        alpha: connected || failed ? .34 : .12,
+                        alpha: connected || failed
+                            ? .34
+                            : idle
+                            ? .08
+                            : .12,
                       ),
                     ),
+                    boxShadow: idle
+                        ? [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: .12),
+                              blurRadius: 18,
+                              offset: const Offset(0, 5),
+                            ),
+                          ]
+                        : null,
                   ),
                   child: Row(
                     children: [
                       AnimatedContainer(
                         duration: const Duration(milliseconds: 220),
-                        width: 38,
-                        height: 38,
+                        width: 40,
+                        height: 40,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: accent.withValues(
-                            alpha: connected || failed ? .13 : .08,
-                          ),
+                          color:
+                              (connected || failed ? accent : buttonForeground)
+                                  .withValues(alpha: idle ? .08 : .13),
                         ),
                         child: Center(
                           child: AnimatedSwitcher(
@@ -142,8 +174,8 @@ class ConnectButton extends ConsumerWidget {
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
-                                  color: foreground,
-                                  fontSize: 13,
+                                  color: buttonForeground,
+                                  fontSize: 14,
                                   height: 1.1,
                                   fontWeight: FontWeight.w800,
                                   letterSpacing: .45,
@@ -161,8 +193,8 @@ class ConnectButton extends ConsumerWidget {
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
-                                  color: failed ? AppTheme.errorColor : muted,
-                                  fontSize: 9.5,
+                                  color: detailForeground,
+                                  fontSize: 10,
                                   height: 1.15,
                                   fontWeight: FontWeight.w500,
                                 ),

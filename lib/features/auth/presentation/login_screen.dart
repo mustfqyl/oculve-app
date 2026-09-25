@@ -318,9 +318,9 @@ class _AccessCodeInput extends StatelessWidget {
                 boxShadow: focused && !error
                     ? [
                         BoxShadow(
-                          color: foreground.withValues(alpha: .08),
-                          blurRadius: 0,
-                          spreadRadius: 4,
+                          color: foreground.withValues(alpha: .09),
+                          blurRadius: 16,
+                          spreadRadius: 0.5,
                         ),
                       ]
                     : busy
