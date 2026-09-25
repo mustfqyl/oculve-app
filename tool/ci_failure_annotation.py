@@ -32,10 +32,10 @@ def main() -> int:
     with log_path.open("rb") as log:
         log.seek(0, os.SEEK_END)
         size = log.tell()
-        log.seek(max(0, size - 18_000))
+        log.seek(max(0, size - 60_000))
         excerpt = log.read().decode("utf-8", errors="replace")
     excerpt = redact(excerpt).strip() or "The command failed without producing output."
-    if size > 18_000:
+    if size > 60_000:
         excerpt = "[Earlier output omitted.]\n" + excerpt
 
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
@@ -43,8 +43,11 @@ def main() -> int:
         with Path(summary_path).open("a", encoding="utf-8") as summary:
             summary.write(f"### {title} failed\n\n```text\n{excerpt}\n```\n")
 
+    annotation = excerpt[-2_800:]
+    if len(excerpt) > len(annotation):
+        annotation = "[Earlier output omitted.]\n" + annotation
     safe_title = title.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-    safe_message = excerpt.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+    safe_message = annotation.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
     print(f"::error title={safe_title}::{safe_message}")
     return 0
 
