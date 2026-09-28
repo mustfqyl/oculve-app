@@ -108,7 +108,7 @@ install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   COMPONENT Runtime)
 
 # Runtime provisioning is explicit and checksum-verified before packaging.
-foreach(XRAY_FILE xray.exe tun2socks.exe wintun.dll)
+foreach(XRAY_FILE xray.exe tun2socks.exe wintun.dll byedpi.exe)
   if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/xray/${XRAY_FILE}")
     message(FATAL_ERROR "Run python tool/prepare_desktop.py windows before building")
   endif()

@@ -119,6 +119,8 @@ open class FlutterVlessPacketTunnelProvider: NEPacketTunnelProvider {
         let port: Int
         let geoAssetsDirectory: String?
         let credentials: LocalProxyCredentials
+        let dpiBypass: Bool
+        var physicalInterfaceName: String?
     }
 
     private func setForwardingReady(_ ready: Bool) {
@@ -132,7 +134,10 @@ open class FlutterVlessPacketTunnelProvider: NEPacketTunnelProvider {
     private func isForwardingReady() -> Bool {
         forwardingLock.lock()
         defer { forwardingLock.unlock() }
-        return forwardingReady && hevLifecycle.isRunning
+        guard forwardingReady else { return false }
+        return runtimeSpec?.dpiBypass == true
+            ? TunnelDpiRuntime.isRunning()
+            : hevLifecycle.isRunning
     }
 
     open override func startTunnel(options: [String : NSObject]? = nil) async throws {
@@ -152,6 +157,14 @@ open class FlutterVlessPacketTunnelProvider: NEPacketTunnelProvider {
         let storedConfig = try TunnelSecretProfile.load(providerConfiguration,
             providerBundleIdentifier: configuration.providerBundleIdentifier ?? "")
         let config = try DesktopBypassPolicy.apply(to: storedConfig, cidrs: bypassSubnets)
+        let dpiBypass = TunnelDpiRuntime.isDpiConfig(config)
+        let dpiInterfaceName: String?
+        if dpiBypass {
+            do { dpiInterfaceName = try await TunnelDpiRuntime.currentPhysicalInterface() }
+            catch { throw tunnelError("Unable to identify the physical network interface for DPI Bypass") }
+        } else {
+            dpiInterfaceName = nil
+        }
         TunnelDebugStore.shared.configure(groupIdentifier: providerConfiguration["groupIdentifier"] as? String)
         beginStartup()
         setForwardingReady(false)
@@ -214,7 +227,8 @@ open class FlutterVlessPacketTunnelProvider: NEPacketTunnelProvider {
         rememberTunnelLog("Protected tunnel routes and virtual DNS installed")
 
         runtimeSpec = RuntimeSpec(config: prepared.data, port: parsed.inboundPort,
-            geoAssetsDirectory: providerConfiguration["geoAssetsDirectory"] as? String, credentials: credentials)
+            geoAssetsDirectory: providerConfiguration["geoAssetsDirectory"] as? String, credentials: credentials,
+            dpiBypass: dpiBypass, physicalInterfaceName: dpiInterfaceName)
         startTunnelWatchdog(port: runtimeSpec?.port)
         // NE connected only means the routes are installed. The plugin
         // queries forwarding readiness before publishing CONNECTED.
@@ -277,8 +291,42 @@ open class FlutterVlessPacketTunnelProvider: NEPacketTunnelProvider {
     }
 
     private func startNativeRuntime(_ spec: RuntimeSpec) throws {
-        try startXRay(xrayConfig: spec.config, geoAssetsDirectory: spec.geoAssetsDirectory)
-        try startSocks5Tunnel(serverPort: spec.port, credentials: spec.credentials)
+        guard spec.dpiBypass else {
+            try startXRay(xrayConfig: spec.config, geoAssetsDirectory: spec.geoAssetsDirectory)
+            try startSocks5Tunnel(serverPort: spec.port, credentials: spec.credentials)
+            return
+        }
+        guard let interfaceName = spec.physicalInterfaceName, !interfaceName.isEmpty else {
+            throw tunnelError("Physical network interface is unavailable")
+        }
+        guard let tunnelFileDescriptor = TunnelDpiRuntime.packetTunnelFileDescriptor() else {
+            throw tunnelError("Xray could not locate the NetworkExtension TUN interface")
+        }
+        for profile in TunnelDpiRuntime.profileCandidates(interfaceName: interfaceName) {
+            let localProxyPort = TunnelDpiRuntime.start(profile: profile, interfaceName: interfaceName)
+            guard (1...65535).contains(localProxyPort),
+                  let config = TunnelDpiRuntime.config(data: spec.config, localProxyPort: localProxyPort,
+                    interfaceName: interfaceName) else {
+                _ = TunnelDpiRuntime.stop()
+                TunnelDpiRuntime.invalidate(profile: profile, interfaceName: interfaceName)
+                continue
+            }
+            do {
+                try startXRay(xrayConfig: config, geoAssetsDirectory: spec.geoAssetsDirectory,
+                              tunFileDescriptor: tunnelFileDescriptor)
+                if TunnelDpiRuntime.isRunning(),
+                   LocalProxyDelayClient.checkConnectivity(port: spec.port, credentials: spec.credentials) {
+                    TunnelDpiRuntime.save(profile: profile, interfaceName: interfaceName)
+                    rememberTunnelLog("Xray TUN and automatic DPI strategy passed authenticated HTTPS connectivity")
+                    return
+                }
+            } catch {
+                // Profile details and probe destinations stay out of diagnostics.
+            }
+            _ = stopNativeRuntime()
+            TunnelDpiRuntime.invalidate(profile: profile, interfaceName: interfaceName)
+        }
+        throw tunnelError("DPI Bypass could not establish verified Internet connectivity")
     }
 
     /// Runs on runtimeQueue. A blocked native quit must not stall NE teardown.
@@ -294,6 +342,7 @@ open class FlutterVlessPacketTunnelProvider: NEPacketTunnelProvider {
             }
         }
         stopXRay()
+        stopped = TunnelDpiRuntime.stop() && stopped
         if !stopped { rememberTunnelLog("Native shutdown pending; protected traffic remains blocked") }
         return stopped
     }
@@ -494,13 +543,17 @@ open class FlutterVlessPacketTunnelProvider: NEPacketTunnelProvider {
         }
     }
 
-    private func startXRay(xrayConfig: Data, geoAssetsDirectory: String?) throws {
+    private func startXRay(xrayConfig: Data, geoAssetsDirectory: String?, tunFileDescriptor: Int32? = nil) throws {
+        var error: NSError?
+        let descriptor = tunFileDescriptor ?? -1
+        guard XRaySetTunFileDescriptor(descriptor, &error) else {
+            rememberTunnelLog("Xray TUN descriptor configuration failed")
+            throw NativeLogPrivacy.operationError(error ?? tunnelError("Xray TUN descriptor configuration failed"))
+        }
+
         // This limits the Go runtime only. HEV session caps and bounded Swift/C
         // diagnostics below protect the rest of the extension memory budget.
         XRaySetMemoryLimit()
-
-        // Create an error pointer
-        var error: NSError?
 
         // This must cross the gomobile bridge: Swift setenv() is not visible to
         // Go's os.LookupEnv after the Go runtime has initialized on iOS.
@@ -537,6 +590,10 @@ open class FlutterVlessPacketTunnelProvider: NEPacketTunnelProvider {
 
     private func stopXRay() {
         XRayStop()
+        var error: NSError?
+        if !XRaySetTunFileDescriptor(-1, &error) {
+            rememberTunnelLog("Unable to clear Xray TUN descriptor after shutdown")
+        }
         tunnelLog.info("XRay stopped \(XRayGetVersion(), privacy: .public)")
     }
 
@@ -593,6 +650,20 @@ open class FlutterVlessPacketTunnelProvider: NEPacketTunnelProvider {
                 guard let self else { return }
                 rememberTunnelLog("Network path changed status=\(String(describing: path.status))")
                 if path.status == .satisfied {
+                    if var spec = self.runtimeSpec, spec.dpiBypass {
+                        if let interfaceName = TunnelDpiRuntime.interfaceName(in: path) {
+                            spec.physicalInterfaceName = interfaceName
+                            self.runtimeSpec = spec
+                        }
+                        // An access point or upstream network can change while
+                        // the interface remains en0. Re-test the cached profile
+                        // and restart the ordered profile scan if it no longer
+                        // reaches the verified HTTPS probes.
+                        rememberTunnelLog("Network path changed; revalidating automatic DPI selection")
+                        self.watchdogPolicy.reset()
+                        self.scheduleNativeRecovery(after: 0)
+                        return
+                    }
                     self.watchdogPolicy.reset()
                     self.scheduleTunnelHealthCheck(trigger: "path-change", after: 2)
                 }
@@ -648,16 +719,28 @@ open class FlutterVlessPacketTunnelProvider: NEPacketTunnelProvider {
               let credentials = runtimeSpec?.credentials else {
             return false
         }
-        guard !hevLifecycle.isStopRequested, hevLifecycle.isRunning else {
+        let dpiBypass = runtimeSpec?.dpiBypass == true
+        if dpiBypass ? !TunnelDpiRuntime.isRunning() :
+            (hevLifecycle.isStopRequested || !hevLifecycle.isRunning) {
             setForwardingReady(false)
-            scheduleNativeRecovery(after: 3)
+            rememberTunnelLog(dpiBypass
+                ? "Managed DPI engine exited; restarting inside the protected tunnel"
+                : "HEV packet bridge exited; restarting inside the protected tunnel")
+            scheduleNativeRecovery(after: 0)
             return false
         }
 
         let inboundResult = socksInboundHealthCheck(port: port, credentials: credentials)
         watchdogInboundHealthy = inboundResult.hasPrefix("ok")
-        let connectResult = socksConnectHealthCheck(port: port, credentials: credentials)
-        let httpResult = socksHTTPHealthCheck(port: port, credentials: credentials)
+        let dpiProbe = dpiBypass
+            ? LocalProxyDelayClient.checkConnectivity(port: port, credentials: credentials)
+            : nil
+        let connectResult = dpiBypass
+            ? ((dpiProbe == true) ? "ok authenticated HTTPS connectivity" : "authenticated HTTPS connectivity failed")
+            : socksConnectHealthCheck(port: port, credentials: credentials)
+        let httpResult = dpiBypass
+            ? ((dpiProbe == true) ? "ok authenticated HTTPS response" : "authenticated HTTPS response failed")
+            : socksHTTPHealthCheck(port: port, credentials: credentials)
         if let hevLogURL {
             try? TunnelFileLog.trimIfNeeded(hevLogURL)
         }

@@ -92,6 +92,7 @@ flutter:
     - assets/oculve-logo.svg
     - assets/oculve-logo-light.svg
     - assets/oculve-logo-navbar.svg
+    - assets/dpi_bypass_packet.svg
     - assets/flags/
     - assets/tray_icon_macos.png
     - assets/tray_icon_windows.ico

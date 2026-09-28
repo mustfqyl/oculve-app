@@ -83,6 +83,49 @@ final class TunnelDNSPolicyTests: XCTestCase {
         }
     }
 
+    func testSupportedUserDoHResolversRemainUsableThroughTheTunnel() throws {
+        let resolvers = [
+            "https://cloudflare-dns.com/dns-query": "1.1.1.1",
+            "https://dns.google/dns-query": "8.8.8.8",
+            "https://dns.quad9.net/dns-query": "9.9.9.9"
+        ]
+        for (server, address) in resolvers {
+            var config: [String: Any] = [
+                "inbounds": [["tag": "socks", "listen": "127.0.0.1", "protocol": "socks", "port": 10808]],
+                "outbounds": [
+                    ["tag": "byedpi", "protocol": "socks", "settings": ["servers": [["address": "127.0.0.1", "port": 12345]]]],
+                    ["tag": "direct", "protocol": "freedom"],
+                    ["tag": "block", "protocol": "blackhole"]
+                ],
+                "dns": ["servers": [server], "queryStrategy": "UseIPv4"]
+            ]
+
+            let addresses = try XCTUnwrap(TunnelDNSPolicy.apply(to: &config, resolveIPv4: { _ in nil }))
+            let dns = try XCTUnwrap(config["dns"] as? [String: Any])
+            XCTAssertEqual(dns["servers"] as? [String], ["tcp://\(address)"])
+            let relay = try XCTUnwrap((config["outbounds"] as? [[String: Any]])?.first(where: {
+                ($0["tag"] as? String) == "flutter-vless-system-dns"
+            }))
+            XCTAssertEqual(((relay["streamSettings"] as? [String: Any])?["sockopt"] as? [String: String])?["dialerProxy"], "byedpi")
+            XCTAssertEqual(addresses, ["127.0.0.1"])
+        }
+    }
+
+    func testPartialDNSSettingsUseProtectedDefaultResolver() throws {
+        var config: [String: Any] = [
+            "dns": ["queryStrategy": "UseIPv4"],
+            "outbounds": [[
+                "tag": "byedpi", "protocol": "socks",
+                "settings": ["servers": [["address": "127.0.0.1", "port": 12345]]]
+            ]]
+        ]
+
+        let addresses = try XCTUnwrap(TunnelDNSPolicy.apply(to: &config, resolveIPv4: { _ in nil }))
+
+        XCTAssertEqual(addresses, ["127.0.0.1"])
+        XCTAssertEqual((config["dns"] as? [String: Any])?["servers"] as? [String], ["tcp://1.1.1.1"])
+    }
+
     func testBootstrapFailureAndTagCollisionsRejectPreparation() {
         var config: [String: Any] = ["outbounds": [["protocol": "http", "settings": ["address": "unresolved.example", "port": 443]]]]
         XCTAssertNil(TunnelDNSPolicy.apply(to: &config, resolveIPv4: { _ in nil }))

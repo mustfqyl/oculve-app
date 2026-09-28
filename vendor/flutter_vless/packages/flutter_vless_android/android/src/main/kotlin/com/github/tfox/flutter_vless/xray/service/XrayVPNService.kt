@@ -44,6 +44,8 @@ class XrayVPNService : VpnService() {
     private var credentials: LocalProxyCredentials? = null
     private var tunConfigFile: File? = null
     private var socketFile: File? = null
+    private val dpiEngine = ByeDpiEngine()
+    private lateinit var dpiProfileCache: DpiProfileCache
     private var diagnosticsGeneration = 0L
     private var connectedAt = 0L
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
@@ -52,6 +54,7 @@ class XrayVPNService : VpnService() {
     override fun onCreate() {
         super.onCreate()
         profiles = AuthorizedProfileStore(this)
+        dpiProfileCache = DpiProfileCache(this)
         // Cold start cleanup must also run when authorization cannot be decrypted or is absent.
         // The helper preserves files referenced by live native workers and all standalone delays.
         worker.execute { SessionRuntimeFiles.removeAbandoned(noBackupFilesDir) }
@@ -142,7 +145,7 @@ class XrayVPNService : VpnService() {
             candidateDnsServers = dns.systemDnsServers
             val runtime = XrayCoreManager.buildRuntimeConfigJson(candidate, noBackupFilesDir, secret)
             require(XrayCoreManager.validateNative(this, runtime)) { "Native configuration rejected" }
-            if (!candidate.PROXY_ONLY) SessionReadinessProbe.selectHost(runtime)
+            if (!candidate.PROXY_ONLY && !candidate.DPI_BYPASS) SessionReadinessProbe.selectHost(runtime)
             runtime
         } catch (_: Exception) {
             event(Event.CONFIG_REJECTED)
@@ -178,7 +181,7 @@ class XrayVPNService : VpnService() {
         if (!stopWorkers()) { recover(Event.WORKER_START_FAILED); return }
         val current = config ?: return
         try {
-            if (current.ANDROID_DNS_POLICY == "proxy" && recovery.failures > 0) {
+            if (current.ANDROID_DNS_POLICY == "proxy" && recovery.failures > 0 && !current.DPI_BYPASS) {
                 val source = requireNotNull(sourceConfig)
                 val dns = AndroidTunnelDnsPolicy.prepare(source.V2RAY_FULL_JSON_CONFIG, source.ANDROID_DNS_POLICY,
                     source.ANDROID_DNS_PROXY_OUTBOUND_TAG, source.BYPASS_SUBNETS) {
@@ -190,6 +193,10 @@ class XrayVPNService : VpnService() {
             }
             protector = if (current.PROXY_ONLY) null else XraySocketProtector(this).also {
                 it.allowPhysicalDnsForEndpointNames(if (current.ANDROID_DNS_POLICY == "proxy") emptySet() else null)
+            }
+            if (current.DPI_BYPASS) {
+                startDpiBypass(current, owner)
+                return
             }
             val runtime = if (current.PROXY_ONLY) requireNotNull(prepared) else {
                 SessionReadinessProbe(SessionReadinessProbe.selectHost(requireNotNull(prepared)))
@@ -224,6 +231,77 @@ class XrayVPNService : VpnService() {
             showForeground("Connected")
             tick(owner, 0)
         } catch (_: Exception) { if (recovery.owns(owner)) recover(if (tun == null) Event.TUN_FAILED else Event.WORKER_START_FAILED) }
+    }
+
+    /** A cached preset is tried first; failed connectivity advances through all internal presets. */
+    private fun startDpiBypass(current: XrayConfig, owner: Long) {
+        if (!recovery.owns(owner)) return
+        val secret = requireNotNull(credentials)
+        var forwardingStarted = process?.isAlive == true
+        val source = requireNotNull(sourceConfig)
+        for (profile in dpiProfileCache.candidates()) {
+            if (!recovery.owns(owner)) return
+            val tunnelProtector = requireNotNull(protector)
+            val endpointPort = dpiEngine.start(profile, "@${tunnelProtector.socketName}")
+            if (endpointPort !in 1..65535) {
+                runCatching { dpiEngine.stop() }
+                continue
+            }
+            try {
+                val sourceJson = JSONObject(source.V2RAY_FULL_JSON_CONFIG)
+                val outbounds = sourceJson.getJSONArray("outbounds")
+                var endpointUpdated = false
+                for (index in 0 until outbounds.length()) {
+                    val outbound = outbounds.getJSONObject(index)
+                    if (outbound.optString("tag") != "byedpi" || outbound.optString("protocol") != "socks") continue
+                    val servers = outbound.getJSONObject("settings").getJSONArray("servers")
+                    require(servers.length() == 1) { "Invalid local DPI endpoint" }
+                    val server = servers.getJSONObject(0)
+                    require(server.optString("address") == "127.0.0.1") { "Invalid local DPI endpoint" }
+                    server.put("port", endpointPort)
+                    endpointUpdated = true
+                }
+                require(endpointUpdated) { "Missing local DPI outbound" }
+                val dns = AndroidTunnelDnsPolicy.prepare(sourceJson.toString(), current.ANDROID_DNS_POLICY,
+                    current.ANDROID_DNS_PROXY_OUTBOUND_TAG, current.BYPASS_SUBNETS) {
+                    XraySocketProtector.resolveBootstrapHostname(this, it)
+                }
+                current.V2RAY_FULL_JSON_CONFIG = dns.configJson
+                current.DPI_PROFILE = profile
+                val runtime = XrayCoreManager.buildRuntimeConfigJson(current, noBackupFilesDir, secret)
+                if (!XrayCoreManager.startCore(this, current, runtime, protector, owner) { generation, code ->
+                    worker.execute { if (recovery.owns(generation)) { event(Event.WORKER_EXIT, code.toLong()); recover(Event.WORKER_EXIT) } }
+                }) {
+                    runCatching { dpiEngine.stop() }
+                    continue
+                }
+                if (!recovery.owns(owner)) { stopWorkers(); return }
+                if (tun == null || interfaceSignature != interfaceSignature(current)) setupVpn(current)
+                if (!forwardingStarted) {
+                    startTun2socks(current, secret, owner)
+                    if (!sendFd(owner)) { recover(Event.FD_FAILED); return }
+                    event(Event.FD_SENT)
+                    forwardingStarted = true
+                }
+                if (AuthenticatedSocksClient.checkConnectivity(current.LOCAL_SOCKS5_PORT, secret)) {
+                    dpiProfileCache.save(profile)
+                    current.V2RAY_FULL_JSON_CONFIG = source.V2RAY_FULL_JSON_CONFIG
+                    prepared = runtime
+                    recovery.recovered()
+                    connectedAt = System.nanoTime()
+                    event(Event.CONNECTED)
+                    XrayCoreManager.publishState(this, AppConfigs.V2RAY_STATES.V2RAY_CONNECTED)
+                    showForeground("Connected")
+                    tick(owner, 0)
+                    return
+                }
+            } catch (_: Exception) {
+                // Profile-specific details and destination hosts stay out of diagnostics.
+            }
+            XrayCoreManager.stopWorkers()
+            runCatching { dpiEngine.stop() }
+        }
+        recover(Event.PATH_PROBE_FAILED)
     }
 
     private fun setupVpn(current: XrayConfig) {
@@ -291,10 +369,18 @@ class XrayVPNService : VpnService() {
     private fun tick(owner: Long, count: Int) {
         worker.schedule({
             if (!recovery.owns(owner)) return@schedule
+            if (count > 0 && config?.DPI_BYPASS == true && count % 5 == 0 && !dpiEngine.isRunning()) {
+                recover(Event.WORKER_EXIT); return@schedule
+            }
             if (count > 0 && count % 30 == 0 && config?.PROXY_ONLY == false) {
-                try { probeAuthenticatedPath() }
-                catch (_: Exception) { recover(Event.AUTH_PROBE_FAILED); return@schedule }
-                if (config?.BLOCKED_APPS?.contains(packageName) == false) {
+                try {
+                    if (config?.DPI_BYPASS == true) {
+                        if (!AuthenticatedSocksClient.checkConnectivity(requireNotNull(config).LOCAL_SOCKS5_PORT, credentials)) {
+                            recover(Event.PATH_PROBE_FAILED); return@schedule
+                        }
+                    } else probeAuthenticatedPath()
+                } catch (_: Exception) { recover(Event.AUTH_PROBE_FAILED); return@schedule }
+                if (config?.DPI_BYPASS != true && config?.BLOCKED_APPS?.contains(packageName) == false) {
                     try { requireNotNull(readinessProbe).verify() }
                     catch (_: Exception) { recover(Event.PATH_PROBE_FAILED); return@schedule }
                 }
@@ -320,6 +406,7 @@ class XrayVPNService : VpnService() {
             if (!child.waitFor(1, TimeUnit.SECONDS)) { process = child; return false }
         }
         if (!XrayCoreManager.stopWorkers()) return false
+        if (!runCatching { dpiEngine.stop() }.getOrDefault(false)) return false
         readinessProbe?.close(); readinessProbe = null
         protector?.close(); protector = null
         tunConfigFile?.delete(); tunConfigFile = null

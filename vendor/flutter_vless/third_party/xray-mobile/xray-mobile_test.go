@@ -67,3 +67,34 @@ func TestSetAssetLocationRejectsRelativeAndEmptyFiles(t *testing.T) {
 		t.Fatal("SetAssetLocation accepted empty geo assets")
 	}
 }
+
+func TestSetTunFileDescriptorUpdatesAndClearsGoEnvironment(t *testing.T) {
+	key := platform.TunFdKey
+	altKey := platform.NormalizeEnvName(key)
+	t.Setenv(key, "stale")
+	t.Setenv(altKey, "stale")
+
+	if err := SetTunFileDescriptor(17); err != nil {
+		t.Fatalf("SetTunFileDescriptor returned an error: %v", err)
+	}
+	flag := platform.NewEnvFlag(key)
+	if got := flag.GetValue(func() string { return "" }); got != "17" {
+		t.Fatalf("Xray env lookup = %q, want 17", got)
+	}
+	if got := os.Getenv(altKey); got != "17" {
+		t.Fatalf("alternate Xray env = %q, want 17", got)
+	}
+	if err := SetTunFileDescriptor(2); err == nil {
+		t.Fatal("SetTunFileDescriptor accepted a standard stream descriptor")
+	}
+
+	if err := SetTunFileDescriptor(-1); err != nil {
+		t.Fatalf("clearing the TUN descriptor returned an error: %v", err)
+	}
+	if _, found := os.LookupEnv(key); found {
+		t.Fatalf("%s was not cleared", key)
+	}
+	if _, found := os.LookupEnv(altKey); found {
+		t.Fatalf("%s was not cleared", altKey)
+	}
+}

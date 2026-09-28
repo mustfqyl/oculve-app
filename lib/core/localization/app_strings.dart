@@ -118,6 +118,7 @@ class AppStrings {
     'Delete rule': 'Eliminar regla',
     'Diagnostics': 'Diagnóstico',
     'Direct connection': 'Conexión directa',
+    'DPI Bypass': 'Evitar DPI',
     'Disconnect before changing location.':
         'Desconéctate antes de cambiar de ubicación.',
     'Devices': 'Dispositivos',
@@ -846,6 +847,7 @@ class AppStrings {
     'Delete rule': 'Kuralı sil',
     'Diagnostics': 'Tanılama',
     'Direct connection': 'Doğrudan bağlantı',
+    'DPI Bypass': 'DPI engelini aş',
     'Disconnect before changing location.':
         'Konumu değiştirmeden önce bağlantıyı kes.',
     'Devices': 'Cihazlar',

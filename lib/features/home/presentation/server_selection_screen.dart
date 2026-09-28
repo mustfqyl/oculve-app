@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart' hide Text;
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:oculve/core/localization/localized_text.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:oculve/features/auth/data/auth_repository.dart';
@@ -225,53 +226,45 @@ class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
           if (profiles.isEmpty)
             Text(context.tr('No servers available. Check your subscription.')),
           Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: FrostedCard(
-              key: const ValueKey('optimal-server-card'),
-              padding: EdgeInsets.zero,
-              borderRadius: 14,
-              borderColor: selected == optimalServerId
-                  ? AppTheme.successColor.withValues(alpha: .75)
-                  : null,
-              borderWidth: selected == optimalServerId ? 1.1 : .5,
-              child: Material(
-                color: Colors.transparent,
-                borderRadius: BorderRadius.circular(14),
-                child: ListTile(
-                  dense: true,
-                  minTileHeight: 56,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  leading: FrostedCircle(
-                    size: 34,
-                    blurAmount: 15,
-                    color: AppTheme.successColor.withValues(alpha: .1),
-                    child: const Icon(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: _ServerModeCard(
+                    key: const ValueKey('optimal-server-card'),
+                    label: context.tr('Optimal'),
+                    selected: selected == optimalServerId,
+                    enabled: enabled,
+                    accentColor: AppTheme.successColor,
+                    icon: const Icon(
                       Icons.bolt_rounded,
                       size: 21,
                       color: AppTheme.successColor,
                     ),
+                    onTap: () {
+                      ref.read(selectedServerProvider.notifier).state =
+                          optimalServerId;
+                      Navigator.pop(context);
+                    },
                   ),
-                  title: Text(
-                    context.tr('Optimal'),
-                    style: const TextStyle(
-                      fontSize: AppTheme.fontSizeBody,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  subtitle: Text(
-                    context.tr('Automatic selection'),
-                    style: const TextStyle(fontSize: AppTheme.fontSizeCaption),
-                  ),
-                  enabled: enabled,
-                  onTap: () {
-                    ref.read(selectedServerProvider.notifier).state =
-                        optimalServerId;
-                    Navigator.pop(context);
-                  },
                 ),
-              ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _ServerModeCard(
+                    key: const ValueKey('dpi-bypass-server-card'),
+                    label: context.tr('DPI Bypass'),
+                    selected: selected == dpiBypassServerId,
+                    enabled: enabled,
+                    accentColor: Colors.blueAccent,
+                    icon: const _DpiBypassLogo(),
+                    onTap: () {
+                      ref.read(selectedServerProvider.notifier).state =
+                          dpiBypassServerId;
+                      Navigator.pop(context);
+                    },
+                  ),
+                ),
+              ],
             ),
           ),
           Padding(
@@ -287,6 +280,84 @@ class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
           if (ordered.isNotEmpty) serverRows,
         ],
       ),
+    );
+  }
+}
+
+class _ServerModeCard extends StatelessWidget {
+  const _ServerModeCard({
+    super.key,
+    required this.label,
+    required this.selected,
+    required this.enabled,
+    required this.accentColor,
+    required this.icon,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final bool enabled;
+  final Color accentColor;
+  final Widget icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return FrostedCard(
+      padding: EdgeInsets.zero,
+      borderRadius: 14,
+      borderColor: selected ? accentColor.withValues(alpha: .75) : null,
+      borderWidth: selected ? 1.1 : .5,
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: enabled ? onTap : null,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 82),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  FrostedCircle(
+                    size: 36,
+                    blurAmount: 15,
+                    color: accentColor.withValues(alpha: .1),
+                    child: icon,
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: AppTheme.fontSizeBody,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DpiBypassLogo extends StatelessWidget {
+  const _DpiBypassLogo();
+
+  @override
+  Widget build(BuildContext context) {
+    return SvgPicture.asset(
+      'assets/dpi_bypass_packet.svg',
+      width: 24,
+      height: 24,
     );
   }
 }

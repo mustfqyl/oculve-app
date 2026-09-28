@@ -45,6 +45,59 @@ class LinuxTunnelConfigTest(unittest.TestCase):
         )
         self.assertEqual(config['dns']['servers'], ['tcp://9.9.9.9'])
 
+    def test_dpi_mode_uses_only_local_bydpi_direct_and_block_outbounds(self):
+        config = HELPER.build_dpi_config('wlan0', [], '9.9.9.9', 43127)
+        outbounds = {item['tag']: item for item in config['outbounds']}
+        self.assertEqual(set(outbounds), {'byedpi', 'direct', 'block'})
+        self.assertNotIn('vless', [item['protocol'] for item in config['outbounds']])
+        self.assertEqual(
+            outbounds['byedpi']['settings']['servers'],
+            [{'address': '127.0.0.1', 'port': 43127}],
+        )
+        self.assertEqual(
+            outbounds['direct']['streamSettings']['sockopt']['interface'], 'wlan0',
+        )
+        self.assertEqual(config['inbounds'][0]['settings']['name'], 'oculve0')
+        self.assertEqual(config['routing']['rules'][0]['outboundTag'], 'block')
+
+    def test_dpi_routing_rules_map_existing_actions_to_xray_outbounds(self):
+        rules = [
+            {'type': 'field', 'domain': ['domain:gstatic.com'], 'outboundTag': 'direct'},
+            {'type': 'field', 'domain': ['domain:discord.com'], 'outboundTag': 'proxy'},
+            {'type': 'field', 'process': ['RobloxPlayerBeta.exe'], 'outboundTag': 'direct'},
+            {'type': 'field', 'ip': ['geoip:private'], 'outboundTag': 'block'},
+        ]
+        config = HELPER.build_dpi_config('en0', [], '1.1.1.1', 45001, rules)
+        self.assertEqual(
+            [rule['outboundTag'] for rule in config['routing']['rules']],
+            ['block', 'byedpi', 'byedpi', 'direct', 'byedpi', 'direct', 'block'],
+        )
+        self.assertEqual(
+            config['routing']['rules'][1]['domain'], ['full:www.gstatic.com'],
+        )
+        self.assertEqual(
+            config['routing']['rules'][2]['domain'], ['full:cp.cloudflare.com'],
+        )
+        self.assertLess(
+            config['routing']['rules'].index(next(
+                rule for rule in config['routing']['rules'] if 'full:www.gstatic.com' in rule.get('domain', [])
+            )),
+            config['routing']['rules'].index(next(
+                rule for rule in config['routing']['rules'] if 'domain:gstatic.com' in rule.get('domain', [])
+            )),
+        )
+        self.assertEqual(config['routing']['domainStrategy'], 'IPIfNonMatch')
+
+    def test_dpi_mode_rejects_missing_or_remote_proxy_endpoints(self):
+        for value in (0, -1, 65536, True, '1080'):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                HELPER.build_dpi_config('eth0', [], '9.9.9.9', value)
+        for target in ('vpn', 'node', None):
+            with self.subTest(target=target), self.assertRaises(ValueError):
+                HELPER.validate_routing_rules([
+                    {'type': 'field', 'domain': ['domain:example.com'], 'outboundTag': target},
+                ], 'byedpi')
+
     def test_xray_log_level_is_allowlisted_without_enabling_file_sinks(self):
         for level in ('debug', 'info', 'warning', 'error', 'none'):
             with self.subTest(level=level):

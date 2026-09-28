@@ -42,8 +42,12 @@ class TestPlatform extends VlessPlatform {
   late void Function(VlessStatus) emit;
   bool permission = true;
   int starts = 0;
+  int stops = 0;
   String? lastConfig;
   String? lastRemark;
+  bool lastDpiBypass = false;
+  int lastDpiProfile = -1;
+  String? lastAndroidDnsProxyOutboundTag;
   @override
   Future<void> initializeVless({
     required void Function(VlessStatus) onStatusChanged,
@@ -65,6 +69,8 @@ class TestPlatform extends VlessPlatform {
     required String notificationDisconnectButtonName,
     List<String>? blockedApps,
     List<String>? bypassSubnets,
+    bool dpiBypass = false,
+    int dpiProfile = 0,
     bool proxyOnly = false,
     String? geoAssetsDirectory,
     AndroidDnsPolicy androidDnsPolicy = AndroidDnsPolicy.config,
@@ -75,10 +81,14 @@ class TestPlatform extends VlessPlatform {
     starts++;
     lastRemark = remark;
     lastConfig = config;
+    lastDpiBypass = dpiBypass;
+    lastDpiProfile = dpiProfile;
+    lastAndroidDnsProxyOutboundTag = androidDnsProxyOutboundTag;
   }
 
   @override
   Future<void> stopVless() async {
+    stops++;
     emit(VlessStatus());
   }
 }
@@ -291,6 +301,119 @@ void main() {
       );
     },
   );
+
+  test(
+    'DPI Bypass uses a built-in config and applies saved routing in Xray',
+    () async {
+      await XrayPreferences.setRoutingRules(const [
+        XrayRoutingRule(
+          action: XrayRoutingAction.proxy,
+          domains: ['domain:example.org'],
+        ),
+        XrayRoutingRule(
+          action: XrayRoutingAction.direct,
+          domains: ['domain:gstatic.com', 'domain:direct.example'],
+        ),
+        XrayRoutingRule(
+          action: XrayRoutingAction.block,
+          domains: ['domain:blocked.example'],
+        ),
+      ]);
+      final beforeRequests = List<String>.from(api.requests);
+      container.read(selectedServerProvider.notifier).state = dpiBypassServerId;
+
+      await container.read(vpnProvider.notifier).connect();
+
+      expect(api.requests, beforeRequests);
+      expect(platform.lastRemark, 'DPI Bypass');
+      expect(platform.lastDpiBypass, isTrue);
+      expect(platform.lastDpiProfile, 0);
+      expect(platform.lastAndroidDnsProxyOutboundTag, 'byedpi');
+      final config = jsonDecode(platform.lastConfig!) as Map<String, dynamic>;
+      final inbounds = config['inbounds'] as List;
+      expect(inbounds, hasLength(1));
+      expect(inbounds.single['listen'], '127.0.0.1');
+      expect(inbounds.single['port'], 10808);
+      final outbounds = config['outbounds'] as List;
+      expect(outbounds.map((item) => item['tag']), [
+        'byedpi',
+        'direct',
+        'block',
+      ]);
+      final byedpi = outbounds.first as Map<String, dynamic>;
+      expect(byedpi['protocol'], 'socks');
+      expect(byedpi['settings']['servers'], [
+        {'address': '127.0.0.1', 'port': 65535},
+      ]);
+      expect(byedpi['targetStrategy'], 'UseIP');
+      expect(outbounds[1]['protocol'], 'freedom');
+      expect(outbounds[2]['protocol'], 'blackhole');
+      expect(outbounds.any((item) => item['protocol'] == 'vless'), isFalse);
+      expect(config['dns']['servers'], [
+        'https://cloudflare-dns.com/dns-query',
+      ]);
+      final rules = config['routing']['rules'] as List;
+      expect(rules[0]['domain'], ['full:www.gstatic.com']);
+      expect(rules[0]['outboundTag'], 'byedpi');
+      expect(rules[1]['domain'], ['full:cp.cloudflare.com']);
+      expect(rules[1]['outboundTag'], 'byedpi');
+      expect(rules[2]['domain'], ['domain:example.org']);
+      expect(rules[2]['outboundTag'], 'byedpi');
+      expect(rules[3]['domain'], [
+        'domain:gstatic.com',
+        'domain:direct.example',
+      ]);
+      expect(rules[3]['outboundTag'], 'direct');
+      expect(rules[4]['domain'], ['domain:blocked.example']);
+      expect(rules[4]['outboundTag'], 'block');
+    },
+  );
+
+  test('DPI Bypass to VPN to DPI Bypass switches modes cleanly', () async {
+    final profile = VpnProfile.parseSubscription(testLink).single;
+    container.read(sessionProvider.notifier).state = AsyncValue.data(
+      Account({'status': 'active'}, [profile]),
+    );
+    final controller = container.read(vpnProvider.notifier);
+
+    container.read(selectedServerProvider.notifier).state = dpiBypassServerId;
+    await controller.connect();
+    expect(platform.lastDpiBypass, isTrue);
+    expect(
+      (jsonDecode(platform.lastConfig!) as Map)['outbounds'].any(
+        (item) => item['protocol'] == 'vless',
+      ),
+      isFalse,
+    );
+    platform.emit(VlessStatus(state: 'CONNECTED'));
+    await controller.disconnect();
+
+    container.read(selectedServerProvider.notifier).state = profile.id;
+    await controller.connect();
+    expect(platform.lastDpiBypass, isFalse);
+    expect(
+      (jsonDecode(platform.lastConfig!) as Map)['outbounds'].any(
+        (item) => item['protocol'] == 'vless',
+      ),
+      isTrue,
+    );
+    platform.emit(VlessStatus(state: 'CONNECTED'));
+    await controller.disconnect();
+
+    final requestCount = api.requests.length;
+    container.read(selectedServerProvider.notifier).state = dpiBypassServerId;
+    await controller.connect();
+    expect(platform.lastDpiBypass, isTrue);
+    expect(platform.starts, 3);
+    expect(platform.stops, 2);
+    expect(api.requests, hasLength(requestCount));
+    expect(
+      (jsonDecode(platform.lastConfig!) as Map)['outbounds'].any(
+        (item) => item['protocol'] == 'vless',
+      ),
+      isFalse,
+    );
+  });
 
   test(
     'legacy sniffing overrides do not replace imported profile defaults',

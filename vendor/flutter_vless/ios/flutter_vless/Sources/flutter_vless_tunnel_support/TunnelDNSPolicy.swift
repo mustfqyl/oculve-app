@@ -159,8 +159,9 @@ public enum TunnelDNSPolicy {
 
     private static func configuredResolver(_ config: [String: Any]) -> String? {
         guard let rawDNS = config["dns"] else { return "1.1.1.1" }
-        guard let dns = rawDNS as? [String: Any],
-              let servers = dns["servers"] as? [String], servers.count == 1,
+        guard let dns = rawDNS as? [String: Any] else { return nil }
+        guard let rawServers = dns["servers"] else { return "1.1.1.1" }
+        guard let servers = rawServers as? [String], servers.count == 1,
               servers[0].hasPrefix("tcp://") else { return nil }
         let address = String(servers[0].dropFirst("tcp://".count))
         var parsed = in_addr()

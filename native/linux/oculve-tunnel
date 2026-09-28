@@ -1,9 +1,11 @@
 #!/usr/bin/python3
 """Privileged Linux tunnel supervisor. Install root-owned; invoked via pkexec.
-Requires iproute2, systemd-resolved, curl and the pinned Xray runtime.
-Accepts a bounded VLESS outbound and builds the privileged TUN config itself.
+Requires iproute2, systemd-resolved, curl and pinned Xray/ByeDPI runtimes.
+Accepts a bounded VLESS outbound or the client-owned DPI mode and builds the
+privileged TUN config itself.
 """
 import ipaddress
+import hashlib
 import json
 import math
 import os
@@ -13,10 +15,14 @@ import signal
 import subprocess
 import sys
 import time
+import tempfile
+from urllib.parse import urlsplit
 
 TUN = 'oculve0'
 XRAY = '/usr/lib/oculve/xray'
+BYEDPI = '/usr/lib/oculve/byedpi'
 process = None
+dpi_process = None
 routes = []
 stopping = False
 owns_tun = False
@@ -136,6 +142,78 @@ def validate_bypass_domains(values):
         raise ValueError('Invalid bypass domain')
     return list(dict.fromkeys(values))
 
+def validate_routing_rules(values, proxy_tag):
+    if not isinstance(values, list) or len(values) > 32:
+        raise ValueError('Invalid routing rules')
+    list_keys = ('domain', 'ip', 'network', 'sourceIP', 'localIP', 'inboundTag', 'user', 'protocol', 'process')
+    port_keys = ('port', 'sourcePort', 'localPort')
+    allowed = set(list_keys) | set(port_keys) | {'type', 'attrs', 'ruleTag', 'webhook', 'outboundTag'}
+    result = []
+    for rule in values:
+        if not isinstance(rule, dict) or set(rule) - allowed:
+            raise ValueError('Unsupported routing rule')
+        if rule.get('type', 'field') != 'field':
+            raise ValueError('Unsupported routing rule type')
+        tag = rule.get('outboundTag', proxy_tag)
+        if tag not in ('proxy', 'byedpi', 'direct', 'block'):
+            raise ValueError('Unsupported routing target')
+        configured = {'type': 'field', 'outboundTag': proxy_tag if tag in ('proxy', 'byedpi') else tag}
+        has_match = False
+        for key in list_keys:
+            if key not in rule:
+                continue
+            items = rule[key]
+            if not isinstance(items, list) or len(items) > 32 or any(
+                    not isinstance(item, str) or not item or len(item) > 256 or
+                    any(ord(char) < 32 for char in item) for item in items):
+                raise ValueError('Invalid routing match')
+            configured[key] = list(items)
+            has_match = has_match or bool(items)
+        for key in port_keys:
+            if key not in rule:
+                continue
+            value = rule[key]
+            if not isinstance(value, str) or not value or len(value) > 256 or any(ord(char) < 32 for char in value):
+                raise ValueError('Invalid routing port match')
+            configured[key] = value
+            has_match = True
+        if 'attrs' in rule:
+            attrs = rule['attrs']
+            if not isinstance(attrs, dict) or len(attrs) > 32 or any(
+                    not isinstance(key, str) or not isinstance(value, str) or
+                    not key or len(key) > 128 or not value or len(value) > 512 or
+                    any(ord(char) < 32 for char in key + value) for key, value in attrs.items()):
+                raise ValueError('Invalid routing attributes')
+            configured['attrs'] = dict(attrs)
+            has_match = has_match or bool(attrs)
+        if not has_match:
+            raise ValueError('Routing rule has no match')
+        if 'ruleTag' in rule:
+            value = rule['ruleTag']
+            if not isinstance(value, str) or len(value) > 256 or any(ord(char) < 32 for char in value):
+                raise ValueError('Invalid routing rule tag')
+            if value:
+                configured['ruleTag'] = value
+        if 'webhook' in rule:
+            webhook = rule['webhook']
+            if not isinstance(webhook, dict) or set(webhook) - {'url', 'deduplication', 'headers'}:
+                raise ValueError('Invalid routing webhook')
+            parsed = urlsplit(webhook.get('url', ''))
+            if parsed.scheme not in ('http', 'https') or not parsed.hostname or parsed.username or parsed.password or parsed.fragment:
+                raise ValueError('Invalid routing webhook URL')
+            deduplication = webhook.get('deduplication', 300)
+            headers = webhook.get('headers', {})
+            if not isinstance(deduplication, int) or isinstance(deduplication, bool) or not 0 <= deduplication <= 86400:
+                raise ValueError('Invalid routing webhook interval')
+            if not isinstance(headers, dict) or len(headers) > 16 or any(
+                    not isinstance(key, str) or not isinstance(value, str) or len(key) > 128 or len(value) > 2048 or
+                    any(ord(char) < 32 for char in key + value) for key, value in headers.items()):
+                raise ValueError('Invalid routing webhook headers')
+            configured['webhook'] = {'url': webhook['url'], 'deduplication': deduplication,
+                                     **({'headers': headers} if headers else {})}
+        result.append(configured)
+    return result
+
 def validate_mux(value, flow):
     if not isinstance(value, dict) or set(value) != {
             'enabled', 'concurrency', 'xudpConcurrency', 'xudpProxyUDP443'}:
@@ -211,14 +289,18 @@ def validate_version_guard(value):
             raise ValueError('Invalid Xray version range')
     return result
 
-def build_config(outbound, dev, bypass_domains, dns_server, log_level='warning', version=None):
+def build_config(outbound, dev, bypass_domains, dns_server, log_level='warning', version=None,
+                 routing_rules=None):
     log_level = validate_log_level(log_level)
     version = validate_version_guard(version)
+    configured_rules = validate_routing_rules(routing_rules or [], 'proxy')
     rules = [{'type': 'field', 'ip': ['::/0'], 'outboundTag': 'block'}]
     outbounds = [outbound, {'tag': 'block', 'protocol': 'blackhole'}]
-    if bypass_domains:
+    if bypass_domains or any(rule['outboundTag'] == 'direct' for rule in configured_rules):
         outbounds.append({'tag': 'direct', 'protocol': 'freedom', 'streamSettings': {
             'sockopt': {'interface': dev}}})
+    rules.extend(configured_rules)
+    if bypass_domains:
         rules.append({'type': 'field', 'domain': ['domain:' + domain for domain in bypass_domains],
                       'outboundTag': 'direct'})
     return {**({'version': version} if version is not None else {}),
@@ -232,6 +314,39 @@ def build_config(outbound, dev, bypass_domains, dns_server, log_level='warning',
                     'disableFallback': True},
             'routing': {'domainStrategy': 'AsIs', 'rules': rules}}
 
+def build_dpi_config(dev, bypass_domains, dns_server, endpoint_port, routing_rules=None,
+                     log_level='warning', version=None):
+    log_level = validate_log_level(log_level)
+    version = validate_version_guard(version)
+    if not isinstance(endpoint_port, int) or isinstance(endpoint_port, bool) or not 1 <= endpoint_port <= 65535:
+        raise ValueError('Invalid local DPI port')
+    configured_rules = validate_routing_rules(routing_rules or [], 'byedpi')
+    profile_probe_rules = [
+        {'type': 'field', 'domain': ['full:www.gstatic.com'], 'outboundTag': 'byedpi'},
+        {'type': 'field', 'domain': ['full:cp.cloudflare.com'], 'outboundTag': 'byedpi'},
+    ]
+    configured_rules = [rule for rule in configured_rules if rule not in profile_probe_rules]
+    rules = [{'type': 'field', 'ip': ['::/0'], 'outboundTag': 'block'},
+             *profile_probe_rules, *configured_rules]
+    domains = validate_bypass_domains(bypass_domains)
+    if domains:
+        rules.append({'type': 'field', 'domain': ['domain:' + domain for domain in domains], 'outboundTag': 'direct'})
+    domain_strategy = 'IPIfNonMatch' if any('ip' in rule for rule in configured_rules) else 'AsIs'
+    return {**({'version': version} if version is not None else {}),
+            'log': {'loglevel': log_level, 'access': 'none', 'error': 'none', 'dnsLog': False},
+            'inbounds': [{'protocol': 'tun', 'tag': 'tun',
+                          'settings': {'name': TUN, 'MTU': 1500},
+                          'sniffing': {'enabled': True, 'destOverride': ['http', 'tls', 'quic'],
+                                       'routeOnly': True}}],
+            'outbounds': [
+                {'tag': 'byedpi', 'protocol': 'socks', 'settings': {'servers': [
+                    {'address': '127.0.0.1', 'port': endpoint_port}]}, 'targetStrategy': 'UseIP'},
+                {'tag': 'direct', 'protocol': 'freedom', 'streamSettings': {'sockopt': {'interface': dev}}},
+                {'tag': 'block', 'protocol': 'blackhole'},
+            ],
+            'dns': {'servers': ['tcp://' + dns_server], 'queryStrategy': 'UseIPv4', 'disableFallback': True},
+            'routing': {'domainStrategy': domain_strategy, 'rules': rules}}
+
 def command(*args):
     return subprocess.run(args, check=True, capture_output=True, text=True, timeout=12).stdout
 
@@ -242,23 +357,269 @@ def stop(*_):
     global stopping
     stopping = True
 
+def terminate_worker(worker):
+    if worker is None:
+        return
+    worker.terminate()
+    try:
+        worker.wait(timeout=3)
+    except subprocess.TimeoutExpired:
+        worker.kill()
+        worker.wait()
+
+def set_parent_death_signal():
+    # Keep native workers from outliving the privileged supervisor after a
+    # forced helper/app shutdown. Normal exits still use terminate_worker().
+    import ctypes
+    libc = ctypes.CDLL(None, use_errno=True)
+    if libc.prctl(1, signal.SIGTERM, 0, 0, 0) != 0:
+        raise OSError(ctypes.get_errno(), 'Unable to arm worker cleanup')
+    if os.getppid() == 1:
+        os.kill(os.getpid(), signal.SIGTERM)
+
+def cleanup_dpi_attempt():
+    global process, dpi_process, owns_tun, routes
+    if owns_tun:
+        subprocess.run(['/usr/bin/resolvectl', 'revert', TUN], capture_output=True)
+        for route in reversed(routes):
+            subprocess.run(['/usr/sbin/ip', *route], capture_output=True)
+        routes.clear()
+        terminate_worker(process)
+        process = None
+        subprocess.run(['/usr/sbin/ip', 'link', 'delete', TUN], capture_output=True)
+        owns_tun = False
+    else:
+        terminate_worker(process)
+        process = None
+    terminate_worker(dpi_process)
+    dpi_process = None
+
+def start_dpi_engine(dev, profile):
+    global dpi_process
+    strategies = {
+        0: ['--split', '1+s'],
+        1: ['--split', '1+s', '--disorder', '3+s'],
+        2: ['--disorder', '1+s'],
+        3: ['--disorder', '1+s', '--split', '3+s'],
+    }
+    arguments = [BYEDPI, '--internal-ready', '--ip', '127.0.0.1', '--port', '0',
+                 '--no-domain', '--debug', '0', '--interface', dev, *strategies[profile]]
+    dpi_process = subprocess.Popen(arguments, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                   stderr=subprocess.DEVNULL, text=True, bufsize=1, close_fds=True,
+                                   preexec_fn=set_parent_death_signal)
+    selector = selectors.DefaultSelector()
+    selector.register(dpi_process.stdout, selectors.EVENT_READ)
+    try:
+        if not selector.select(5) or dpi_process.poll() is not None:
+            raise RuntimeError('DPI engine did not become ready')
+        ready = json.loads(dpi_process.stdout.readline(256))
+        port = ready.get('port') if ready.get('state') == 'ready' else None
+        if not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= 65535:
+            raise RuntimeError('DPI engine returned an invalid endpoint')
+        return port
+    except Exception:
+        terminate_worker(dpi_process)
+        dpi_process = None
+        raise
+    finally:
+        selector.close()
+
+def probe_tunnel_connectivity():
+    probes = (
+        'https://www.gstatic.com/generate_204',
+        'https://cp.cloudflare.com/generate_204',
+    )
+    for url in probes:
+        result = subprocess.run(['/usr/bin/curl', '--fail', '--silent', '--show-error',
+                                 '--max-time', '6', '--interface', TUN, '--output', '/dev/null', url],
+                                capture_output=True, timeout=8)
+        if result.returncode == 0:
+            return True
+    return False
+
+def strategy_cache(signature):
+    path = '/var/lib/oculve/dpi-strategy.json'
+    try:
+        value = json.loads(open(path, 'r', encoding='utf-8').read())
+        profile = value.get('profile') if isinstance(value, dict) else None
+        if isinstance(value, dict) and value.get('network') == signature and type(profile) is int and profile in range(4):
+            return profile
+    except Exception:
+        pass
+    return None
+
+def save_strategy_cache(signature, profile):
+    directory = '/var/lib/oculve'
+    os.makedirs(directory, mode=0o700, exist_ok=True)
+    path = directory + '/dpi-strategy.json'
+    data = json.dumps({'network': signature, 'profile': profile}, separators=(',', ':'))
+    fd, temporary = tempfile.mkstemp(prefix='.dpi-strategy-', dir=directory)
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, 'w', encoding='utf-8') as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+def physical_default_route():
+    candidates = json.loads(command('/usr/sbin/ip', '-j', 'route', 'show', 'default'))
+    candidates = [route for route in candidates if route.get('dev') != TUN]
+    if not candidates:
+        raise RuntimeError('Physical network is unavailable')
+    route = min(candidates, key=lambda value: value.get('metric', 0))
+    if not isinstance(route.get('dev'), str) or not route['dev']:
+        raise RuntimeError('Physical interface is unavailable')
+    return route
+
+def start_dpi_session(request, bypass_domains, dns_server, log_level, version,
+                      preferred_profile=None, excluded_profile=None):
+    global process, owns_tun, routes
+    route = physical_default_route()
+    dev, gateway = route['dev'], route.get('gateway')
+    if not os.path.isfile(BYEDPI):
+        raise RuntimeError('DPI runtime is unavailable')
+    command('/usr/bin/resolvectl', 'status')
+    if subprocess.run(['/usr/sbin/ip', 'link', 'show', TUN], capture_output=True).returncode == 0:
+        raise RuntimeError('Tunnel interface already exists')
+    rules = validate_routing_rules(request['routingRules'], 'byedpi')
+    signature = hashlib.sha256((dev + '|' + str(gateway) + '|' + dns_server).encode()).hexdigest()
+    cached = strategy_cache(signature)
+    first = cached if preferred_profile is None and cached is not None else (
+        request['dpiProfile'] if preferred_profile is None else preferred_profile)
+    profiles = [first] + [item for item in range(4) if item != first]
+    if excluded_profile in profiles:
+        profiles.remove(excluded_profile)
+    for profile in profiles:
+        try:
+            endpoint_port = start_dpi_engine(dev, profile)
+            cfg = build_dpi_config(dev, bypass_domains, dns_server, endpoint_port,
+                                   rules, log_level, version)
+            process = subprocess.Popen([XRAY, 'run', '-config', 'stdin:'], stdin=subprocess.PIPE,
+                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                       preexec_fn=set_parent_death_signal)
+            process.stdin.write(json.dumps(cfg).encode())
+            process.stdin.close()
+            for _ in range(50):
+                if process.poll() is not None:
+                    raise RuntimeError('Xray failed to start')
+                if subprocess.run(['/usr/sbin/ip', 'link', 'show', TUN], capture_output=True).returncode == 0:
+                    break
+                time.sleep(.1)
+            else:
+                raise RuntimeError('Xray TUN did not become ready')
+            owns_tun = True
+            command('/usr/sbin/ip', 'addr', 'add', '198.18.0.1/15', 'dev', TUN)
+            command('/usr/sbin/ip', 'link', 'set', TUN, 'up')
+            for cidr in ['0.0.0.0/1', '128.0.0.0/1']:
+                command('/usr/sbin/ip', 'route', 'add', cidr, 'dev', TUN)
+                routes.append(['route', 'del', cidr, 'dev', TUN])
+            for cidr in ['::/1', '8000::/1']:
+                command('/usr/sbin/ip', '-6', 'route', 'add', cidr, 'dev', TUN)
+                routes.append(['-6', 'route', 'del', cidr, 'dev', TUN])
+            command('/usr/bin/resolvectl', 'dns', TUN, dns_server)
+            command('/usr/bin/resolvectl', 'domain', TUN, '~.')
+            command('/usr/bin/resolvectl', 'default-route', TUN, 'yes')
+            if not probe_tunnel_connectivity():
+                cleanup_dpi_attempt()
+                routes = []
+                continue
+            save_strategy_cache(signature, profile)
+            event('CONNECTED')
+            return dev, gateway, signature, profile
+        except Exception:
+            cleanup_dpi_attempt()
+            routes = []
+    raise RuntimeError('No DPI strategy established connectivity')
+
+def run_dpi_request(request, bypass_domains, dns_server, log_level, version):
+    global routes
+    event('CONNECTING')
+    preferred_profile = None
+    excluded_profile = None
+    retry_after = 0
+    while not stopping:
+        try:
+            dev, gateway, signature, profile = start_dpi_session(
+                request, bypass_domains, dns_server, log_level, version,
+                preferred_profile, excluded_profile)
+            selector = selectors.DefaultSelector()
+            selector.register(sys.stdin, selectors.EVENT_READ)
+            last_probe = time.monotonic()
+            reason = 'stop'
+            try:
+                while not stopping:
+                    if process is None or process.poll() is not None:
+                        reason = 'worker-exit'
+                        break
+                    if dpi_process is None or dpi_process.poll() is not None:
+                        reason = 'worker-exit'
+                        break
+                    if selector.select(1):
+                        reason = 'stop'
+                        break
+                    if time.monotonic() - last_probe >= 30:
+                        last_probe = time.monotonic()
+                        if not probe_tunnel_connectivity():
+                            reason = 'connectivity'
+                            break
+                    current = physical_default_route()
+                    if current.get('dev') != dev or current.get('gateway') != gateway:
+                        reason = 'network-change'
+                        break
+            finally:
+                selector.close()
+            cleanup_dpi_attempt()
+            routes = []
+            if stopping or reason == 'stop':
+                break
+            if reason == 'network-change':
+                preferred_profile = None
+                excluded_profile = None
+            else:
+                preferred_profile = (profile + 1) % 4
+                excluded_profile = profile
+            event('CONNECTING')
+        except Exception:
+            cleanup_dpi_attempt()
+            routes = []
+            if stopping:
+                break
+            # Link loss and worker failures are retried under the same protected
+            # helper. On a new interface the cache key selects that network's profile.
+            time.sleep(2)
+            preferred_profile = None
+            excluded_profile = None
+
 def main():
-    global process, owns_tun
+    global process, dpi_process, owns_tun
     if os.geteuid() != 0:
         raise RuntimeError('Administrator authorization is required.')
     raw = sys.stdin.buffer.readline(65537)
     if len(raw) > 65536:
         raise ValueError('Profile too large')
     request = json.loads(raw)
-    if not isinstance(request, dict) or set(request) != {'outbound', 'bypassDomains', 'dnsServer', 'logLevel', 'version'}:
+    base = {'dpiBypass', 'routingRules', 'bypassDomains', 'dnsServer', 'logLevel', 'version'}
+    if not isinstance(request, dict) or not isinstance(request.get('dpiBypass'), bool):
         raise ValueError('Invalid tunnel request')
-    node = request['outbound']
+    expected = base | ({'dpiProfile'} if request['dpiBypass'] else {'outbound'})
+    if set(request) != expected:
+        raise ValueError('Invalid tunnel request')
     bypass_domains = validate_bypass_domains(request['bypassDomains'])
     if not isinstance(request['dnsServer'], str):
         raise ValueError('Invalid DNS resolver')
     dns_server = str(ipaddress.IPv4Address(request['dnsServer']))
     log_level = validate_log_level(request['logLevel'])
     version = validate_version_guard(request['version'])
+    if request['dpiBypass']:
+        if not isinstance(request['dpiProfile'], int) or isinstance(request['dpiProfile'], bool) or request['dpiProfile'] not in range(4) or not isinstance(request['routingRules'], list):
+            raise ValueError('Invalid DPI tunnel request')
+        run_dpi_request(request, bypass_domains, dns_server, log_level, version)
+        return
+    node = request['outbound']
     # Reconstruct the outbound; never pass logging, routing, extra listeners,
     # filesystem sinks, or arbitrary root-level settings into the core.
     if node.get('protocol') != 'vless':
@@ -315,10 +676,11 @@ def main():
         'address': endpoint, 'port': port, 'users': [{
             'id': user_id, 'encryption': encryption, 'flow': flow}]}]},
         'streamSettings': safe_stream, 'mux': mux}
-    cfg = build_config(outbound, dev, bypass_domains, dns_server, log_level, version)
+    cfg = build_config(outbound, dev, bypass_domains, dns_server, log_level, version, request['routingRules'])
     event('CONNECTING')
     process = subprocess.Popen([XRAY, 'run', '-config', 'stdin:'], stdin=subprocess.PIPE,
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                               preexec_fn=set_parent_death_signal)
     process.stdin.write(json.dumps(cfg).encode()); process.stdin.close()
     for _ in range(50):
         if process.poll() is not None:
@@ -367,7 +729,7 @@ if __name__ == '__main__':
         for route in reversed(routes):
             subprocess.run(['/usr/sbin/ip', *route], capture_output=True)
         if process is not None:
-            process.terminate()
-            try: process.wait(timeout=5)
-            except subprocess.TimeoutExpired: process.kill(); process.wait()
+            terminate_worker(process)
+        if dpi_process is not None:
+            terminate_worker(dpi_process)
         event('DISCONNECTED')

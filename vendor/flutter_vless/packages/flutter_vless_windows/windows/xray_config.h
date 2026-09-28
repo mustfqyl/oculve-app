@@ -102,7 +102,7 @@ inline bool Normalize(Json& config) {
   for (const auto* key : {"inbounds", "outbounds"}) {
     if (!config.contains(key) || !config[key].is_array()) return false;
     for (auto& entry : config[key]) {
-      if (!Fields(entry, {"protocol", "tag", "port", "listen", "settings", "streamSettings", "sniffing", "proxySettings"})) return false;
+      if (!Fields(entry, {"protocol", "tag", "port", "listen", "settings", "streamSettings", "sniffing", "proxySettings", "targetStrategy"})) return false;
       if (!entry.contains("protocol") || !entry["protocol"].is_string()) return false;
       entry["protocol"] = Fold(entry["protocol"].get<std::string>());
       if (entry.contains("streamSettings") && !entry["streamSettings"].is_null() && !PrivateStream(entry["streamSettings"])) return false;
@@ -163,6 +163,72 @@ inline bool AddApi(Json& config, uint16_t api_port) {
       {"services", Json::array({"StatsService"})}};
   }
   return true;
+}
+
+// DPI mode is a client-owned topology: there may be no remote tunnel outbound
+// hidden in the configuration. Keep this validation at the native boundary so
+// a malformed or stale remote profile can never select a DPI session.
+inline bool IsDpiBypassConfig(const std::string& text) {
+  const auto config = Parse(text);
+  if (!config.is_object() || !config.contains("outbounds") || !config["outbounds"].is_array()
+      || !config.contains("inbounds") || !config["inbounds"].is_array()) return false;
+  bool byedpi = false, direct = false, block = false;
+  for (const auto& outbound : config["outbounds"]) {
+    if (!outbound.is_object() || !outbound.contains("protocol") || !outbound["protocol"].is_string()
+        || !outbound.contains("tag") || !outbound["tag"].is_string()) return false;
+    const auto protocol = Fold(outbound["protocol"].get<std::string>());
+    const auto tag = outbound["tag"].get<std::string>();
+    if (tag == "byedpi" && protocol == "socks") {
+      if (byedpi || !outbound.contains("settings") || !outbound["settings"].is_object()
+          || !outbound["settings"].contains("servers") || !outbound["settings"]["servers"].is_array()
+          || outbound["settings"]["servers"].size() != 1) return false;
+      const auto& server = outbound["settings"]["servers"][0];
+      if (!server.is_object() || !server.contains("address") || server["address"] != "127.0.0.1"
+          || !server.contains("port") || !server["port"].is_number_integer()) return false;
+      const auto port = server["port"].get<int64_t>();
+      if (port < 1 || port > 65535) return false;
+      byedpi = true;
+    } else if (tag == "direct" && protocol == "freedom") {
+      if (direct) return false;
+      direct = true;
+    } else if (tag == "block" && protocol == "blackhole") {
+      if (block) return false;
+      block = true;
+    } else {
+      // VLESS, other SOCKS endpoints, and arbitrary protocols are not part of
+      // DPI bypass and must not be smuggled into its otherwise local config.
+      return false;
+    }
+  }
+  return byedpi && direct && block;
+}
+
+inline bool HasDpiBypassTag(const std::string& text) {
+  const auto config = Parse(text);
+  if (!config.is_object() || !config.contains("outbounds") || !config["outbounds"].is_array()) return false;
+  for (const auto& outbound : config["outbounds"]) {
+    if (outbound.is_object() && outbound.contains("tag") && outbound["tag"] == "byedpi") return true;
+  }
+  return false;
+}
+
+inline std::optional<std::string> SetDpiProxyPort(const std::string& text, uint16_t port) {
+  auto config = Parse(text);
+  if (!port || !config.is_object() || !config.contains("outbounds") || !config["outbounds"].is_array()) return std::nullopt;
+  bool found = false;
+  for (auto& outbound : config["outbounds"]) {
+    if (outbound["tag"] != "byedpi") continue;
+    if (found || outbound.value("protocol", std::string()) != "socks"
+        || !outbound.contains("settings") || !outbound["settings"].is_object()
+        || !outbound["settings"].contains("servers") || !outbound["settings"]["servers"].is_array()
+        || outbound["settings"]["servers"].size() != 1) return std::nullopt;
+    auto& server = outbound["settings"]["servers"][0];
+    if (!server.is_object() || !server.contains("address") || server["address"] != "127.0.0.1") return std::nullopt;
+    server["address"] = "127.0.0.1";
+    server["port"] = port;
+    found = true;
+  }
+  return found ? std::optional<std::string>(config.dump()) : std::nullopt;
 }
 
 inline bool PrepareProxy(std::string& text,

@@ -220,6 +220,12 @@ class DesktopTrayController with TrayListener, WindowListener {
           label: AppStrings.translate('Optimal', languageCode),
           checked: selected == optimalServerId,
         ),
+        MenuItem.separator(),
+        MenuItem(
+          key: 'server:$dpiBypassServerId',
+          label: AppStrings.translate('DPI Bypass', languageCode),
+          checked: selected == dpiBypassServerId,
+        ),
         if (profiles.isNotEmpty) MenuItem.separator(),
         for (final profile in profiles)
           MenuItem(
@@ -249,7 +255,7 @@ class DesktopTrayController with TrayListener, WindowListener {
             key: 'locations',
             label: AppStrings.translate('Choose location', languageCode),
             submenu: locations,
-            disabled: profiles.isEmpty,
+            disabled: false,
           ),
           MenuItem.separator(),
           MenuItem(
@@ -269,6 +275,7 @@ class DesktopTrayController with TrayListener, WindowListener {
   ) async {
     final serverIds = [
       optimalServerId,
+      dpiBypassServerId,
       ...profiles.map((profile) => profile.id),
     ];
     final serverItems = <sni.DBusMenuItem>[
@@ -276,6 +283,11 @@ class DesktopTrayController with TrayListener, WindowListener {
         AppStrings.translate('Optimal', languageCode),
         state: selected == optimalServerId,
         onClicked: () => _selectServer(optimalServerId),
+      ),
+      sni.DBusMenuItem.radio(
+        AppStrings.translate('DPI Bypass', languageCode),
+        state: selected == dpiBypassServerId,
+        onClicked: () => _selectServer(dpiBypassServerId),
       ),
       for (final profile in profiles)
         sni.DBusMenuItem.radio(
@@ -424,6 +436,12 @@ class DesktopTrayController with TrayListener, WindowListener {
         key: 'server:$optimalServerId',
         label: AppStrings.translate('Optimal', language),
         checked: selected == optimalServerId,
+      ),
+      MenuItem.separator(),
+      MenuItem(
+        key: 'server:$dpiBypassServerId',
+        label: AppStrings.translate('DPI Bypass', language),
+        checked: selected == dpiBypassServerId,
       ),
       if (profiles.isNotEmpty) MenuItem.separator(),
       for (final profile in profiles)

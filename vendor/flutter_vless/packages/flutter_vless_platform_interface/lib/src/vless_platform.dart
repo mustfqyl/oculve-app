@@ -59,6 +59,8 @@ abstract class VlessPlatform extends PlatformInterface {
     required String notificationDisconnectButtonName,
     List<String>? blockedApps,
     List<String>? bypassSubnets,
+    bool dpiBypass = false,
+    int dpiProfile = 0,
     bool proxyOnly = false,
     String? geoAssetsDirectory,
     AndroidDnsPolicy androidDnsPolicy = AndroidDnsPolicy.config,

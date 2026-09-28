@@ -34,6 +34,7 @@ android {
     }
 
     compileSdkVersion 34
+    ndkVersion '28.2.13676358'
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
@@ -51,6 +52,20 @@ android {
         // 16KB page size support for Android 15+
         ndk {
             abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'
+        }
+
+        externalNativeBuild {
+            cmake {
+                cppFlags ""
+                arguments "-DANDROID_STL=c++_shared"
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path file('../../../../../vendor/byedpi/android/CMakeLists.txt')
+            version '3.22.1'
         }
     }
 

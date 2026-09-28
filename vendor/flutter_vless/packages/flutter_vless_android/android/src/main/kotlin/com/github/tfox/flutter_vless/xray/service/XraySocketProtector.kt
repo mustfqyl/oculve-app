@@ -68,7 +68,7 @@ class XraySocketProtector(
                 try {
                     if (closed) return@use
                     when (command) {
-                        'H'.code, 'P'.code -> {
+                        'H'.code, 'P'.code, '1'.code -> {
                             val accepted = descriptors.size == 1 && ParcelFileDescriptor.dup(descriptors[0]).use {
                                 protectFd(it.fd)
                             }

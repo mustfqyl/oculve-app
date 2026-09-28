@@ -5,6 +5,17 @@ import Darwin
 /// Uses an explicitly authenticated socket: CFNetwork's SOCKS dictionary offers
 /// noauth even with credentials. There is no origin connection or auth fallback.
 public enum LocalProxyDelayClient {
+    /// Verifies the full local-proxy-to-Internet path with certificate-checked
+    /// HTTPS and a small, strict 204 response from either independent probe.
+    public static func checkConnectivity(port: Int, credentials: LocalProxyCredentials?) -> Bool {
+        let probes = [
+            URL(string: "https://www.gstatic.com/generate_204")!,
+            URL(string: "https://cp.cloudflare.com/generate_204")!
+        ]
+        return probes.contains { measureResponse(url: $0, port: port, credentials: credentials,
+            proxyProtocol: "socks", expectedStatus: 204, connectTimeout: 3, tlsTimeout: 4) > 0 }
+    }
+
     public static func measure(url: URL, port: Int, credentials: LocalProxyCredentials?,
                                proxyProtocol: String = "socks", completion: @escaping (Int64) -> Void) {
         DispatchQueue.global(qos: .utility).async {
@@ -12,7 +23,9 @@ public enum LocalProxyDelayClient {
         }
     }
 
-    private static func measureResponse(url: URL, port: Int, credentials: LocalProxyCredentials?, proxyProtocol: String) -> Int64 {
+    private static func measureResponse(url: URL, port: Int, credentials: LocalProxyCredentials?,
+                                        proxyProtocol: String, expectedStatus: Int? = nil,
+                                        connectTimeout: TimeInterval = 8, tlsTimeout: UInt64 = 10) -> Int64 {
         guard let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
               let rawHost = url.host, !rawHost.isEmpty, url.user == nil, url.password == nil,
               (1...65535).contains(port), ["socks", "http"].contains(proxyProtocol),
@@ -24,13 +37,13 @@ public enum LocalProxyDelayClient {
             let fd: Int32
             if proxyProtocol == "http" {
                 fd = try LocalHTTPProxyClient.openConnection(proxyPort: port, credentials: credentials,
-                    host: host, port: destinationPort, timeout: 8)
+                    host: host, port: destinationPort, timeout: connectTimeout)
             } else {
                 fd = try LocalSOCKS5Client.openConnection(proxyPort: port, credentials: credentials,
-                    host: host, port: destinationPort, timeout: 8)
+                    host: host, port: destinationPort, timeout: connectTimeout)
             }
             defer { close(fd) }
-            let connection = LocalProxyTLSConnection(fd: fd, deadline: start + 10_000_000_000)
+            let connection = LocalProxyTLSConnection(fd: fd, deadline: start + tlsTimeout * 1_000_000_000)
             if scheme == "https", !connection.startTLS(host: host) { return -1 }
             let path = components.percentEncodedPath.isEmpty ? "/" : components.percentEncodedPath
             let target = path + (components.percentEncodedQuery.map { "?" + $0 } ?? "")
@@ -45,7 +58,7 @@ public enum LocalProxyDelayClient {
                 guard let end = bytes.firstIndex(of: 10) else { continue }
                 let fields = String(decoding: bytes[...end], as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines).split(separator: " ")
                 guard fields.count >= 2, fields[0] == "HTTP/1.1" || fields[0] == "HTTP/1.0",
-                      let status = Int(fields[1]), (200...399).contains(status) else { return -1 }
+                      let status = Int(fields[1]), expectedStatus.map({ $0 == status }) ?? (200...399).contains(status) else { return -1 }
                 return Int64(max(1, (DispatchTime.now().uptimeNanoseconds - start) / 1_000_000))
             }
             return -1

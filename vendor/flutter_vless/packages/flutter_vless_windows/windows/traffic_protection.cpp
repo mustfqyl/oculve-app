@@ -70,7 +70,8 @@ bool TrafficProtection::DeleteFilters() {
   for (auto id : ids) if (!Check(FwpmFilterDeleteById0(engine_, id))) return false;
   return true;
 }
-bool TrafficProtection::Install(const std::filesystem::path& xray, const NET_LUID* tunnel) {
+bool TrafficProtection::Install(const std::filesystem::path& xray, const NET_LUID* tunnel,
+                                const std::filesystem::path& byedpi, const NET_LUID* underlay) {
   if (!Open() || !Check(FwpmTransactionBegin0(engine_, 0))) return false;
   FWPM_PROVIDER0 p{}; p.providerKey = provider;
   p.displayData.name = const_cast<wchar_t*>(L"Flutter Vless traffic protection");
@@ -84,7 +85,10 @@ bool TrafficProtection::Install(const std::filesystem::path& xray, const NET_LUI
   status = FwpmSubLayerAdd0(engine_, &layer, nullptr);
   ok = ok && (status == FWP_E_ALREADY_EXISTS || Check(status)) && DeleteFilters();
   FWP_BYTE_BLOB* app = nullptr;
+  FWP_BYTE_BLOB* dpi_app = nullptr;
+  if (!byedpi.empty() && !underlay) ok = false;
   ok = ok && Check(FwpmGetAppIdFromFileName0(xray.c_str(), &app));
+  if (ok && !byedpi.empty()) ok = Check(FwpmGetAppIdFromFileName0(byedpi.c_str(), &dpi_app));
   PSECURITY_DESCRIPTOR administrator = nullptr, dhcp = nullptr;
   FWP_BYTE_BLOB administrator_blob{}, dhcp_blob{};
   ULONG administrator_size = 0, dhcp_size = 0;
@@ -120,9 +124,11 @@ bool TrafficProtection::Install(const std::filesystem::path& xray, const NET_LUI
   FWPM_FILTER_CONDITION0 loop{};
   loop.fieldKey = FWPM_CONDITION_FLAGS; loop.matchType = FWP_MATCH_FLAGS_ALL_SET;
   loop.conditionValue.type = FWP_UINT32; loop.conditionValue.uint32 = FWP_CONDITION_FLAG_IS_LOOPBACK;
-  FWPM_FILTER_CONDITION0 application{};
+  FWPM_FILTER_CONDITION0 application{}, dpi_application{};
   application.fieldKey = FWPM_CONDITION_ALE_APP_ID; application.matchType = FWP_MATCH_EQUAL;
   application.conditionValue.type = FWP_BYTE_BLOB_TYPE; application.conditionValue.byteBlob = app;
+  dpi_application = application;
+  dpi_application.conditionValue.byteBlob = dpi_app;
   FWPM_FILTER_CONDITION0 elevated{}, service{}, service_image = application;
   elevated.fieldKey = FWPM_CONDITION_ALE_USER_ID; elevated.matchType = FWP_MATCH_EQUAL;
   elevated.conditionValue.type = FWP_SECURITY_DESCRIPTOR_TYPE; elevated.conditionValue.sd = &administrator_blob;
@@ -132,11 +138,20 @@ bool TrafficProtection::Install(const std::filesystem::path& xray, const NET_LUI
   FWPM_FILTER_CONDITION0 interface_{};
   interface_.fieldKey = FWPM_CONDITION_IP_LOCAL_INTERFACE; interface_.matchType = FWP_MATCH_EQUAL;
   interface_.conditionValue.type = FWP_UINT64; interface_.conditionValue.uint64 = &luid;
+  UINT64 physical_luid = underlay ? underlay->Value : 0;
+  FWPM_FILTER_CONDITION0 physical_interface{};
+  physical_interface.fieldKey = FWPM_CONDITION_IP_LOCAL_INTERFACE; physical_interface.matchType = FWP_MATCH_EQUAL;
+  physical_interface.conditionValue.type = FWP_UINT64; physical_interface.conditionValue.uint64 = &physical_luid;
   for (auto where : {FWPM_LAYER_ALE_AUTH_CONNECT_V4, FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V4}) {
     add(where, FWP_ACTION_PERMIT, 100, {loop});
     // Only Xray may leave via the underlay. It carries the VPN transport and
     // user-selected direct rules; all its listeners require session auth.
     add(where, FWP_ACTION_PERMIT, 90, {application, elevated});
+    // ByeDPI receives the same strict image and elevated-token restriction.
+    // Its sockets are bound to the physical interface before Wintun routes are
+    // installed, so they cannot recurse through Xray's TUN.
+    if (dpi_app && IsEqualGUID(where, FWPM_LAYER_ALE_AUTH_CONNECT_V4))
+      add(where, FWP_ACTION_PERMIT, 90, {dpi_application, elevated, physical_interface});
     if (tunnel) add(where, FWP_ACTION_PERMIT, 80, {interface_});
     // DHCP renewals are network maintenance, never general DNS exceptions.
     FWPM_FILTER_CONDITION0 protocol{}, local{}, remote{};
@@ -156,6 +171,7 @@ bool TrafficProtection::Install(const std::filesystem::path& xray, const NET_LUI
     add(where, FWP_ACTION_BLOCK, 1, {});
   }
   if (app) FwpmFreeMemory0(reinterpret_cast<void**>(&app));
+  if (dpi_app) FwpmFreeMemory0(reinterpret_cast<void**>(&dpi_app));
   if (service_app) FwpmFreeMemory0(reinterpret_cast<void**>(&service_app));
   if (administrator) LocalFree(administrator);
   if (dhcp) LocalFree(dhcp);

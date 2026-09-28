@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"strconv"
 	"strings"
 
 	_ "github.com/xtls/xray-core/main/distro/all"
@@ -92,6 +93,36 @@ func SetAssetLocation(directory string) error {
 func SetMemoryLimit() {
 	debug.SetGCPercent(10)
 	debug.SetMemoryLimit(30 * 1024 * 1024)
+}
+
+// SetTunFileDescriptor passes a NetworkExtension utun descriptor to Xray's
+// native TUN inbound. The environment must be changed inside Go because the
+// Go runtime keeps its own environment snapshot after initialization.
+// A negative descriptor clears both accepted environment spellings.
+func SetTunFileDescriptor(fd int32) error {
+	key := platform.TunFdKey
+	altKey := platform.NormalizeEnvName(key)
+	if fd < 0 {
+		if err := os.Unsetenv(key); err != nil {
+			return fmt.Errorf("clear %s: %w", key, err)
+		}
+		if err := os.Unsetenv(altKey); err != nil {
+			return fmt.Errorf("clear %s: %w", altKey, err)
+		}
+		return nil
+	}
+	if fd < 3 {
+		return fmt.Errorf("invalid %s: file descriptor must be >= 3", key)
+	}
+	value := strconv.FormatInt(int64(fd), 10)
+	if err := os.Setenv(key, value); err != nil {
+		return fmt.Errorf("set %s: %w", key, err)
+	}
+	if err := os.Setenv(altKey, value); err != nil {
+		_ = os.Unsetenv(key)
+		return fmt.Errorf("set %s: %w", altKey, err)
+	}
+	return nil
 }
 
 func Start(config []byte, logger Logger) error {

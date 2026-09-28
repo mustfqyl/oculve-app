@@ -3,7 +3,6 @@ import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_vless/flutter_vless.dart';
-import 'xray_preferences.dart';
 
 /// Linux uses Xray's native TUN inbound, supervised by a root-owned helper.
 /// The UI remains unprivileged; polkit requests authorization for the helper.
@@ -60,6 +59,8 @@ class LinuxXrayPlatform extends VlessPlatform {
     required String notificationDisconnectButtonName,
     List<String>? blockedApps,
     List<String>? bypassSubnets,
+    bool dpiBypass = false,
+    int dpiProfile = 0,
     bool proxyOnly = false,
     String? geoAssetsDirectory,
     AndroidDnsPolicy androidDnsPolicy = AndroidDnsPolicy.config,
@@ -70,7 +71,13 @@ class LinuxXrayPlatform extends VlessPlatform {
     final parsed = jsonDecode(config) as Map<String, dynamic>;
     final outbounds = (parsed['outbounds'] as List)
         .cast<Map<String, dynamic>>();
-    final node = outbounds.firstWhere((n) => n['protocol'] == 'vless');
+    final node = dpiBypass
+        ? null
+        : outbounds.firstWhere((n) => n['tag'] == 'proxy');
+    if (dpiBypass &&
+        !outbounds.any((outbound) => outbound['tag'] == 'byedpi')) {
+      throw const FormatException('The built-in DPI config is invalid.');
+    }
     final logSettings = parsed['log'] as Map<String, dynamic>?;
     final logLevel = logSettings?['loglevel'];
     if (logLevel is! String ||
@@ -84,20 +91,10 @@ class LinuxXrayPlatform extends VlessPlatform {
       throw const FormatException('A supported Xray log level is required.');
     }
     final routing = parsed['routing'] as Map<String, dynamic>?;
-    final rules = (routing?['rules'] as List?) ?? const [];
-    final bypass = <String>[];
-    for (final rule in rules) {
-      if (rule is! Map || rule['outboundTag'] != 'direct') continue;
-      final values = rule['domain'];
-      if (values is! List) continue;
-      for (final value in values) {
-        if (value is! String || !value.startsWith('domain:')) {
-          throw const FormatException('Unsupported bypass rule.');
-        }
-        bypass.add(value.substring('domain:'.length));
-      }
-    }
-    final domains = XrayPreferences.normalizeDomains(bypass);
+    final routingRules = (routing?['rules'] as List? ?? const [])
+        .whereType<Map>()
+        .map((rule) => Map<String, dynamic>.from(rule))
+        .toList();
     final dns = parsed['dns'] as Map<String, dynamic>?;
     final dnsServers = dns?['servers'] as List?;
     if (dnsServers == null ||
@@ -131,8 +128,11 @@ class LinuxXrayPlatform extends VlessPlatform {
     process.stderr.drain<void>();
     process.stdin.writeln(
       jsonEncode({
-        'outbound': node,
-        'bypassDomains': domains,
+        if (!dpiBypass) 'outbound': node!,
+        'dpiBypass': dpiBypass,
+        if (dpiBypass) 'dpiProfile': dpiProfile,
+        'routingRules': routingRules,
+        'bypassDomains': const <String>[],
         'dnsServer': dnsServer,
         'logLevel': logLevel,
         'version': parsed['version'],

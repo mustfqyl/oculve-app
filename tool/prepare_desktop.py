@@ -5,6 +5,9 @@ import hashlib
 import io
 import json
 from pathlib import Path
+import shutil
+import subprocess
+import sys
 import urllib.request
 import zipfile
 
@@ -38,5 +41,23 @@ for name in artifacts:
                 if target == 'xray': (out / target).chmod(0o755)
     print(f'Verified {name}')
 required = ['xray.exe', 'tun2socks.exe', 'wintun.dll'] if args.platform == 'windows' else ['xray']
+if args.platform == 'linux':
+    source = root / 'vendor' / 'byedpi' / 'upstream'
+    subprocess.run(['make', 'clean', 'all'], cwd=source, check=True)
+    binary = source / 'ciadpi'
+    if not binary.is_file(): raise SystemExit('ByeDPI build did not produce a runtime')
+    shutil.copy2(binary, out / 'byedpi')
+    (out / 'byedpi').chmod(0o755)
+    subprocess.run(['make', 'clean'], cwd=source, check=True)
+    required.append('byedpi')
+if args.platform == 'windows':
+    source = root / 'vendor' / 'byedpi' / 'upstream'
+    compiler = 'gcc' if sys.platform == 'win32' else 'x86_64-w64-mingw32-gcc'
+    subprocess.run(['make', 'clean', 'windows', 'CC=' + compiler], cwd=source, check=True)
+    binary = source / 'ciadpi.exe'
+    if not binary.is_file(): raise SystemExit('ByeDPI Windows build did not produce a runtime')
+    shutil.copy2(binary, out / 'byedpi.exe')
+    subprocess.run(['make', 'clean'], cwd=source, check=True)
+    required.append('byedpi.exe')
 for file in required:
     if not (out / file).is_file(): raise SystemExit(f'Missing runtime file: {file}')

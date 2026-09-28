@@ -3,7 +3,7 @@ import XCTest
 @testable import flutter_vless_macos_tunnel_support
 
 final class TunnelRuntimeSupportTests: XCTestCase {
-    func testPreparerForcesWarningLogging() throws {
+    func testPreparerAppliesPrivateLoggingAndPreservesSupportedLevel() throws {
         let source = try JSONSerialization.data(withJSONObject: [
             "log": ["loglevel": "debug"],
             "inbounds": [["protocol": "socks", "port": 10808]],
@@ -15,7 +15,7 @@ final class TunnelRuntimeSupportTests: XCTestCase {
             JSONSerialization.jsonObject(with: prepared.data) as? [String: Any]
         )
         let log = try XCTUnwrap(output["log"] as? [String: Any])
-        XCTAssertEqual(log["loglevel"] as? String, "warning")
+        XCTAssertEqual(log["loglevel"] as? String, "debug")
         XCTAssertEqual(log["access"] as? String, "none")
         XCTAssertEqual(log["error"] as? String, "none")
     }

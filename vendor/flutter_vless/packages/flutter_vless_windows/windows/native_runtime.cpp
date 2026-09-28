@@ -1,4 +1,5 @@
 #include "native_runtime.h"
+#include "xray_config.h"
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
@@ -244,5 +245,45 @@ bool SocksReady(uint16_t port, const std::string& user, const std::string& passw
     else ok = exchange(std::string({1, static_cast<char>(user.size())}) + user + static_cast<char>(password.size()) + password, 1, 0);
   }
   closesocket(socket_); WSACleanup(); return ok;
+}
+
+std::unique_ptr<ProcessHandle> StartByeDpi(const fs::path& executable,
+    const std::string& interface_name, int profile, uint16_t& proxy_port) {
+  proxy_port = 0;
+  if (interface_name.empty() || profile < 0 || profile > 3) return nullptr;
+  const std::vector<std::vector<std::wstring>> strategies = {
+      {L"--split", L"1+s"},
+      {L"--split", L"1+s", L"--disorder", L"3+s"},
+      {L"--disorder", L"1+s"},
+      {L"--disorder", L"1+s", L"--split", L"3+s"},
+  };
+  std::vector<std::wstring> arguments = {L"--internal-ready", L"--ip", L"127.0.0.1",
+      L"--port", L"0", L"--no-domain", L"--debug", L"0", L"--interface", Wide(interface_name)};
+  if (arguments.back().empty()) return nullptr;
+  arguments.insert(arguments.end(), strategies[profile].begin(), strategies[profile].end());
+  auto process = Launch(executable, arguments, true);
+  if (!process) return nullptr;
+
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+  const auto output = reinterpret_cast<HANDLE>(process->hStdOutRead);
+  std::string line;
+  while (std::chrono::steady_clock::now() < deadline && process->IsRunning() && line.size() < 256) {
+    DWORD available = 0;
+    if (!PeekNamedPipe(output, nullptr, 0, nullptr, &available, nullptr)) return nullptr;
+    if (!available) { Sleep(10); continue; }
+    char bytes[64]; DWORD count = 0;
+    if (!ReadFile(output, bytes, std::min<DWORD>(available, sizeof(bytes)), &count, nullptr) || !count) return nullptr;
+    line.append(bytes, count);
+    const auto newline = line.find('\n');
+    if (newline == std::string::npos) continue;
+    const auto ready = xray_config::Parse(line.substr(0, newline));
+    if (!ready.is_object() || !ready.contains("state") || ready["state"] != "ready"
+        || !ready.contains("port") || !ready["port"].is_number_integer()) return nullptr;
+    const auto value = ready["port"].get<int64_t>();
+    if (value < 1 || value > 65535) return nullptr;
+    proxy_port = static_cast<uint16_t>(value);
+    return process;
+  }
+  return nullptr;
 }
 }  // namespace flutter_vless::native

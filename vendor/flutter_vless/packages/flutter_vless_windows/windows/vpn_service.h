@@ -85,6 +85,7 @@ class VpnService {
  private:
   void RunVpn();
   bool StartWorkers();
+  bool StartWorkersForProfile(int dpi_profile);
   void StopWorkers();
   void StopSession(bool release_protection);
   void UpdateTrafficStats();
@@ -95,8 +96,10 @@ class VpnService {
   std::condition_variable state_changed_;
   bool first_attempt_finished_ = false;
   std::unique_ptr<ProcessHandle> xray_process_;
+  std::unique_ptr<ProcessHandle> byedpi_process_;
   std::unique_ptr<ProcessHandle> tun2socks_process_;
   fs::path xray_executable_path_;
+  fs::path byedpi_executable_path_;
   fs::path tun2socks_executable_path_;
   fs::path temp_config_path_;
   fs::path tun_config_path_;
@@ -106,8 +109,11 @@ class VpnService {
   // Used only by the VPN worker to detect an underlay change independently of
   // the local TUN probe, which remains healthy when a physical adapter changes.
   std::string underlay_name_;
+  std::string underlay_signature_;
   UINT64 underlay_luid_ = 0;
   uint16_t socks_port_ = 0;
+  bool dpi_bypass_ = false;
+  std::map<std::string, int> dpi_profile_cache_;
   flutter_vless::TrafficProtection protection_;
   std::unique_ptr<flutter_vless::native::ProtectedRuntime> private_runtime_;
   std::unique_ptr<flutter_vless::PacketPathProbe> packet_probe_;

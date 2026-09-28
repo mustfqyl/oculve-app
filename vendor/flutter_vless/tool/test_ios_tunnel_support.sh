@@ -21,6 +21,10 @@ cat > "$WORK_DIR/Package.swift" <<'SWIFT'
 // swift-tools-version: 5.9
 
 import PackageDescription
+import Foundation
+
+let byedpiPackagePath = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+    .appendingPathComponent("../../../byedpi").standardizedFileURL.path
 
 let package = Package(
     name: "flutter_vless_tunnel_support_test_package",
@@ -33,9 +37,18 @@ let package = Package(
             targets: ["flutter_vless_tunnel_support"]
         )
     ],
+    dependencies: [
+        .package(name: "byedpi", path: byedpiPackagePath)
+    ],
     targets: [
         .target(name: "flutter_vless_privacy"),
-        .target(name: "flutter_vless_tunnel_support", dependencies: ["flutter_vless_privacy"]),
+        .target(
+            name: "flutter_vless_tunnel_support",
+            dependencies: [
+                "flutter_vless_privacy",
+                .product(name: "ByeDpiEngine", package: "byedpi")
+            ]
+        ),
         .testTarget(
             name: "flutter_vless_tunnel_supportTests",
             dependencies: ["flutter_vless_tunnel_support"]

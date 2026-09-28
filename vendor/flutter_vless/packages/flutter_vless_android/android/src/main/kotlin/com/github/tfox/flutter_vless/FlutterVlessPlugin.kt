@@ -90,6 +90,8 @@ class FlutterVlessPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activity
                 config.REMARK = call.argument("remark") ?: ""
                 config.ANDROID_DNS_POLICY = call.argument("android_dns_policy") ?: "config"
                 config.ANDROID_DNS_PROXY_OUTBOUND_TAG = call.argument("android_dns_proxy_outbound_tag")
+                config.DPI_BYPASS = call.argument<Boolean>("dpi_bypass") == true
+                config.DPI_PROFILE = call.argument<Int>("dpi_profile") ?: 0
                 config.PROXY_ONLY = call.argument<Boolean>("proxy_only") == true
                 config.V2RAY_FULL_JSON_CONFIG = call.argument("config") ?: ""
                 config.BLOCKED_APPS = call.argument<ArrayList<String>>("blocked_apps") ?: ArrayList()
@@ -119,7 +121,7 @@ class FlutterVlessPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activity
                 try {
                     val jsonConfig = org.json.JSONObject(config.V2RAY_FULL_JSON_CONFIG)
                     val outbounds = jsonConfig.optJSONArray("outbounds")
-                    if (outbounds != null && outbounds.length() > 0) {
+                    if (!config.DPI_BYPASS && outbounds != null && outbounds.length() > 0) {
                         val firstOutbound = outbounds.getJSONObject(0)
                         val settings = firstOutbound.optJSONObject("settings")
                         val vnext = settings?.optJSONArray("vnext")

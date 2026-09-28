@@ -71,6 +71,8 @@ class VlessMethodChannelAdapter extends VlessPlatform {
     required String notificationDisconnectButtonName,
     List<String>? blockedApps,
     List<String>? bypassSubnets,
+    bool dpiBypass = false,
+    int dpiProfile = 0,
     bool proxyOnly = false,
     String? geoAssetsDirectory,
     AndroidDnsPolicy androidDnsPolicy = AndroidDnsPolicy.config,
@@ -93,6 +95,8 @@ class VlessMethodChannelAdapter extends VlessPlatform {
       'config': config,
       'blocked_apps': blockedApps,
       'bypass_subnets': bypassSubnets,
+      'dpi_bypass': dpiBypass,
+      'dpi_profile': dpiProfile,
       'proxy_only': proxyOnly,
       'notificationDisconnectButtonName': notificationDisconnectButtonName,
       if (androidDnsPolicy != AndroidDnsPolicy.config)

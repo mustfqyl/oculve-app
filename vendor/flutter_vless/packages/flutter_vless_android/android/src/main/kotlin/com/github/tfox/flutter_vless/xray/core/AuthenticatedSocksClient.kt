@@ -10,11 +10,17 @@ import javax.net.ssl.SSLSocketFactory
 
 /** RFC 1929 authentication belongs to each socket, never to a process-wide Authenticator. */
 internal object AuthenticatedSocksClient {
-    fun connect(port: Int, credentials: LocalProxyCredentials?, host: String, targetPort: Int): Socket {
+    private val connectivityUrls = listOf(
+        "https://www.gstatic.com/generate_204",
+        "https://cp.cloudflare.com/generate_204"
+    )
+
+    fun connect(port: Int, credentials: LocalProxyCredentials?, host: String, targetPort: Int,
+                timeoutMs: Int = 5000): Socket {
         val socket = Socket()
         try {
-            socket.connect(InetSocketAddress("127.0.0.1", port), 5000)
-            socket.soTimeout = 5000
+            socket.connect(InetSocketAddress("127.0.0.1", port), timeoutMs)
+            socket.soTimeout = timeoutMs
             val input = DataInputStream(socket.getInputStream())
             val output = socket.getOutputStream()
             val method = if (credentials == null) 0 else 2
@@ -39,13 +45,19 @@ internal object AuthenticatedSocksClient {
 
     /** An HTTP response proves authenticated, bidirectional application bytes, not only CONNECT. */
     fun measure(port: Int, credentials: LocalProxyCredentials?, url: String): Long {
+        val started = System.nanoTime()
+        request(port, credentials, url, "HEAD", 5000)
+        return (System.nanoTime() - started) / 1_000_000
+    }
+
+    private fun request(port: Int, credentials: LocalProxyCredentials?, url: String,
+                        method: String, timeoutMs: Int): Int {
         val uri = URI(url)
         require(uri.scheme in setOf("http", "https") && uri.host != null && uri.rawUserInfo == null) { "Invalid probe URL" }
         require(!url.contains('\r') && !url.contains('\n')) { "Invalid probe URL" }
         val secure = uri.scheme == "https"
         val targetPort = if (uri.port >= 0) uri.port else if (secure) 443 else 80
-        val started = System.nanoTime()
-        connect(port, credentials, uri.host, targetPort).use { raw ->
+        connect(port, credentials, uri.host, targetPort, timeoutMs).use { raw ->
             val transport = if (secure) {
                 (SSLSocketFactory.getDefault() as SSLSocketFactory).createSocket(raw, uri.host, targetPort, true).let {
                     it as SSLSocket
@@ -57,13 +69,21 @@ internal object AuthenticatedSocksClient {
             transport.use { socket ->
                 val path = (uri.rawPath.takeUnless { it.isNullOrEmpty() } ?: "/") + (uri.rawQuery?.let { "?$it" } ?: "")
                 val host = if (targetPort == if (secure) 443 else 80) uri.host else "${uri.host}:$targetPort"
-                socket.getOutputStream().write("HEAD $path HTTP/1.1\r\nHost: $host\r\nConnection: close\r\n\r\n".toByteArray(Charsets.US_ASCII))
+                socket.getOutputStream().write("$method $path HTTP/1.1\r\nHost: $host\r\nConnection: close\r\n\r\n".toByteArray(Charsets.US_ASCII))
                 val input = socket.getInputStream()
                 val line = StringBuilder()
                 while (line.length < 1024) { val value = input.read(); if (value < 0) throw IOException("Empty probe response"); if (value == 10) break; line.append(value.toChar()) }
-                require(line.toString().trimEnd('\r').matches(Regex("HTTP/1\\.[01] [1-5][0-9]{2}.*"))) { "Invalid probe response" }
+                val match = Regex("HTTP/1\\.[01] ([1-5][0-9]{2})(?: .*)?")
+                    .matchEntire(line.toString().trimEnd('\r'))
+                    ?: throw IOException("Invalid probe response")
+                return match.groupValues[1].toInt()
             }
         }
-        return (System.nanoTime() - started) / 1_000_000
     }
+
+    /** A verified TLS response through Xray and the active outbound proves application connectivity. */
+    fun checkConnectivity(port: Int, credentials: LocalProxyCredentials?): Boolean =
+        connectivityUrls.any { url ->
+            runCatching { request(port, credentials, url, "GET", 2500) == 204 }.getOrDefault(false)
+        }
 }

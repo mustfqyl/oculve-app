@@ -611,7 +611,19 @@ void main() {
     expect(find.byTooltip('25ms'), findsOneWidget);
     expect(find.byTooltip('180ms'), findsOneWidget);
     expect(find.text('Optimal'), findsOneWidget);
-    expect(find.text('Automatic selection'), findsOneWidget);
+    expect(find.text('DPI Bypass'), findsOneWidget);
+    final optimalRect = tester.getRect(
+      find.byKey(const ValueKey('optimal-server-card')),
+    );
+    final dpiRect = tester.getRect(
+      find.byKey(const ValueKey('dpi-bypass-server-card')),
+    );
+    expect(optimalRect.top, closeTo(dpiRect.top, 1));
+    expect(optimalRect.right, lessThan(dpiRect.left));
+    expect(
+      optimalRect.bottom,
+      lessThan(tester.getRect(find.byType(Divider)).top),
+    );
     expect(
       tester.getTopLeft(find.text('Optimal')).dy,
       lessThan(tester.getTopLeft(find.text('Zurich')).dy),

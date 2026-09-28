@@ -19,5 +19,7 @@ bool SystemCommand(const wchar_t* name, const std::vector<std::wstring>& argumen
 bool WritePrivateConfig(const std::string& config, fs::path& path);
 void RemovePrivateConfig(fs::path& path);
 bool SocksReady(uint16_t port, const std::string& user = {}, const std::string& password = {});
+std::unique_ptr<ProcessHandle> StartByeDpi(const fs::path& executable,
+    const std::string& interface_name, int profile, uint16_t& proxy_port);
 }  // namespace flutter_vless::native
 #endif

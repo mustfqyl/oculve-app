@@ -117,6 +117,20 @@ final class TunnelDNSPolicyTests: XCTestCase {
         XCTAssertTrue(TunnelDNSPolicy.allowsRouteExclusions(["203.0.113.7/32", "192.168.0.0/16", "1.1.1.1/32"]))
     }
 
+    func testPartialDNSSettingsUseProtectedDefaultResolver() throws {
+        var config: [String: Any] = [
+            "dns": ["queryStrategy": "UseIPv4"],
+            "outbounds": [["tag": "proxy", "protocol": "vless", "settings": [
+                "vnext": [["address": "vpn.example", "port": 443, "users": []]]
+            ]]]
+        ]
+
+        let addresses = try XCTUnwrap(TunnelDNSPolicy.apply(to: &config, resolveIPv4: { _ in "203.0.113.7" }))
+
+        XCTAssertEqual(addresses, ["203.0.113.7"])
+        XCTAssertEqual((config["dns"] as? [String: Any])?["servers"] as? [String], ["tcp://1.1.1.1"])
+    }
+
     func testWireGuardPeersBootstrapWithoutChangingKeysOrEndpoints() throws {
         let settings: [String: Any] = ["secretKey": "private-key-marker", "peers": [
             ["endpoint": "wg.example:51820", "publicKey": "public-key-marker"],

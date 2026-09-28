@@ -16,19 +16,19 @@ GUID foreign_provider = {0xdec0de,0x1234,0x5678,{1,2,3,4,5,6,7,8}};
 size_t enumeration_offset = 0;
 struct Rule {
   GUID layer{}; FWP_ACTION_TYPE action{}; UINT64 weight=0, interface_=0, id=0;
-  bool loop=false, app=false, service_app=false, elevated=false, service=false; UINT8 protocol=0; UINT16 local=0, remote=0;
+  bool loop=false, app=false, dpi_app=false, service_app=false, elevated=false, service=false; UINT8 protocol=0; UINT16 local=0, remote=0;
 };
 std::vector<Rule> live, pending;
 int fail_add = -1, additions = 0;
 bool transaction = false;
 bool same(const GUID& a,const GUID& b) { return std::memcmp(&a,&b,sizeof(a))==0; }
-struct Flow { bool v6=false, inbound=false, loop=false, xray=false; UINT64 interface_=0; bool elevated=false, service_app=false, service=false; UINT8 protocol=IPPROTO_TCP; UINT16 local=50000, remote=443; };
+struct Flow { bool v6=false, inbound=false, loop=false, xray=false, byedpi=false; UINT64 interface_=0; bool elevated=false, service_app=false, service=false; UINT8 protocol=IPPROTO_TCP; UINT16 local=50000, remote=443; };
 bool permits(Flow flow) {
   GUID layer = flow.v6 ? (flow.inbound ? FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V6 : FWPM_LAYER_ALE_AUTH_CONNECT_V6)
       : (flow.inbound ? FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V4 : FWPM_LAYER_ALE_AUTH_CONNECT_V4);
   const Rule* chosen=nullptr;
   for (const auto& rule:live) {
-    if (!same(rule.layer,layer) || (rule.loop&&!flow.loop) || (rule.app&&!flow.xray) || (rule.service_app&&!flow.service_app) || (rule.elevated&&!flow.elevated) || (rule.service&&!flow.service)
+    if (!same(rule.layer,layer) || (rule.loop&&!flow.loop) || (rule.app&&!flow.xray) || (rule.dpi_app&&!flow.byedpi) || (rule.service_app&&!flow.service_app) || (rule.elevated&&!flow.elevated) || (rule.service&&!flow.service)
         || (rule.interface_&&rule.interface_!=flow.interface_) || (rule.protocol&&rule.protocol!=flow.protocol)
         || (rule.local&&rule.local!=flow.local) || (rule.remote&&rule.remote!=flow.remote)) continue;
     if(!chosen||rule.weight>chosen->weight) chosen=&rule;
@@ -52,7 +52,9 @@ DWORD WINAPI FwpmSubLayerAdd0(HANDLE,const FWPM_SUBLAYER0* layer,PSECURITY_DESCR
 }
 DWORD WINAPI FwpmGetAppIdFromFileName0(const wchar_t* path,FWP_BYTE_BLOB** result) {
   auto* blob=static_cast<FWP_BYTE_BLOB*>(LocalAlloc(LPTR,sizeof(FWP_BYTE_BLOB)+1));
-  blob->size=1;blob->data=reinterpret_cast<UINT8*>(blob+1);blob->data[0]=std::wstring(path).find(L"svchost.exe")!=std::wstring::npos?2:1;*result=blob;return ERROR_SUCCESS;
+  const std::wstring image(path);
+  blob->size=1;blob->data=reinterpret_cast<UINT8*>(blob+1);
+  blob->data[0]=image.find(L"svchost.exe")!=std::wstring::npos?2:image.find(L"byedpi.exe")!=std::wstring::npos?3:1;*result=blob;return ERROR_SUCCESS;
 }
 void WINAPI FwpmFreeMemory0(void** value) { LocalFree(*value);*value=nullptr; }
 DWORD WINAPI FwpmFilterCreateEnumHandle0(HANDLE,const FWPM_FILTER_ENUM_TEMPLATE0* match,HANDLE* enumeration) {
@@ -87,6 +89,7 @@ DWORD WINAPI FwpmFilterAdd0(HANDLE,const FWPM_FILTER0* filter,PSECURITY_DESCRIPT
     if(same(c.fieldKey,FWPM_CONDITION_FLAGS)){assert(c.matchType==FWP_MATCH_FLAGS_ALL_SET);rule.loop=true;}
     else if(same(c.fieldKey,FWPM_CONDITION_ALE_APP_ID)) {
       rule.app=c.conditionValue.byteBlob->data[0]==1;
+      rule.dpi_app=c.conditionValue.byteBlob->data[0]==3;
       rule.service_app=c.conditionValue.byteBlob->data[0]==2;
     } else if(same(c.fieldKey,FWPM_CONDITION_ALE_USER_ID)) {
       LPWSTR descriptor=nullptr;
@@ -115,6 +118,14 @@ int main() {
     Flow dns;dns.protocol=IPPROTO_UDP;dns.remote=53;assert(!permits(dns));
     Flow v6;v6.v6=true;assert(!permits(v6));v6.xray=true;assert(!permits(v6));
     Flow xray;xray.xray=true;assert(!permits(xray));xray.elevated=true;assert(permits(xray)); // transport/direct outbound
+    Flow dpi;dpi.byedpi=true;dpi.elevated=true;assert(!permits(dpi));
+    NET_LUID physical{};physical.Value=42;
+    assert(protection.Install(L"C:\\app\\xray.exe",nullptr,L"C:\\protected\\byedpi.exe",&physical));
+    dpi.interface_=42;
+    assert(permits(dpi));dpi.elevated=false;assert(!permits(dpi)); // the bundled image is not sufficient without the elevated token
+    dpi.elevated=true;dpi.interface_=99;assert(!permits(dpi)); // physical-interface binding prevents TUN recursion
+    dpi.interface_=42;dpi.inbound=true;assert(!permits(dpi)); // ByeDPI cannot accept non-loopback inbound traffic
+    dpi.inbound=false;
     Flow loop;loop.loop=true;assert(permits(loop));loop.v6=true;assert(permits(loop));
     Flow dhcp;dhcp.protocol=IPPROTO_UDP;dhcp.local=68;dhcp.remote=67;assert(!permits(dhcp));dhcp.service_app=true;assert(!permits(dhcp));dhcp.service=true;assert(permits(dhcp));
     NET_LUID tun{};tun.Value=42;assert(protection.Install(L"C:\\app\\xray.exe",&tun));

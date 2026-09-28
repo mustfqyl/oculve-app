@@ -5,7 +5,7 @@ import Foundation
 
 let xrayReleaseTag = "xray-ios-v26.9.9"
 let xrayChecksum = "dd07e1897bdff4c3e4e1a3958629ad5d9517676ecd470bfd99ec35e46184549e"
-let packageDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+let packageDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().resolvingSymlinksInPath()
 let xrayPackageLocalPath = "XRay.xcframework"
 let xrayRepoLocalPath = "../XRay.xcframework"
 let xrayPackageLocalAbsolutePath = packageDirectory.appendingPathComponent(xrayPackageLocalPath).path
@@ -14,6 +14,7 @@ let xrayEnv = ProcessInfo.processInfo.environment
 let xrayBinaryURL = xrayEnv["FLUTTER_VLESS_XRAY_URL"] ?? "https://github.com/XIIIFOX/flutter_vless/releases/download/\(xrayReleaseTag)/XRay.xcframework.zip"
 let xrayBinaryChecksum = xrayEnv["FLUTTER_VLESS_XRAY_CHECKSUM"] ?? xrayChecksum
 let xrayBinaryTarget: Target
+let byedpiPackagePath = packageDirectory.appendingPathComponent("../../../byedpi").standardizedFileURL.path
 
 if FileManager.default.fileExists(atPath: xrayPackageLocalAbsolutePath) {
     xrayBinaryTarget = .binaryTarget(name: "XRay", path: xrayPackageLocalPath)
@@ -26,7 +27,8 @@ if FileManager.default.fileExists(atPath: xrayPackageLocalAbsolutePath) {
 let package = Package(
     name: "flutter_vless",
     platforms: [
-        .iOS("15.0")
+        .iOS("15.0"),
+        .macOS(.v13)
     ],
     products: [
         .library(name: "flutter-vless", targets: ["flutter_vless"]),
@@ -34,7 +36,8 @@ let package = Package(
     ],
     dependencies: [
         .package(name: "FlutterFramework", path: "../FlutterFramework"),
-        .package(url: "https://github.com/EbrahimTahernejad/Tun2SocksKit", exact: "5.15.0")
+        .package(url: "https://github.com/EbrahimTahernejad/Tun2SocksKit", exact: "5.15.0"),
+        .package(name: "byedpi", path: byedpiPackagePath)
     ],
     targets: [
         .target(
@@ -57,6 +60,7 @@ let package = Package(
             dependencies: [
                 "flutter_vless_privacy",
                 "XRay",
+                .product(name: "ByeDpiEngine", package: "byedpi"),
                 .product(name: "Tun2SocksKit", package: "Tun2SocksKit"),
                 .product(name: "Tun2SocksKitC", package: "Tun2SocksKit")
             ],

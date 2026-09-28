@@ -116,6 +116,8 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         let port: Int
         let geoAssetsDirectory: String?
         let credentials: LocalProxyCredentials
+        let dpiBypass: Bool
+        var physicalInterfaceName: String?
     }
 
     private func setForwardingReady(_ ready: Bool) {
@@ -154,6 +156,14 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         // fallback; opening the app performs its transactional migration.
         let config = try TunnelSecretProfile.load(providerConfiguration,
             providerBundleIdentifier: configuration.providerBundleIdentifier ?? "")
+        let dpiBypass = TunnelDpiRuntime.isDpiConfig(config)
+        let dpiInterfaceName: String?
+        if dpiBypass {
+            do { dpiInterfaceName = try await TunnelDpiRuntime.currentPhysicalInterface() }
+            catch { throw tunnelError("Unable to identify the physical network interface for DPI Bypass") }
+        } else {
+            dpiInterfaceName = nil
+        }
         TunnelDebugStore.shared.configure(groupIdentifier: providerConfiguration["groupIdentifier"] as? String)
         beginStartup()
         setForwardingReady(false)
@@ -213,7 +223,8 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         rememberTunnelLog("Protected tunnel routes and virtual DNS installed")
 
         runtimeSpec = RuntimeSpec(config: prepared.data, port: parsed.inboundPort,
-            geoAssetsDirectory: providerConfiguration["geoAssetsDirectory"] as? String, credentials: credentials)
+            geoAssetsDirectory: providerConfiguration["geoAssetsDirectory"] as? String, credentials: credentials,
+            dpiBypass: dpiBypass, physicalInterfaceName: dpiInterfaceName)
         startTunnelWatchdog(port: runtimeSpec?.port)
         // NE connected only means the routes are installed. The plugin
         // queries forwarding readiness before publishing CONNECTED.
@@ -273,8 +284,39 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     }
 
     private func startNativeRuntime(_ spec: RuntimeSpec) throws {
-        try startXRay(xrayConfig: spec.config, geoAssetsDirectory: spec.geoAssetsDirectory)
-        try startSocks5Tunnel(serverPort: spec.port, credentials: spec.credentials)
+        guard spec.dpiBypass else {
+            try startXRay(xrayConfig: spec.config, geoAssetsDirectory: spec.geoAssetsDirectory)
+            try startSocks5Tunnel(serverPort: spec.port, credentials: spec.credentials)
+            return
+        }
+        guard let interfaceName = spec.physicalInterfaceName, !interfaceName.isEmpty else {
+            throw tunnelError("Physical network interface is unavailable")
+        }
+        for profile in TunnelDpiRuntime.profileCandidates(interfaceName: interfaceName) {
+            let localProxyPort = TunnelDpiRuntime.start(profile: profile, interfaceName: interfaceName)
+            guard (1...65535).contains(localProxyPort),
+                  let config = TunnelDpiRuntime.config(data: spec.config, localProxyPort: localProxyPort,
+                    interfaceName: interfaceName) else {
+                _ = TunnelDpiRuntime.stop()
+                TunnelDpiRuntime.invalidate(profile: profile, interfaceName: interfaceName)
+                continue
+            }
+            do {
+                try startXRay(xrayConfig: config, geoAssetsDirectory: spec.geoAssetsDirectory)
+                try startSocks5Tunnel(serverPort: spec.port, credentials: spec.credentials)
+                if TunnelDpiRuntime.isRunning(),
+                   LocalProxyDelayClient.checkConnectivity(port: spec.port, credentials: spec.credentials) {
+                    TunnelDpiRuntime.save(profile: profile, interfaceName: interfaceName)
+                    rememberTunnelLog("Automatic DPI strategy passed authenticated HTTPS connectivity")
+                    return
+                }
+            } catch {
+                // Profile details and probe destinations stay out of diagnostics.
+            }
+            _ = stopNativeRuntime()
+            TunnelDpiRuntime.invalidate(profile: profile, interfaceName: interfaceName)
+        }
+        throw tunnelError("DPI Bypass could not establish verified Internet connectivity")
     }
 
     /// Runs on runtimeQueue. A blocked native quit must not stall NE teardown.
@@ -289,6 +331,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             }
         }
         stopXRay()
+        stopped = TunnelDpiRuntime.stop() && stopped
         if !stopped { rememberTunnelLog("Native shutdown pending; protected traffic remains blocked") }
         return stopped
     }
@@ -567,6 +610,15 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 guard let self else { return }
                 rememberTunnelLog("Network path changed status=\(String(describing: path.status))")
                 if path.status == .satisfied {
+                    if var spec = self.runtimeSpec, spec.dpiBypass,
+                       let interfaceName = TunnelDpiRuntime.interfaceName(in: path),
+                       interfaceName != spec.physicalInterfaceName {
+                        spec.physicalInterfaceName = interfaceName
+                        self.runtimeSpec = spec
+                        rememberTunnelLog("Physical interface changed; restarting automatic DPI selection")
+                        self.scheduleNativeRecovery(after: 0)
+                        return
+                    }
                     self.watchdogPolicy.reset()
                     self.scheduleTunnelHealthCheck(trigger: "path-change", after: 2)
                 }
@@ -627,11 +679,24 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             scheduleNativeRecovery(after: 3)
             return false
         }
+        if runtimeSpec?.dpiBypass == true && !TunnelDpiRuntime.isRunning() {
+            setForwardingReady(false)
+            rememberTunnelLog("Managed DPI engine exited; restarting inside the protected tunnel")
+            scheduleNativeRecovery(after: 0)
+            return false
+        }
 
         let inboundResult = socksInboundHealthCheck(port: port, credentials: credentials)
         watchdogInboundHealthy = inboundResult.hasPrefix("ok")
-        let connectResult = socksConnectHealthCheck(port: port, credentials: credentials)
-        let httpResult = socksHTTPHealthCheck(port: port, credentials: credentials)
+        let dpiProbe = runtimeSpec?.dpiBypass == true
+            ? LocalProxyDelayClient.checkConnectivity(port: port, credentials: credentials)
+            : nil
+        let connectResult = runtimeSpec?.dpiBypass == true
+            ? ((dpiProbe == true) ? "ok authenticated HTTPS connection" : "HTTPS connection failed")
+            : socksConnectHealthCheck(port: port, credentials: credentials)
+        let httpResult = runtimeSpec?.dpiBypass == true
+            ? ((dpiProbe == true) ? "ok authenticated HTTPS 204" : "authenticated HTTPS 204 failed")
+            : socksHTTPHealthCheck(port: port, credentials: credentials)
         if let hevLogURL {
             try? TunnelFileLog.trimIfNeeded(hevLogURL)
         }

@@ -42,6 +42,9 @@ Xray's default executable-directory lookup.
  */
 FOUNDATION_EXPORT BOOL XRaySetAssetLocation(NSString* _Nullable directory, NSError* _Nullable* _Nullable error);
 
+/** Sets or clears the NetworkExtension utun descriptor used by Xray's native TUN inbound. */
+FOUNDATION_EXPORT BOOL XRaySetTunFileDescriptor(int32_t fd, NSError* _Nullable* _Nullable error);
+
 FOUNDATION_EXPORT void XRaySetMemoryLimit(void);
 
 FOUNDATION_EXPORT BOOL XRayStart(NSData* _Nullable config, id<XRayLogger> _Nullable logger, NSError* _Nullable* _Nullable error);

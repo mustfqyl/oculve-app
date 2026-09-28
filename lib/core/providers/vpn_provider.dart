@@ -10,6 +10,7 @@ import '../../features/auth/data/auth_repository.dart';
 
 final selectedServerProvider = StateProvider<String?>((ref) => null);
 const optimalServerId = '__oculve_optimal__';
+const dpiBypassServerId = '__oculve_dpi_bypass__';
 final vpnErrorProvider = StateProvider<String?>((ref) => null);
 
 /// True until the native tunnel has confirmed that it stopped. Direct TCP
@@ -105,60 +106,69 @@ class VpnNotifier extends StateNotifier<VpnState> {
     dismissError();
     state = VpnState.connecting;
     try {
-      // Revalidate account status without downloading the subscription again.
-      // The server list is refreshed during session restore/sign-in; connecting
-      // must not trigger another HWID-gated subscription request.
-      await ref.read(sessionProvider.notifier).refreshAccount();
-      final account = ref.read(sessionProvider).valueOrNull;
-      if (account == null || !account.canConnect) {
-        throw StateError('Your subscription is not active.');
-      }
-      if (account.profiles.isEmpty) {
-        throw StateError('No compatible servers are available.');
-      }
       final selected = ref.read(selectedServerProvider);
-      final profile = selected == optimalServerId
-          ? await _chooseOptimalProfile(account.profiles)
-          : account.profiles.firstWhere(
-              (p) => p.id == selected,
-              orElse: () => account.profiles.first,
-            );
+      final dpiBypass = selected == dpiBypassServerId;
+      VpnProfile? profile;
+      if (!dpiBypass) {
+        // Revalidate account status without downloading the subscription again.
+        // DPI Bypass is client-side and does not depend on a selected Oculve node.
+        await ref.read(sessionProvider.notifier).refreshAccount();
+        final account = ref.read(sessionProvider).valueOrNull;
+        if (account == null || !account.canConnect) {
+          throw StateError('Your subscription is not active.');
+        }
+        if (account.profiles.isEmpty) {
+          throw StateError('No compatible servers are available.');
+        }
+        profile = selected == optimalServerId
+            ? await _chooseOptimalProfile(account.profiles)
+            : account.profiles.firstWhere(
+                (p) => p.id == selected,
+                orElse: () => account.profiles.first,
+              );
+      }
       await initialize();
       if (!await _engine.requestPermission()) {
         throw StateError('VPN permission was not granted.');
       }
       _requested = true;
-      final fingerprint = await XrayPreferences.fingerprint();
       final logLevel = await XrayPreferences.logLevel();
       final dnsSettings = await XrayPreferences.userDnsSettings();
-      final finalMaskSettings = profile.supportsTlsHelloFragmentation
-          ? await XrayPreferences.userFinalMaskSettings()
-          : const XrayFinalMaskSettings();
       final bypassDomains = await XrayPreferences.bypassDomains();
+      final routingRules = await XrayPreferences.routingRules();
       final blockedApps = Platform.isAndroid
           ? await XrayPreferences.blockedApps()
           : const <String>[];
+      final config = dpiBypass
+          ? XrayPreferences.configureDpiBypass(
+              localProxyPort: 65535,
+              dnsSettings: dnsSettings,
+              bypassDomains: bypassDomains,
+              routingRules: routingRules,
+            )
+          : await _configureVpnProfile(
+              profile!,
+              dnsSettings,
+              bypassDomains,
+              logLevel,
+            );
       ref.read(vpnTunnelMayBeActiveProvider.notifier).state = true;
       await _engine.startVless(
-        remark: profile.name,
-        config: XrayPreferences.configure(
-          profile.config,
-          profile.supportsTlsFingerprint
-              ? fingerprint
-              : RealityFingerprint.serverDefault,
-          logLevel: logLevel,
-          bypassDomains: bypassDomains,
-          dnsSettings: dnsSettings,
-          finalMaskSettings: finalMaskSettings,
-        ),
+        remark: dpiBypass ? 'DPI Bypass' : profile!.name,
+        config: config,
+        dpiBypass: dpiBypass,
+        dpiProfile: 0,
         androidDnsPolicy: AndroidDnsPolicy.proxy,
-        androidDnsProxyOutboundTag: 'proxy',
+        androidDnsProxyOutboundTag: dpiBypass ? 'byedpi' : 'proxy',
         blockedApps: blockedApps,
       );
       // A successful start call is acceptance, not proof of a working tunnel.
       // Only native forwarding readiness events can set CONNECTED.
       if (state != VpnState.connected) {
-        _timeout = Timer(const Duration(seconds: 45), () async {
+        final connectionTimeout = dpiBypass
+            ? const Duration(seconds: 90)
+            : const Duration(seconds: 45);
+        _timeout = Timer(connectionTimeout, () async {
           if (mounted && state == VpnState.connecting) {
             await disconnect();
             if (mounted) {
@@ -188,6 +198,24 @@ class VpnNotifier extends StateNotifier<VpnState> {
       _busy = false;
     }
   }
+
+  Future<String> _configureVpnProfile(
+    VpnProfile profile,
+    XrayDnsSettings dnsSettings,
+    List<String> bypassDomains,
+    XrayLogLevel logLevel,
+  ) async => XrayPreferences.configure(
+    profile.config,
+    profile.supportsTlsFingerprint
+        ? await XrayPreferences.fingerprint()
+        : RealityFingerprint.serverDefault,
+    logLevel: logLevel,
+    bypassDomains: bypassDomains,
+    dnsSettings: dnsSettings,
+    finalMaskSettings: profile.supportsTlsHelloFragmentation
+        ? await XrayPreferences.userFinalMaskSettings()
+        : const XrayFinalMaskSettings(),
+  );
 
   Future<VpnProfile> _chooseOptimalProfile(List<VpnProfile> profiles) async {
     final probe = ref.read(serverLatencyProbeProvider);

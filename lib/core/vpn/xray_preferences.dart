@@ -2861,6 +2861,111 @@ class XrayPreferences {
     return List.unmodifiable(preferences.getStringList(_blockedAppsKey) ?? []);
   }
 
+  /// Builds the client-owned Xray session used by the DPI Bypass location.
+  /// The native tunnel backend replaces the loopback placeholder with the
+  /// port returned by its managed ByeDPI engine before starting Xray.
+  static String configureDpiBypass({
+    required int localProxyPort,
+    required XrayDnsSettings dnsSettings,
+    List<String> bypassDomains = const [],
+    List<XrayRoutingRule> routingRules = const [],
+  }) {
+    dnsSettings.validate();
+    if (localProxyPort < 1 || localProxyPort > 65535) {
+      throw const FormatException('Invalid local DPI proxy port.');
+    }
+    if (routingRules.length > 32) {
+      throw const FormatException('Add at most 32 routing rules.');
+    }
+    for (final rule in routingRules) {
+      rule.validate();
+    }
+    final domains = normalizeDomains(bypassDomains);
+    final outbounds = <Map<String, dynamic>>[
+      {
+        'tag': 'byedpi',
+        'protocol': 'socks',
+        'settings': {
+          'servers': [
+            {'address': '127.0.0.1', 'port': localProxyPort},
+          ],
+        },
+        // Resolve request hostnames with Xray's DNS settings so ByeDPI never
+        // starts its own resolver that could re-enter the system tunnel.
+        'targetStrategy': 'UseIP',
+      },
+      {'tag': 'direct', 'protocol': 'freedom'},
+      {'tag': 'block', 'protocol': 'blackhole'},
+    ];
+    // Profile readiness must prove that the ByeDPI outbound works even when
+    // user split-tunnel rules send ordinary traffic to Direct or Block.
+    final rules = <Map<String, dynamic>>[
+      {
+        'type': 'field',
+        'domain': ['full:www.gstatic.com'],
+        'outboundTag': 'byedpi',
+      },
+      {
+        'type': 'field',
+        'domain': ['full:cp.cloudflare.com'],
+        'outboundTag': 'byedpi',
+      },
+    ];
+    for (final rule in routingRules) {
+      final outboundTag = switch (rule.action) {
+        XrayRoutingAction.proxy => 'byedpi',
+        XrayRoutingAction.direct => 'direct',
+        XrayRoutingAction.block => 'block',
+      };
+      rules.add(rule.toXrayJson(outboundTag));
+    }
+    if (domains.isNotEmpty) {
+      rules.add({
+        'type': 'field',
+        'domain': domains.map((domain) => 'domain:$domain').toList(),
+        'outboundTag': 'direct',
+      });
+    }
+    return jsonEncode({
+      'log': {
+        'loglevel': 'warning',
+        'access': 'none',
+        'error': 'none',
+        'dnsLog': false,
+      },
+      'inbounds': [
+        {
+          'tag': 'socks',
+          'listen': '127.0.0.1',
+          'port': 10808,
+          'protocol': 'socks',
+          'settings': {'auth': 'noauth', 'udp': true},
+          'sniffing': {
+            'enabled': true,
+            'destOverride': ['http', 'tls', 'quic'],
+            'routeOnly': true,
+          },
+        },
+      ],
+      'outbounds': outbounds,
+      'dns': {
+        'servers': dnsSettings.configServers,
+        'queryStrategy': dnsSettings.queryStrategy.configValue,
+        'disableCache': dnsSettings.disableCache,
+        'serveStale': dnsSettings.serveStale,
+        'serveExpiredTTL': dnsSettings.serveExpiredTtl,
+        'disableFallback': dnsSettings.disableFallback,
+        'disableFallbackIfMatch': dnsSettings.disableFallbackIfMatch,
+        'enableParallelQuery': dnsSettings.enableParallelQuery,
+        'useSystemHosts': dnsSettings.useSystemHosts,
+        if (dnsSettings.clientIp.trim().isNotEmpty)
+          'clientIp': dnsSettings.clientIp.trim(),
+        if (dnsSettings.hosts.isNotEmpty) 'hosts': dnsSettings.hosts,
+      },
+      'routing': {'domainStrategy': 'AsIs', 'rules': rules},
+    });
+  }
+
   static Future<void> setBlockedApps(List<String> apps) async {
     final normalized = normalizeBlockedApps(apps);
     final preferences = await SharedPreferences.getInstance();

@@ -10,6 +10,11 @@ public enum TunnelDNSPolicy {
     private static let relayTag = "flutter-vless-system-dns"
     private static let upstreamTag = "flutter-vless-dns-upstream"
     private static let proxyTag = "flutter-vless-dns-proxy"
+    private static let supportedDoHResolvers: [String: String] = [
+        "https://cloudflare-dns.com/dns-query": "1.1.1.1",
+        "https://dns.google/dns-query": "8.8.8.8",
+        "https://dns.quad9.net/dns-query": "9.9.9.9"
+    ]
     private static let endpointProtocols: Set<String> = [
         "vless", "vmess", "trojan", "shadowsocks", "socks", "http", "hysteria", "wireguard"
     ]
@@ -159,12 +164,15 @@ public enum TunnelDNSPolicy {
 
     private static func configuredResolver(_ config: [String: Any]) -> String? {
         guard let rawDNS = config["dns"] else { return "1.1.1.1" }
-        guard let dns = rawDNS as? [String: Any],
-              let servers = dns["servers"] as? [String], servers.count == 1,
-              servers[0].hasPrefix("tcp://") else { return nil }
-        let address = String(servers[0].dropFirst("tcp://".count))
+        guard let dns = rawDNS as? [String: Any] else { return nil }
+        guard let rawServers = dns["servers"] else { return "1.1.1.1" }
+        guard let servers = rawServers as? [String], servers.count == 1,
+              let resolver = supportedDoHResolvers[servers[0]] ?? {
+                  guard servers[0].hasPrefix("tcp://") else { return nil }
+                  return String(servers[0].dropFirst("tcp://".count))
+              }() else { return nil }
         var parsed = in_addr()
-        return address.withCString { inet_pton(AF_INET, $0, &parsed) } == 1 ? address : nil
+        return resolver.withCString { inet_pton(AF_INET, $0, &parsed) } == 1 ? resolver : nil
     }
 
     private static func endpointHost(_ endpoint: String?) -> String? {

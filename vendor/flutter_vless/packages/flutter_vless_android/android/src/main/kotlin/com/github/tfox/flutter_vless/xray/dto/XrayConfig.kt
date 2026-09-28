@@ -67,5 +67,7 @@ data class XrayConfig(
     var ROUTING_DOMAIN_STRATEGY: String = "",
     var ANDROID_DNS_POLICY: String = "config",
     var ANDROID_DNS_PROXY_OUTBOUND_TAG: String? = null,
+    var DPI_BYPASS: Boolean = false,
+    var DPI_PROFILE: Int = 0,
     var PROXY_ONLY: Boolean = false
 ) : Serializable

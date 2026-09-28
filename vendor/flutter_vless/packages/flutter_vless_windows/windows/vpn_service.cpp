@@ -2,12 +2,13 @@
 #include "native_runtime.h"
 #include "diagnostics_log.h"
 #include "xray_config.h"
+#include "dpi_connectivity_probe.h"
 #include <ws2tcpip.h>
 #include <iphlpapi.h>
 
 namespace {
 void Event(const char* message) { flutter_vless::DiagnosticsLog::Instance().Append("vpn", message); }
-std::optional<std::string> Underlay(UINT64* identity = nullptr) {
+std::optional<std::string> Underlay(UINT64* identity = nullptr, std::string* signature = nullptr) {
   // Select a usable default without allowing our own more-specific capture
   // routes to become the next transport's underlay. Include adapter metrics.
   MIB_IPFORWARD_TABLE2* routes = nullptr;
@@ -31,6 +32,11 @@ std::optional<std::string> Underlay(UINT64* identity = nullptr) {
     WideCharToMultiByte(CP_UTF8, 0, row.Alias, -1, name.data(), size, nullptr, nullptr);
     name.pop_back(); result = name; best = metric;
     if (identity) *identity = row.InterfaceLuid.Value;
+    if (signature) {
+      char gateway[INET_ADDRSTRLEN]{};
+      const auto text = InetNtopA(AF_INET, &route.NextHop.Ipv4.sin_addr, gateway, sizeof(gateway));
+      *signature = name + "|" + (text ? gateway : "") + "|" + std::to_string(metric);
+    }
   }
   FreeMibTable(routes);
   return result;
@@ -72,11 +78,20 @@ bool VpnService::Start(const std::string& config) {
   auto xray = native::FindBundledFile(L"xray.exe");
   auto tun = native::FindBundledFile(L"tun2socks.exe");
   auto wintun = native::FindBundledFile(L"wintun.dll");
-  if (!native::IsAdministrator() || !xray || !tun || !wintun || wintun->parent_path() != tun->parent_path()) {
+  const bool has_dpi_marker = xray_config::HasDpiBypassTag(config);
+  const bool dpi_request = has_dpi_marker && xray_config::IsDpiBypassConfig(config);
+  if (has_dpi_marker && !dpi_request) {
+    Event("DPI config rejected because it contains a non-client or remote outbound");
+    return false;
+  }
+  auto bundled_byedpi = dpi_request ? native::FindBundledFile(L"byedpi.exe") : std::nullopt;
+  if (!native::IsAdministrator() || !xray || !tun || !wintun || wintun->parent_path() != tun->parent_path()
+      || (dpi_request && !bundled_byedpi)) {
     Event("VPN requires administrator rights and bundled native executables"); return false;
   }
   if (!protection_.Inspect()) { Event(("Windows traffic protection is unavailable, code=" + std::to_string(protection_.Error())).c_str()); return false; }
-  auto underlay = Underlay();
+  UINT64 selected_underlay = 0;
+  auto underlay = Underlay(&selected_underlay);
   auto user = native::RandomHex(16), password = native::RandomHex(32);
   auto cache = bootstrap_cache_;
   auto resolve = [&](const std::string& name) {
@@ -98,26 +113,41 @@ bool VpnService::Start(const std::string& config) {
     if (!protection_.Active()) protection_.Release();
     return false;
   }
+  if (dpi_request) {
+    auto prepared_config = xray_config::Parse(*prepared);
+    if (!prepared_config.is_object() || !prepared_config["outbounds"].is_array()) return false;
+    for (auto& outbound : prepared_config["outbounds"]) {
+      if (!outbound.is_object() || !outbound.contains("tag") || outbound["tag"] != "byedpi") continue;
+      if (outbound.contains("streamSettings") && outbound["streamSettings"].is_object()
+          && outbound["streamSettings"].contains("sockopt") && outbound["streamSettings"]["sockopt"].is_object()) {
+        outbound["streamSettings"]["sockopt"].erase("interface");
+      }
+    }
+    *prepared = prepared_config.dump();
+  }
   auto runtime = std::make_unique<native::ProtectedRuntime>();
-  if (!runtime->Create(*xray)) {
+  if (!runtime->Create(*xray, bundled_byedpi ? *bundled_byedpi : fs::path{})) {
     Event("Cannot create private administrator-owned VPN runtime");
     if (!protection_.Active()) protection_.Release();
     return false;
   }
   if (requested_.load()) StopSession(false);
   bootstrap_cache_ = std::move(cache);
+  dpi_bypass_ = dpi_request;
   private_runtime_ = std::move(runtime);
   xray_executable_path_ = private_runtime_->Executable(); tun2socks_executable_path_ = *tun;
+  byedpi_executable_path_ = dpi_bypass_ ? private_runtime_->ByeDpiExecutable() : fs::path{};
   current_config_ = *prepared; username_ = user; password_ = password;
   socks_port_ = *xray_config::SocksPort(current_config_);
   // WFP must exist before native workers, resolver configuration or capture.
-  if (!protection_.Install(xray_executable_path_)) { Event(("Could not install mandatory Windows traffic protection, code=" + std::to_string(protection_.Error())).c_str()); return false; }
+  NET_LUID physical{}; physical.Value = selected_underlay;
+  if (!protection_.Install(xray_executable_path_, nullptr, byedpi_executable_path_, dpi_bypass_ ? &physical : nullptr)) { Event(("Could not install mandatory Windows traffic protection, code=" + std::to_string(protection_.Error())).c_str()); return false; }
   Event("Mandatory Windows traffic protection installed");
   requested_.store(true); ready_.store(false);
   { std::lock_guard<std::mutex> lock(state_mutex_); first_attempt_finished_ = false; }
   vpn_thread_ = std::thread(&VpnService::RunVpn, this);
   std::unique_lock<std::mutex> lock(state_mutex_);
-  state_changed_.wait_for(lock, std::chrono::seconds(40), [&] { return first_attempt_finished_; });
+  state_changed_.wait_for(lock, std::chrono::seconds(dpi_bypass_ ? 90 : 40), [&] { return first_attempt_finished_; });
   return ready_.load();
 }
 void VpnService::StopSession(bool release) {
@@ -127,6 +157,7 @@ void VpnService::StopSession(bool release) {
   private_runtime_.reset();
   if (release && !protection_.Release()) Event("Traffic protection cleanup failed; restart as administrator and stop again");
   username_.clear(); password_.clear(); current_config_.clear();
+  dpi_bypass_ = false; byedpi_executable_path_.clear(); underlay_signature_.clear();
   if (release) bootstrap_cache_.clear();
   std::lock_guard<std::mutex> lock(stats_mutex_); total_upload_ = 0; total_download_ = 0;
 }
@@ -144,12 +175,15 @@ void VpnService::RunVpn() {
     unsigned ticks = 0;
     while (ready_.load() && requested_.load()) {
       UINT64 identity = 0;
-      const auto current_interface = Underlay(&identity);
-      if (!current_interface || *current_interface != underlay_name_ || identity != underlay_luid_) {
+      std::string signature;
+      const auto current_interface = Underlay(&identity, &signature);
+      if (!current_interface || *current_interface != underlay_name_ || identity != underlay_luid_
+          || (dpi_bypass_ && signature != underlay_signature_)) {
         Event("Outbound interface changed; rebuilding the protected VPN path");
         break;
       }
       if (!xray_process_->IsRunning() || !tun2socks_process_->IsRunning()
+          || (dpi_bypass_ && (!byedpi_process_ || !byedpi_process_->IsRunning()))
           || !packet_probe_ || !packet_probe_->Check()) break;
       if (++ticks % 2 == 0) UpdateTrafficStats();
       std::this_thread::sleep_for(std::chrono::milliseconds(500));
@@ -161,13 +195,51 @@ void VpnService::RunVpn() {
   }
 }
 bool VpnService::StartWorkers() {
+  if (!dpi_bypass_) return StartWorkersForProfile(-1);
+  std::string signature;
+  if (!Underlay(nullptr, &signature)) return false;
+  std::vector<int> profiles;
+  auto cached = dpi_profile_cache_.find(signature);
+  if (cached != dpi_profile_cache_.end()) profiles.push_back(cached->second);
+  for (int profile = 0; profile < 4; ++profile) {
+    if (std::find(profiles.begin(), profiles.end(), profile) == profiles.end()) profiles.push_back(profile);
+  }
+  for (int profile : profiles) {
+    if (StartWorkersForProfile(profile)) {
+      dpi_profile_cache_[underlay_signature_] = profile;
+      return true;
+    }
+    StopWorkers();
+  }
+  return false;
+}
+bool VpnService::StartWorkersForProfile(int dpi_profile) {
   using namespace flutter_vless;
   auto fail = [](const char* stage) { Event(stage); return false; };
-  auto underlay = Underlay(&underlay_luid_);
+  auto underlay = Underlay(&underlay_luid_, &underlay_signature_);
   if (!underlay) return fail("No usable underlay for native recovery");
   underlay_name_ = *underlay;
-  auto config = xray_config::Parse(current_config_);
-  for (auto& outbound : config["outbounds"]) Rebind(outbound, *underlay);
+  std::string worker_config = current_config_;
+  if (dpi_bypass_) {
+    NET_LUID physical{}; physical.Value = underlay_luid_;
+    if (!protection_.Install(xray_executable_path_, nullptr, byedpi_executable_path_, &physical))
+      return fail("Cannot restrict the managed DPI engine to the physical adapter");
+    uint16_t local_port = 0;
+    byedpi_process_ = native::StartByeDpi(byedpi_executable_path_, underlay_name_, dpi_profile, local_port);
+    if (!byedpi_process_) return fail("Managed DPI engine did not become ready");
+    auto updated = xray_config::SetDpiProxyPort(worker_config, local_port);
+    if (!updated) return fail("Client-owned DPI outbound rejected its local endpoint");
+    worker_config = std::move(*updated);
+  }
+  auto config = xray_config::Parse(worker_config);
+  for (auto& outbound : config["outbounds"]) {
+    Rebind(outbound, *underlay);
+    if (dpi_bypass_ && outbound.is_object() && outbound.value("tag", std::string()) == "byedpi"
+        && outbound.contains("streamSettings") && outbound["streamSettings"].is_object()
+        && outbound["streamSettings"].contains("sockopt") && outbound["streamSettings"]["sockopt"].is_object()) {
+      outbound["streamSettings"]["sockopt"].erase("interface");
+    }
+  }
   packet_probe_ = std::make_unique<PacketPathProbe>();
   if (!packet_probe_->Start() || !packet_probe_->Configure(config)) return fail("Cannot prepare the local packet-path probe");
   if (!private_runtime_ || !private_runtime_->WriteConfig(config.dump(), temp_config_path_)) return fail("Cannot write the private Xray configuration");
@@ -232,12 +304,16 @@ bool VpnService::StartWorkers() {
     if (status != NO_ERROR) { Event(("Cannot install an owned capture route, code=" + std::to_string(status)).c_str()); return false; }
     capture_routes_.push_back(row);
   }
-  if (!protection_.Install(xray_executable_path_, &luid)) { Event(("Cannot authorize the Wintun interface, code=" + std::to_string(protection_.Error())).c_str()); return false; }
+  NET_LUID physical{}; physical.Value = underlay_luid_;
+  if (!protection_.Install(xray_executable_path_, &luid, byedpi_executable_path_, dpi_bypass_ ? &physical : nullptr)) { Event(("Cannot authorize the Wintun interface, code=" + std::to_string(protection_.Error())).c_str()); return false; }
   Event("Wintun capture and virtual DNS ready; checking packet forwarding");
   native::RemovePrivateConfig(temp_config_path_);
   native::RemovePrivateConfig(tun_config_path_);
   for (int i = 0; i < 10 && requested_.load() && xray_process_->IsRunning() && tun2socks_process_->IsRunning(); ++i) {
-    if (packet_probe_->Check()) return true;
+    if (packet_probe_->Check()) {
+      if (!dpi_bypass_ || DpiConnectivityReady(socks_port_, username_, password_)) return true;
+      return fail("DPI tunnel did not pass a certificate-checked HTTPS connectivity probe");
+    }
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
   return fail("Private packet-path challenge did not complete");
@@ -246,7 +322,7 @@ void VpnService::StopWorkers() {
   // The separate WFP barrier remains installed, including during route removal.
   for (const auto& route : capture_routes_) DeleteIpForwardEntry2(&route);
   capture_routes_.clear();
-  tun2socks_process_.reset(); xray_process_.reset();
+  tun2socks_process_.reset(); xray_process_.reset(); byedpi_process_.reset();
   packet_probe_.reset();
   flutter_vless::native::RemovePrivateConfig(temp_config_path_);
   flutter_vless::native::RemovePrivateConfig(tun_config_path_);

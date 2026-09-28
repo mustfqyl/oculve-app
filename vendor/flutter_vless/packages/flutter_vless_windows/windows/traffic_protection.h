@@ -17,7 +17,8 @@ class TrafficProtection {
  public:
   explicit TrafficProtection(std::function<std::wstring()> dhcp_sid = {}) : dhcp_sid_(std::move(dhcp_sid)) {}
   ~TrafficProtection();
-  bool Install(const std::filesystem::path& xray, const NET_LUID* tunnel = nullptr);
+  bool Install(const std::filesystem::path& xray, const NET_LUID* tunnel = nullptr,
+      const std::filesystem::path& byedpi = {}, const NET_LUID* underlay = nullptr);
   bool Inspect();
   bool Release();
   bool Active() const { return active_.load(); }
