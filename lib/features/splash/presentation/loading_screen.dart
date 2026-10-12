@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:oculve/core/theme/app_theme.dart';
+import 'package:oculve/core/widgets/app_route.dart';
 import '../../home/presentation/home_screen.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
@@ -22,21 +23,28 @@ class _LoadingScreenState extends State<LoadingScreen> {
     await Future.delayed(const Duration(milliseconds: 600));
     if (!mounted) return;
 
-    Navigator.of(context).pushReplacement(
-      PageRouteBuilder(
-        transitionDuration: const Duration(milliseconds: 500),
-        pageBuilder: (_, _, _) => const HomeScreen(),
-        transitionsBuilder: (_, animation, _, child) {
-          return FadeTransition(opacity: animation, child: child);
-        },
-      ),
-    );
+    Navigator.of(context).pushReplacement(appRoute(const HomeScreen()));
   }
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final fg = isDark ? AppTheme.foreground : AppTheme.lightForeground;
+    final logo = Container(
+      width: 72,
+      height: 72,
+      decoration: BoxDecoration(
+        color: fg,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Center(
+        child: Icon(
+          Icons.lock,
+          size: 36,
+          color: isDark ? AppTheme.backgroundColor : AppTheme.lightBackground,
+        ),
+      ),
+    );
 
     return Scaffold(
       body: PremiumBackground(
@@ -44,26 +52,13 @@ class _LoadingScreenState extends State<LoadingScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Container(
-                    width: 72,
-                    height: 72,
-                    decoration: BoxDecoration(
-                      color: fg,
-                      borderRadius: BorderRadius.circular(18),
-                    ),
-                    child: Center(
-                      child: Icon(
-                        Icons.lock,
-                        size: 36,
-                        color: isDark
-                            ? AppTheme.backgroundColor
-                            : AppTheme.lightBackground,
-                      ),
-                    ),
-                  )
-                  .animate()
-                  .scale(duration: 400.ms, curve: Curves.easeOutBack)
-                  .fadeIn(duration: 400.ms),
+              if (MediaQuery.disableAnimationsOf(context))
+                logo
+              else
+                logo
+                    .animate()
+                    .scale(duration: 400.ms, curve: Curves.easeOutBack)
+                    .fadeIn(duration: 400.ms),
             ],
           ),
         ),

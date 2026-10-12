@@ -4,9 +4,10 @@ import 'package:oculve/core/widgets/app_route.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:oculve/core/theme/app_theme.dart';
 import 'package:oculve/core/providers/vpn_provider.dart';
+import 'package:oculve/core/vpn/profile.dart';
 import 'package:oculve/core/vpn/server_latency.dart';
 import 'package:oculve/features/auth/data/auth_repository.dart';
-import 'package:oculve/core/localization/app_strings.dart';
+import 'dpi_bypass_logo.dart';
 import '../server_selection_screen.dart';
 import 'country_icon.dart';
 import 'latency_label.dart';
@@ -18,9 +19,31 @@ class ServerCard extends ConsumerWidget {
     final profiles = ref.watch(sessionProvider).valueOrNull?.profiles ?? [];
     final id = ref.watch(selectedServerProvider);
     final isOptimal = id == optimalServerId;
-    final profile = isOptimal || profiles.isEmpty
-        ? null
-        : profiles.firstWhere((p) => p.id == id, orElse: () => profiles.first);
+    final isDpiBypass = id == dpiBypassServerId;
+    VpnProfile? profile;
+    if (!isDpiBypass && profiles.isNotEmpty) {
+      if (isOptimal) {
+        final resolvedId = ref.watch(optimalServerProfileProvider);
+        final lastKnown = ref.watch(serverLatencyLastKnownProvider);
+        final latencies = <String, int?>{};
+        for (final candidate in profiles) {
+          final measured = ref.watch(serverLatencyProvider(candidate.id));
+          latencies[candidate.id] = retainLastKnownLatency(
+            measured,
+            lastKnown[candidate.id],
+          ).valueOrNull;
+        }
+        final preview = resolvedId == null
+            ? sortProfilesByLatency(profiles, latencies).first
+            : profiles.where((item) => item.id == resolvedId).firstOrNull;
+        profile = preview ?? sortProfilesByLatency(profiles, latencies).first;
+      } else {
+        profile = profiles.firstWhere(
+          (p) => p.id == id,
+          orElse: () => profiles.first,
+        );
+      }
+    }
     final latency = profile == null
         ? const AsyncValue<int?>.data(null)
         : retainLastKnownLatency(
@@ -53,10 +76,14 @@ class ServerCard extends ConsumerWidget {
                     FrostedCircle(
                       size: 30,
                       blurAmount: 15,
-                      color: isOptimal
+                      color: isOptimal && profile == null
                           ? AppTheme.successColor.withValues(alpha: .1)
+                          : isDpiBypass
+                          ? Colors.blueAccent.withValues(alpha: .1)
                           : null,
-                      child: isOptimal
+                      child: isDpiBypass
+                          ? const DpiBypassLogo(size: 22)
+                          : isOptimal && profile == null
                           ? const Icon(
                               Icons.bolt_rounded,
                               size: 19,
@@ -66,20 +93,28 @@ class ServerCard extends ConsumerWidget {
                     ),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: Text(
-                        isOptimal
-                            ? context.tr('Optimal')
-                            : profile?.name ?? context.tr('Choose location'),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: AppTheme.fontSizeBody,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
+                      child: profile == null
+                          ? CompactLabel(
+                              isDpiBypass ? 'DPI Bypass' : 'Choose location',
+                              textAlign: TextAlign.start,
+                              alignment: Alignment.centerLeft,
+                              style: const TextStyle(
+                                fontSize: AppTheme.fontSizeBody,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            )
+                          : Text(
+                              profile.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: AppTheme.fontSizeBody,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
                     ),
                     const SizedBox(width: 4),
-                    if (!isOptimal) LatencyLabel(latency: latency),
+                    if (profile != null) LatencyLabel(latency: latency),
                     const Icon(Icons.chevron_right, size: 16),
                   ],
                 ),

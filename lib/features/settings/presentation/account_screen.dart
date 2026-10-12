@@ -1,18 +1,18 @@
 import 'dart:async';
+import 'inline_account_delete.dart';
 import 'dart:convert';
 import 'dart:io' show Platform;
-import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/cupertino.dart' as cupertino;
 import 'package:flutter/material.dart' hide Text;
 import 'package:oculve/core/localization/localized_text.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:oculve/core/providers/vpn_provider.dart';
 import 'package:oculve/core/account/private_text_export.dart';
 import 'package:oculve/core/theme/app_theme.dart';
 import 'package:oculve/core/widgets/app_page.dart';
+import 'package:oculve/core/widgets/app_feedback.dart';
 import 'package:oculve/features/auth/data/auth_repository.dart';
 import 'package:oculve/core/localization/app_strings.dart';
 
@@ -92,20 +92,26 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
     return '${date.year}-${two(date.month)}-${two(date.day)} ${two(date.hour)}:${two(date.minute)} UTC';
   }
 
-  void _message(String message) {
+  void _message(String message, {BuildContext? source}) {
     if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    AppFeedback.showMessage(source ?? context, message);
   }
 
-  Future<void> _run(Future<void> Function() action) async {
-    if (_busy) return;
+  Future<bool> _run(Future<void> Function() action) async {
+    if (_busy) return false;
     setState(() => _busy = true);
     try {
       await action();
+      return true;
     } catch (error) {
-      _message(error.toString());
+      if (mounted) {
+        AppFeedback.showError(
+          context,
+          error,
+          placement: AppFeedbackPlacement.pageBottom,
+        );
+      }
+      return false;
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -117,12 +123,12 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
           builder: (dialogContext) {
             final cancel = cupertino.CupertinoDialogAction(
               onPressed: () => Navigator.pop(dialogContext, false),
-              child: Text(context.tr('Cancel')),
+              child: CompactLabel(context.tr('Cancel')),
             );
             final confirm = cupertino.CupertinoDialogAction(
               isDestructiveAction: title == 'Permanently delete?',
               onPressed: () => Navigator.pop(dialogContext, true),
-              child: Text(context.tr(action)),
+              child: CompactLabel(context.tr(action)),
             );
             if (Platform.isIOS) {
               return cupertino.CupertinoPopupSurface(
@@ -200,11 +206,11 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(dialogContext, false),
-                  child: Text(context.tr('Cancel')),
+                  child: CompactLabel(context.tr('Cancel')),
                 ),
                 TextButton(
                   onPressed: () => Navigator.pop(dialogContext, true),
-                  child: Text(context.tr(action)),
+                  child: CompactLabel(context.tr(action)),
                 ),
               ],
             );
@@ -260,10 +266,13 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
                       ),
                     ),
                     IconButton(
-                      tooltip: context.tr('Close'),
                       visualDensity: VisualDensity.compact,
                       onPressed: () => Navigator.pop(dialogContext),
-                      icon: const Icon(Icons.close, size: 18),
+                      icon: Icon(
+                        Icons.close,
+                        size: 18,
+                        semanticLabel: context.tr('Close'),
+                      ),
                     ),
                   ],
                 ),
@@ -287,23 +296,17 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
     );
   }
 
-  Future<void> _resetDevices() async {
-    if (!await _confirm(
-      'Sign out all devices?',
-      'This clears registered devices and rotates your subscription link. VPN connections will stop until they sign in again.',
-      'Reset devices',
-    )) {
-      return;
+  Future<bool> _resetDevices() => _run(() async {
+    await ref.read(vpnProvider.notifier).disconnect();
+    await ref.read(apiProvider).request('/api/user/devices/reset', body: {});
+    try {
+      await ref.read(sessionProvider.notifier).logout();
+    } finally {
+      if (mounted) {
+        Navigator.popUntil(context, (route) => route.isFirst);
+      }
     }
-    await _run(() async {
-      await ref.read(vpnProvider.notifier).disconnect();
-      await ref.read(apiProvider).request('/api/user/devices/reset', body: {});
-      // Fetch account metadata only. Downloading the new subscription here
-      // would immediately register this same device again after reset.
-      await ref.read(sessionProvider.notifier).refreshAccount();
-      _message('Devices reset. Your subscription link has changed.');
-    });
-  }
+  });
 
   Future<void> _startTotpSetup() async {
     await _run(() async {
@@ -377,12 +380,15 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
                         ),
                       ),
                       IconButton(
-                        tooltip: context.tr('Copy setup key'),
                         onPressed: () {
                           Clipboard.setData(ClipboardData(text: key));
-                          _message(context.tr('Setup key copied.'));
+                          _message('Setup key copied.', source: dialogContext);
                         },
-                        icon: const Icon(Icons.copy_outlined, size: 17),
+                        icon: Icon(
+                          Icons.copy_outlined,
+                          size: 17,
+                          semanticLabel: context.tr('Copy setup key'),
+                        ),
                       ),
                     ],
                   ),
@@ -517,9 +523,8 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
               ),
               const SizedBox(width: 8),
               IconButton(
-                tooltip: context.tr('Done'),
                 onPressed: () => Navigator.pop(dialogContext),
-                icon: const Icon(Icons.check),
+                icon: Icon(Icons.check, semanticLabel: context.tr('Done')),
               ),
             ],
           ),
@@ -531,20 +536,6 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
   }
 
   Future<void> _deleteAccount() async {
-    final platform = Theme.of(context).platform;
-    final applePlatform =
-        platform == TargetPlatform.iOS || platform == TargetPlatform.macOS;
-    final confirmation = applePlatform
-        ? cupertino.showCupertinoDialog<bool>(
-            context: context,
-            builder: (_) => const _DeleteAccountConfirmationDialog(),
-          )
-        : showDialog<bool>(
-            context: context,
-            builder: (_) => const _DeleteAccountConfirmationDialog(),
-          );
-    final phraseAccepted = await confirmation ?? false;
-    if (!phraseAccepted || !mounted) return;
     await _run(() async {
       await ref.read(vpnProvider.notifier).disconnect();
       await ref.read(apiProvider).request('/api/user/me', method: 'DELETE');
@@ -555,108 +546,197 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
   }
 
   Future<void> _showDevicesSheet(List<Map<String, dynamic>> devices) async {
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (sheetContext) => SafeArea(
-        top: false,
-        child: FractionallySizedBox(
-          heightFactor: .78,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-            child: FrostedCard(
-              padding: EdgeInsets.zero,
-              borderRadius: 20,
-              child: Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 6, 6, 6),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            '${context.tr('Registered devices')} (${devices.length})',
-                            style: TextStyle(
-                              color: _fg,
-                              fontSize: 15,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                        if (devices.isNotEmpty)
-                          IconButton(
-                            tooltip: context.tr('Reset all devices'),
-                            onPressed: _busy ? null : _resetDevices,
-                            icon: const Icon(Icons.restart_alt, size: 20),
-                          ),
-                        IconButton(
-                          tooltip: context.tr('Close'),
-                          onPressed: () => Navigator.pop(sheetContext),
-                          icon: const Icon(Icons.close, size: 19),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Divider(height: 1, color: _muted.withValues(alpha: .2)),
-                  Expanded(
-                    child: devices.isEmpty
-                        ? Center(
-                            child: Text(
-                              'No registered devices',
-                              style: TextStyle(color: _muted, fontSize: 13),
-                            ),
-                          )
-                        : ListView.separated(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 8,
-                            ),
-                            itemCount: devices.length,
-                            separatorBuilder: (_, _) => Divider(
-                              height: 1,
-                              color: _muted.withValues(alpha: .14),
-                            ),
-                            itemBuilder: (context, index) {
-                              final device = devices[index];
-                              final model = device['deviceModel']
-                                  ?.toString()
-                                  .trim();
-                              return ListTile(
-                                dense: true,
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 4,
-                                  vertical: 3,
+    var resetArmed = false;
+    var resetBusy = false;
+    var resetDone = false;
+    Timer? confirmationTimer;
+    try {
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (sheetContext) => SafeArea(
+          top: false,
+          child: StatefulBuilder(
+            builder: (sheetContext, setSheetState) => FractionallySizedBox(
+              heightFactor: .78,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                child: FrostedCard(
+                  padding: EdgeInsets.zero,
+                  borderRadius: 20,
+                  child: Column(
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 6, 6, 6),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                '${context.tr('Registered devices')} (${devices.length})',
+                                style: TextStyle(
+                                  color: _fg,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w700,
                                 ),
-                                leading: Icon(
-                                  Icons.devices_outlined,
-                                  color: _muted,
+                              ),
+                            ),
+                            if (devices.isNotEmpty)
+                              IconButton(
+                                onPressed: _busy || resetBusy
+                                    ? null
+                                    : () async {
+                                        if (!resetArmed) {
+                                          confirmationTimer?.cancel();
+                                          setSheetState(() {
+                                            resetArmed = true;
+                                            resetDone = false;
+                                          });
+                                          confirmationTimer = Timer(
+                                            const Duration(seconds: 3),
+                                            () {
+                                              if (sheetContext.mounted) {
+                                                setSheetState(
+                                                  () => resetArmed = false,
+                                                );
+                                              }
+                                            },
+                                          );
+                                          return;
+                                        }
+
+                                        confirmationTimer?.cancel();
+                                        setSheetState(() {
+                                          resetArmed = false;
+                                          resetBusy = true;
+                                          resetDone = true;
+                                        });
+                                        final success = await _resetDevices();
+                                        if (!success && sheetContext.mounted) {
+                                          setSheetState(() {
+                                            resetBusy = false;
+                                            resetDone = false;
+                                          });
+                                        }
+                                      },
+                                icon: Icon(
+                                  resetArmed
+                                      ? Icons.question_mark_rounded
+                                      : resetDone
+                                      ? Icons.check_rounded
+                                      : Icons.restart_alt,
                                   size: 20,
+                                  color: resetArmed
+                                      ? AppTheme.warningColor
+                                      : resetDone
+                                      ? AppTheme.successColor
+                                      : null,
+                                  semanticLabel: context.tr(
+                                    resetArmed
+                                        ? 'Reset all devices?'
+                                        : resetDone
+                                        ? 'Resetting devices'
+                                        : 'Reset all devices',
+                                  ),
                                 ),
-                                title: Text(
-                                  model?.isNotEmpty == true
-                                      ? model!
-                                      : device['deviceOs']?.toString() ??
-                                            'Registered device',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
+                              ),
+                            IconButton(
+                              onPressed: () => Navigator.pop(sheetContext),
+                              icon: Icon(
+                                Icons.close,
+                                size: 19,
+                                semanticLabel: context.tr('Close'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Divider(height: 1, color: _muted.withValues(alpha: .2)),
+                      Expanded(
+                        child: devices.isEmpty
+                            ? Center(
+                                child: Text(
+                                  'No registered devices',
+                                  style: TextStyle(color: _muted, fontSize: 13),
                                 ),
-                                subtitle: Text(
-                                  '${context.tr(device['deviceOs']?.toString() ?? 'Unknown OS')}${device['osVersion'] == null ? '' : ' v${device['osVersion']}'} · ${context.tr('Last active')} ${_lastActive(device['lastUsedAt']?.toString())}',
-                                  maxLines: 2,
-                                  style: TextStyle(color: _muted, fontSize: 11),
+                              )
+                            : ListView.separated(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 8,
                                 ),
-                              );
-                            },
-                          ),
+                                itemCount: devices.length,
+                                separatorBuilder: (_, _) => Divider(
+                                  height: 1,
+                                  color: _muted.withValues(alpha: .14),
+                                ),
+                                itemBuilder: (context, index) {
+                                  final device = devices[index];
+                                  final model = device['deviceModel']
+                                      ?.toString()
+                                      .trim();
+                                  final isTouchDevice =
+                                      Platform.isAndroid || Platform.isIOS;
+                                  return ListTile(
+                                    dense: true,
+                                    contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 4,
+                                      vertical: 3,
+                                    ),
+                                    leading: Icon(
+                                      Icons.devices_outlined,
+                                      color: _muted,
+                                      size: 20,
+                                    ),
+                                    title: CompactLabel(
+                                      model?.isNotEmpty == true
+                                          ? model!
+                                          : device['deviceOs']?.toString() ??
+                                                'Registered device',
+                                      alignment: Alignment.centerLeft,
+                                      textAlign: TextAlign.left,
+                                    ),
+                                    subtitle: Text(
+                                      '${context.tr(device['deviceOs']?.toString() ?? 'Unknown OS')}${device['osVersion'] == null ? '' : ' v${device['osVersion']}'}',
+                                      maxLines: 2,
+                                      style: TextStyle(
+                                        color: _muted,
+                                        fontSize: 11,
+                                      ),
+                                    ),
+                                    trailing: Tooltip(
+                                      triggerMode: isTouchDevice
+                                          ? TooltipTriggerMode.tap
+                                          : null,
+                                      message:
+                                          '${context.tr('Last active')}: ${_lastActive(device['lastUsedAt']?.toString())}',
+                                      child: SizedBox(
+                                        width: 36,
+                                        height: 40,
+                                        child: Center(
+                                          child: Icon(
+                                            Icons.hourglass_bottom_rounded,
+                                            color: _muted,
+                                            size: 18,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
           ),
         ),
-      ),
-    );
+      );
+    } finally {
+      confirmationTimer?.cancel();
+    }
   }
 
   Future<void> _showSecuritySheet({
@@ -695,9 +775,12 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
                           ),
                         ),
                         IconButton(
-                          tooltip: context.tr('Close'),
                           onPressed: () => Navigator.pop(sheetContext),
-                          icon: const Icon(Icons.close, size: 19),
+                          icon: Icon(
+                            Icons.close,
+                            size: 19,
+                            semanticLabel: context.tr('Close'),
+                          ),
                         ),
                       ],
                     ),
@@ -791,15 +874,15 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
                           ),
                           trailing: passkeys.isNotEmpty
                               ? IconButton(
-                                  tooltip: context.tr(
-                                    passkeysEnabled
-                                        ? 'Pause passkeys'
-                                        : 'Resume passkeys',
-                                  ),
                                   icon: Icon(
                                     passkeysEnabled
                                         ? Icons.pause_circle_outline
                                         : Icons.play_circle_outline,
+                                    semanticLabel: context.tr(
+                                      passkeysEnabled
+                                          ? 'Pause passkeys'
+                                          : 'Resume passkeys',
+                                    ),
                                   ),
                                   onPressed: _busy
                                       ? null
@@ -831,18 +914,19 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
                           ListTile(
                             dense: true,
                             contentPadding: const EdgeInsets.only(left: 38),
-                            title: Text(
+                            title: CompactLabel(
                               key['label']?.toString() ?? 'Passkey',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
                             ),
                             subtitle: Text(
                               '${context.tr(key['authenticatorAttachment'] == 'platform' ? 'This device' : 'Security key')} · ${context.tr(key['backedUp'] == true ? 'Synced' : 'Device only')}\n${context.tr('Added')} ${_date(key['createdAt']?.toString())}${key['lastUsedAt'] == null ? '' : ' · ${context.tr('Last used')} ${_date(key['lastUsedAt']?.toString())}'}',
                               style: TextStyle(color: _muted, fontSize: 11),
                             ),
                             trailing: IconButton(
-                              tooltip: context.tr('Remove passkey'),
-                              icon: const Icon(Icons.delete_outline, size: 18),
+                              icon: Icon(
+                                Icons.delete_outline,
+                                size: 18,
+                                semanticLabel: context.tr('Remove passkey'),
+                              ),
                               onPressed: _busy
                                   ? null
                                   : () async {
@@ -882,22 +966,21 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
     required String subtitle,
     required VoidCallback onTap,
   }) {
-    return FrostedCard(
-      padding: EdgeInsets.zero,
-      borderRadius: 14,
+    return Material(
+      type: MaterialType.transparency,
       child: InkWell(
         onTap: onTap,
-        child: SizedBox(
-          height: 56,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 50),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 11),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
             child: Row(
               children: [
                 Icon(icon, color: _muted, size: 18),
-                const SizedBox(width: 7),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
@@ -911,8 +994,6 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
                       const SizedBox(height: 2),
                       Text(
                         subtitle,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(color: _muted, fontSize: 10),
                       ),
                     ],
@@ -941,15 +1022,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
     final passkeysEnabled = passkeys.any((key) => key['enabled'] != false);
     final status = account?.status ?? 'unknown';
     final isActive = status == 'active';
-    final expiry = DateTime.tryParse(account?.expiresAt ?? '');
-    final daysRemaining = expiry == null
-        ? null
-        : (expiry.difference(DateTime.now()).inMilliseconds /
-                  Duration.millisecondsPerDay)
-              .ceil()
-              .clamp(0, 9999);
     final usage = account?.usage ?? const <String, dynamic>{};
-    final billing = account?.billing ?? const <String, dynamic>{};
     final usedValue = (usage['usedGB'] as num?)?.toDouble() ?? 0;
     final limitValue = (usage['limitGB'] as num?)?.toDouble();
     final used = usedValue.toStringAsFixed(2);
@@ -958,7 +1031,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
         ? 0.0
         : (usedValue / limitValue).clamp(0.0, 1.0);
     final remaining = limitValue == null
-        ? context.tr('Unlimited data')
+        ? context.tr('Unlimited')
         : '${(limitValue - usedValue).clamp(0, double.infinity).toStringAsFixed(2)} ${context.tr('GB left')}';
     final devices = account?.devices ?? const <Map<String, dynamic>>[];
     final statusLabel = switch (status) {
@@ -969,99 +1042,296 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
       _ => context.tr('Unknown'),
     };
     final securitySummary = [
-      totpEnabled ? context.tr('2FA active') : context.tr('2FA off'),
-      if (passkeys.isNotEmpty) '${passkeys.length} ${context.tr('passkeys')}',
+      totpEnabled ? context.tr('2FA enabled') : context.tr('2FA off'),
+      if (passkeys.isNotEmpty)
+        '${passkeys.length} ${context.tr(passkeys.length == 1 ? 'passkey' : 'passkeys')}',
     ].join(' · ');
-    final billingSummary = [
-      if (billing['nextBillingAt'] != null)
-        '${context.tr('Next billing')} ${_date(billing['nextBillingAt']?.toString())}',
-      if (billing['balanceEur'] is num)
-        '${context.tr('Balance')} €${(billing['balanceEur'] as num).toStringAsFixed(2)}',
-    ].join(' · ');
+    final expiry = DateTime.tryParse(account?.expiresAt ?? '');
+    final duration = expiry?.difference(DateTime.now());
+    final timeLeft = duration == null
+        ? '—'
+        : duration > Duration.zero
+        ? context.daysRemaining(
+            (duration.inMicroseconds / Duration.microsecondsPerDay).ceil(),
+          )
+        : context.tr('Expired');
 
     return AppPage(
       title: context.tr('Account'),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final gap = constraints.maxHeight < 430 ? 5.0 : 7.0;
-          return Padding(
-            padding: const EdgeInsets.fromLTRB(14, 4, 14, 7),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                FrostedCard(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 11,
-                    vertical: 7,
-                  ),
-                  borderRadius: 13,
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.circle,
-                        size: 8,
-                        color: isActive
-                            ? AppTheme.successColor
-                            : status == 'limited'
-                            ? AppTheme.warningColor
-                            : AppTheme.dangerColor,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          statusLabel,
-                          style: TextStyle(
-                            color: _fg,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                      Icon(
-                        Icons.calendar_today_outlined,
-                        size: 12,
-                        color: _muted,
-                      ),
-                      const SizedBox(width: 5),
-                      Text(
-                        _date(account?.expiresAt ?? account?.createdAt),
-                        style: TextStyle(color: _muted, fontSize: 10),
-                      ),
-                    ],
+      child: DefaultTextStyle.merge(
+        style: const TextStyle(height: 1.25, letterSpacing: 0),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(12, 2, 12, 12),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minHeight: (constraints.maxHeight - 14).clamp(
+                    0,
+                    double.infinity,
                   ),
                 ),
-                SizedBox(height: gap),
-                FrostedCard(
-                  padding: const EdgeInsets.fromLTRB(11, 7, 7, 7),
-                  borderRadius: 13,
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _label(context.tr('ACCESS CODE')),
-                            const SizedBox(height: 2),
-                            Semantics(
-                              button: true,
-                              label: _showCode
-                                  ? context.tr(
-                                      'Access code visible. Tap to copy.',
-                                    )
-                                  : context.tr(
-                                      'Access code hidden. Tap to reveal.',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _accountCard(
+                          color: Theme.of(context).brightness == Brightness.dark
+                              ? Colors.white.withValues(alpha: .055)
+                              : null,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 12,
+                          ),
+                          borderRadius: 14,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(
+                                    Icons.circle,
+                                    key: const ValueKey('account-status-dot'),
+                                    size: 6,
+                                    color: isActive
+                                        ? AppTheme.successColor
+                                        : status == 'limited'
+                                        ? AppTheme.warningColor
+                                        : AppTheme.dangerColor,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      statusLabel,
+                                      style: TextStyle(
+                                        color: _fg,
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w600,
+                                      ),
                                     ),
-                              child: Material(
-                                type: MaterialType.transparency,
-                                child: InkWell(
-                                  borderRadius: BorderRadius.circular(6),
-                                  onTap: account?.authCode.isNotEmpty != true
+                                  ),
+                                  Flexible(
+                                    fit: FlexFit.tight,
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.end,
+                                      children: [
+                                        Text(
+                                          context.tr('Created on'),
+                                          textAlign: TextAlign.end,
+                                          style: TextStyle(
+                                            color: _muted,
+                                            fontSize: 11,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 3),
+                                        Text(
+                                          _date(account?.createdAt),
+                                          style: TextStyle(
+                                            color: _fg,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 12,
+                                ),
+                                child: Divider(
+                                  height: 1,
+                                  color: _muted.withValues(alpha: .2),
+                                ),
+                              ),
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(
+                                    flex: 3,
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          context.tr('Data usage'),
+                                          style: TextStyle(
+                                            color: _muted,
+                                            fontSize: 11,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 5),
+                                        Text(
+                                          '$used GB',
+                                          style: TextStyle(
+                                            color: _fg,
+                                            fontSize: 18,
+                                            height: 1.15,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Container(
+                                    width: .5,
+                                    height: 36,
+                                    margin: const EdgeInsets.symmetric(
+                                      horizontal: 14,
+                                    ),
+                                    color: _muted.withValues(alpha: .25),
+                                  ),
+                                  Expanded(
+                                    flex: 2,
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          context.tr('Time left'),
+                                          style: TextStyle(
+                                            color: _muted,
+                                            fontSize: 11,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 7),
+                                        Text(
+                                          timeLeft,
+                                          key: const ValueKey(
+                                            'account-time-left',
+                                          ),
+                                          style: TextStyle(
+                                            color: _fg,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              if (limitValue != null) ...[
+                                const SizedBox(height: 10),
+                                Text(
+                                  '$remaining · $limit GB',
+                                  style: TextStyle(color: _muted, fontSize: 10),
+                                ),
+                                const SizedBox(height: 6),
+                                LinearProgressIndicator(
+                                  value: usageFraction,
+                                  minHeight: 3,
+                                  borderRadius: BorderRadius.circular(3),
+                                  color: usageFraction >= .9
+                                      ? AppTheme.errorColor
+                                      : AppTheme.successColor,
+                                  backgroundColor: _muted.withValues(
+                                    alpha: .16,
+                                  ),
+                                ),
+                              ],
+                              if (account?.billing['balanceEur'] is num) ...[
+                                const SizedBox(height: 8),
+                                Text(
+                                  '${context.tr('Balance')} €${(account!.billing['balanceEur'] as num).toStringAsFixed(2)}',
+                                  style: TextStyle(color: _muted, fontSize: 10),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Padding(
+                          padding: const EdgeInsets.only(left: 6, bottom: 7),
+                          child: _label(context.tr('ACCESS CODE')),
+                        ),
+                        _accountCard(
+                          color: Theme.of(context).brightness == Brightness.dark
+                              ? Colors.white.withValues(alpha: .055)
+                              : null,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 2,
+                          ),
+                          borderRadius: 14,
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  _showCode
+                                      ? (account?.authCode ?? '—')
+                                      : '••••••••••',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: _showCode ? _fg : _muted,
+                                    fontFamily: 'Outfit',
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: 1.5,
+                                  ),
+                                ),
+                              ),
+                              Semantics(
+                                label: context.tr(
+                                  _showCode
+                                      ? 'Hide access code'
+                                      : 'Show access code',
+                                ),
+                                button: true,
+                                child: IconButton(
+                                  key: const ValueKey(
+                                    'account-code-visibility',
+                                  ),
+                                  style: IconButton.styleFrom().copyWith(
+                                    overlayColor: _quietOverlay,
+                                    splashFactory: NoSplash.splashFactory,
+                                  ),
+                                  onPressed:
+                                      account?.authCode.isNotEmpty != true
+                                      ? null
+                                      : () => setState(
+                                          () => _showCode = !_showCode,
+                                        ),
+                                  icon: Icon(
+                                    _showCode
+                                        ? Icons.visibility_off_outlined
+                                        : Icons.visibility_outlined,
+                                    size: 20,
+                                    color: _muted,
+                                  ),
+                                ),
+                              ),
+                              SizedBox(
+                                height: 22,
+                                child: VerticalDivider(
+                                  width: 1,
+                                  color: _muted.withValues(alpha: .2),
+                                ),
+                              ),
+                              Semantics(
+                                label: context.tr('Copy access code'),
+                                button: true,
+                                child: IconButton(
+                                  key: const ValueKey('account-code-copy'),
+                                  constraints: const BoxConstraints(
+                                    minWidth: 40,
+                                    minHeight: 40,
+                                  ),
+                                  style: IconButton.styleFrom().copyWith(
+                                    overlayColor: _quietOverlay,
+                                    splashFactory: NoSplash.splashFactory,
+                                  ),
+                                  onPressed:
+                                      account?.authCode.isNotEmpty != true
                                       ? null
                                       : () async {
-                                          if (!_showCode) {
-                                            setState(() => _showCode = true);
-                                            return;
-                                          }
                                           await Clipboard.setData(
                                             ClipboardData(
                                               text: account!.authCode,
@@ -1069,267 +1339,158 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
                                           );
                                           _message('Access code copied.');
                                         },
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 2,
-                                    ),
-                                    child: TweenAnimationBuilder<double>(
-                                      tween: Tween<double>(
-                                        end: _showCode ? 0 : 5.5,
-                                      ),
-                                      duration: const Duration(
-                                        milliseconds: 300,
-                                      ),
-                                      curve: Curves.easeOutCubic,
-                                      builder: (context, blur, child) {
-                                        final revealAmount = (1 - blur / 5.5)
-                                            .clamp(0.0, 1.0);
-                                        return ExcludeSemantics(
-                                          child: child is Text
-                                              ? ImageFiltered(
-                                                  imageFilter: ImageFilter.blur(
-                                                    sigmaX: blur,
-                                                    sigmaY: blur,
-                                                  ),
-                                                  child: Text(
-                                                    child.data!,
-                                                    maxLines: child.maxLines,
-                                                    overflow: child.overflow,
-                                                    textAlign: child.textAlign,
-                                                    style:
-                                                        (child.style ??
-                                                                const TextStyle())
-                                                            .copyWith(
-                                                              color: Color.lerp(
-                                                                _fg.withValues(
-                                                                  alpha: .16,
-                                                                ),
-                                                                _fg,
-                                                                revealAmount,
-                                                              ),
-                                                              shadows:
-                                                                  const <
-                                                                    Shadow
-                                                                  >[],
-                                                            ),
-                                                  ),
-                                                )
-                                              : child,
-                                        );
-                                      },
-                                      child: Text(
-                                        account?.authCode.isNotEmpty == true
-                                            ? account!.authCode
-                                            : '—',
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(
-                                          color: _fg,
-                                          fontFamily: 'monospace',
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.w700,
-                                          letterSpacing: 1.4,
-                                        ),
-                                      ),
-                                    ),
+                                  icon: Icon(
+                                    Icons.copy_outlined,
+                                    size: 19,
+                                    color: _muted,
                                   ),
                                 ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-                ),
-                SizedBox(height: gap),
-                FrostedCard(
-                  padding: const EdgeInsets.fromLTRB(11, 7, 7, 8),
-                  borderRadius: 13,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  account?.plan ?? '—',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    color: _fg,
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                                if (daysRemaining != null)
-                                  Text(
-                                    context.daysRemaining(daysRemaining),
-                                    style: TextStyle(
-                                      color: _muted,
-                                      fontSize: 10,
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                          IconButton(
-                            tooltip: context.tr('Manage plan'),
-                            constraints: const BoxConstraints.tightFor(
-                              width: 30,
-                              height: 30,
-                            ),
-                            padding: EdgeInsets.zero,
-                            visualDensity: VisualDensity.compact,
-                            icon: const Icon(Icons.open_in_new, size: 16),
-                            onPressed: () => launchUrl(
-                              Uri.parse('https://www.oculve.com/billing'),
-                              mode: LaunchMode.externalApplication,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 2),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              limit == null
-                                  ? '$used GB used'
-                                  : '$used / $limit GB',
-                              style: TextStyle(
-                                color: _muted,
-                                fontSize: 10,
-                                fontWeight: FontWeight.w500,
+                        const SizedBox(height: 12),
+                        Padding(
+                          padding: const EdgeInsets.only(left: 6, bottom: 7),
+                          child: _label(context.tr('ACCOUNT SETTINGS')),
+                        ),
+                        _accountCard(
+                          color: Theme.of(context).brightness == Brightness.dark
+                              ? Colors.white.withValues(alpha: .055)
+                              : null,
+                          padding: EdgeInsets.zero,
+                          borderRadius: 14,
+                          child: Column(
+                            children: [
+                              _accountShortcut(
+                                icon: Icons.devices_outlined,
+                                title: 'Devices',
+                                subtitle:
+                                    '${devices.length} ${context.tr('registered')}',
+                                onTap: () => _showDevicesSheet(devices),
                               ),
-                            ),
+                              Divider(
+                                height: 1,
+                                color: _muted.withValues(alpha: .16),
+                              ),
+                              _accountShortcut(
+                                icon: Icons.shield_outlined,
+                                title: 'Security',
+                                subtitle: securitySummary,
+                                onTap: () => _showSecuritySheet(
+                                  totpConfigured: totpConfigured,
+                                  totpEnabled: totpEnabled,
+                                  passkeysEnabled: passkeysEnabled,
+                                  passkeys: passkeys,
+                                ),
+                              ),
+                            ],
                           ),
-                          Text(
-                            remaining,
-                            style: TextStyle(color: _muted, fontSize: 9),
-                          ),
-                        ],
-                      ),
-                      if (limitValue != null) ...[
-                        const SizedBox(height: 4),
-                        LinearProgressIndicator(
-                          value: usageFraction,
-                          minHeight: 3,
-                          borderRadius: BorderRadius.circular(3),
-                          color: usageFraction >= .9
-                              ? AppTheme.errorColor
-                              : AppTheme.successColor,
-                          backgroundColor: _muted.withValues(alpha: .16),
                         ),
                       ],
-                      if (billingSummary.isNotEmpty) ...[
-                        const SizedBox(height: 4),
-                        Text(
-                          billingSummary,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(color: _muted, fontSize: 9),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-                SizedBox(height: gap),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _accountShortcut(
-                        icon: Icons.devices_outlined,
-                        title: 'Devices',
-                        subtitle: '${devices.length} registered',
-                        onTap: () => _showDevicesSheet(devices),
-                      ),
                     ),
-                    const SizedBox(width: 7),
-                    Expanded(
-                      child: _accountShortcut(
-                        icon: Icons.shield_outlined,
-                        title: 'Security',
-                        subtitle: securitySummary,
-                        onTap: () => _showSecuritySheet(
-                          totpConfigured: totpConfigured,
-                          totpEnabled: totpEnabled,
-                          passkeysEnabled: passkeysEnabled,
-                          passkeys: passkeys,
-                        ),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: _fg,
+                              minimumSize: const Size.fromHeight(44),
+                              side: BorderSide(
+                                color: _muted.withValues(alpha: .65),
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(13),
+                              ),
+                            ),
+                            onPressed: _busy
+                                ? null
+                                : () => _run(() async {
+                                    await ref
+                                        .read(vpnProvider.notifier)
+                                        .disconnect();
+                                    await ref
+                                        .read(sessionProvider.notifier)
+                                        .logout();
+                                    if (context.mounted) {
+                                      Navigator.popUntil(
+                                        context,
+                                        (route) => route.isFirst,
+                                      );
+                                    }
+                                  }),
+                            icon: const Icon(Icons.logout_rounded, size: 18),
+                            label: Text(
+                              context.tr('Log out'),
+                              style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          InlineAccountDelete(
+                            enabled: !_busy,
+                            onDelete: _deleteAccount,
+                          ),
+                        ],
                       ),
                     ),
                   ],
                 ),
-                const Spacer(),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    FilledButton.icon(
-                      style: FilledButton.styleFrom(
-                        minimumSize: const Size.fromHeight(54),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(13),
-                        ),
-                      ),
-                      onPressed: _busy
-                          ? null
-                          : () => _run(() async {
-                              await ref.read(vpnProvider.notifier).disconnect();
-                              await ref.read(sessionProvider.notifier).logout();
-                              if (context.mounted) {
-                                Navigator.popUntil(
-                                  context,
-                                  (route) => route.isFirst,
-                                );
-                              }
-                            }),
-                      icon: const Icon(Icons.logout_rounded, size: 18),
-                      label: Text(
-                        context.tr('Log out'),
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: .1,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    OutlinedButton.icon(
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppTheme.dangerColor,
-                        minimumSize: const Size.fromHeight(54),
-                        side: BorderSide(
-                          color: AppTheme.dangerColor.withValues(alpha: .48),
-                          width: 1.6,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(13),
-                        ),
-                      ),
-                      onPressed: _busy ? null : _deleteAccount,
-                      icon: const Icon(Icons.delete_outline, size: 18),
-                      label: Text(
-                        context.tr('Delete account'),
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: .1,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          );
-        },
+              ),
+            );
+          },
+        ),
       ),
     );
   }
+
+  Widget _accountCard({
+    required Widget child,
+    Color? color,
+    required EdgeInsetsGeometry padding,
+    required double borderRadius,
+  }) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return FrostedCard(
+      color: dark ? Colors.transparent : color,
+      padding: EdgeInsets.zero,
+      borderRadius: borderRadius,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: dark
+              ? LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    const Color(0xFF30343A).withValues(alpha: .66),
+                    const Color(0xFF222B38).withValues(alpha: .65),
+                  ],
+                )
+              : null,
+        ),
+        child: Padding(
+          padding: padding,
+          child: DefaultTextStyle.merge(
+            style: const TextStyle(height: 1.25, letterSpacing: 0),
+            child: child,
+          ),
+        ),
+      ),
+    );
+  }
+
+  WidgetStateProperty<Color?> get _quietOverlay =>
+      WidgetStateProperty.resolveWith((states) {
+        // Keep keyboard focus visible without mouse-hover or pressed ink.
+        return states.contains(WidgetState.focused) &&
+                !states.contains(WidgetState.hovered)
+            ? _muted.withValues(alpha: .12)
+            : Colors.transparent;
+      });
 
   Widget _label(String text) => Text(
     text,
@@ -1340,186 +1501,4 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
       letterSpacing: 1,
     ),
   );
-}
-
-class _DeleteAccountConfirmationDialog extends StatefulWidget {
-  const _DeleteAccountConfirmationDialog();
-
-  @override
-  State<_DeleteAccountConfirmationDialog> createState() =>
-      _DeleteAccountConfirmationDialogState();
-}
-
-class _DeleteAccountConfirmationDialogState
-    extends State<_DeleteAccountConfirmationDialog> {
-  final _controller = TextEditingController();
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final phrase = context.tr('DELETE MY ACCOUNT');
-    final canDelete =
-        _controller.text.trim().toUpperCase() == phrase.trim().toUpperCase();
-    final platform = Theme.of(context).platform;
-    final appleStyle =
-        platform == TargetPlatform.iOS || platform == TargetPlatform.macOS;
-    final confirmationInput = appleStyle
-        ? cupertino.CupertinoTextField(
-            key: const ValueKey('delete-account-confirmation-field'),
-            controller: _controller,
-            autofocus: true,
-            autocorrect: false,
-            enableSuggestions: false,
-            textCapitalization: TextCapitalization.characters,
-            onChanged: (_) => setState(() {}),
-            placeholder: phrase,
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
-            decoration: BoxDecoration(
-              color: cupertino.CupertinoColors.tertiarySystemFill.resolveFrom(
-                context,
-              ),
-              borderRadius: BorderRadius.circular(8),
-            ),
-          )
-        : TextField(
-            key: const ValueKey('delete-account-confirmation-field'),
-            controller: _controller,
-            autofocus: true,
-            autocorrect: false,
-            enableSuggestions: false,
-            textCapitalization: TextCapitalization.characters,
-            onChanged: (_) => setState(() {}),
-            decoration: InputDecoration(
-              labelText: context.tr('Confirmation phrase'),
-              hintText: phrase,
-              isDense: true,
-            ),
-          );
-
-    final content = Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          context.tr(
-            'This permanently deletes your Oculve account and VPN access.',
-          ),
-        ),
-        const SizedBox(height: 10),
-        Text(
-          context.tr(
-            'This action cannot be undone. Type the phrase below to confirm.',
-          ),
-          style: TextStyle(
-            fontSize: 12,
-            color: Theme.of(context).brightness == Brightness.dark
-                ? AppTheme.foregroundMuted
-                : AppTheme.lightForegroundMuted,
-          ),
-        ),
-        const SizedBox(height: 12),
-        if (appleStyle) ...[
-          Text(
-            context.tr('Confirmation phrase'),
-            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 6),
-        ],
-        confirmationInput,
-      ],
-    );
-
-    if (appleStyle) {
-      final appleLabel = TextStyle(
-        fontFamily: '.AppleSystemUIFont',
-        color: cupertino.CupertinoColors.secondaryLabel.resolveFrom(context),
-        fontSize: 13,
-        height: 1.3,
-      );
-      final appleContent = Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            context.tr(
-              'This permanently deletes your Oculve account and VPN access.',
-            ),
-            textAlign: TextAlign.center,
-            style: appleLabel.copyWith(
-              color: cupertino.CupertinoColors.label.resolveFrom(context),
-            ),
-          ),
-          const SizedBox(height: 7),
-          Text(
-            context.tr(
-              'This action cannot be undone. Type the phrase below to confirm.',
-            ),
-            textAlign: TextAlign.center,
-            style: appleLabel,
-          ),
-          const SizedBox(height: 13),
-          Text(
-            context.tr('Confirmation phrase'),
-            textAlign: TextAlign.center,
-            style: appleLabel.copyWith(fontSize: 11),
-          ),
-          const SizedBox(height: 6),
-          confirmationInput,
-        ],
-      );
-      return cupertino.CupertinoAlertDialog(
-        title: Text(
-          context.tr('Delete account?'),
-          style: const TextStyle(fontFamily: '.AppleSystemUIFont'),
-        ),
-        content: Padding(
-          padding: const EdgeInsets.only(top: 8),
-          child: appleContent,
-        ),
-        actions: [
-          cupertino.CupertinoDialogAction(
-            onPressed: () => Navigator.pop(context, false),
-            child: Text(context.tr('Cancel')),
-          ),
-          cupertino.CupertinoDialogAction(
-            isDestructiveAction: true,
-            onPressed: canDelete ? () => Navigator.pop(context, true) : null,
-            child: Text(context.tr('Delete account')),
-          ),
-        ],
-      );
-    }
-
-    return AlertDialog(
-      icon: const Icon(
-        Icons.delete_forever_outlined,
-        color: AppTheme.dangerColor,
-      ),
-      title: Text(context.tr('Delete account?')),
-      content: SizedBox(width: 340, child: content),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context, false),
-          child: Text(context.tr('Cancel')),
-        ),
-        FilledButton(
-          key: const ValueKey('delete-account-confirm-action'),
-          style: FilledButton.styleFrom(
-            backgroundColor: AppTheme.dangerColor,
-            foregroundColor: Colors.white,
-          ),
-          onPressed: canDelete ? () => Navigator.pop(context, true) : null,
-          child: Text(context.tr('Delete account')),
-        ),
-      ],
-      backgroundColor: Theme.of(context).brightness == Brightness.dark
-          ? const Color(0xFF17191D)
-          : Colors.white,
-      surfaceTintColor: Colors.transparent,
-    );
-  }
 }

@@ -1,14 +1,17 @@
 import 'dart:math' as math;
+import 'dart:async';
 
 import 'package:flutter/material.dart' hide Text;
 import 'package:oculve/core/localization/localized_text.dart';
 import 'package:oculve/core/widgets/app_route.dart';
+import 'package:oculve/core/widgets/app_feedback.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:oculve/core/theme/app_theme.dart';
 import 'package:oculve/core/widgets/animated_entry.dart';
 import '../data/auth_repository.dart';
 import 'signup_screen.dart';
+import 'package:oculve/core/auth/client_passkey.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -27,6 +30,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
   String? _error;
   String? _lastAutoSubmitted;
   bool _busy = false;
+  bool _hasPasskey = false;
+  bool _hasTotp = true;
+  bool _passkeyBusy = false;
+  int _passkeyAttempt = 0;
+  Map<String, dynamic>? _passkeyOptions;
+  ClientPasskey? _activePasskey;
 
   @override
   void initState() {
@@ -43,6 +52,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
 
   @override
   void dispose() {
+    _passkeyAttempt++;
+    unawaited(_activePasskey?.cancel());
     _code.dispose();
     _codeFocus.dispose();
     _verifyController.dispose();
@@ -94,6 +105,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
   }
 
   Future<void> _submit() async {
+    if (_busy || _passkeyBusy) return;
     setState(() {
       _busy = true;
       _error = null;
@@ -107,22 +119,69 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
         Navigator.popUntil(context, (route) => route.isFirst);
       }
     } on SecondFactorRequired catch (e) {
+      if (!mounted) return;
+      final available =
+          e.passkey &&
+          e.passkeyOptions != null &&
+          e.nativePasskeySupported &&
+          await ref.read(clientPasskeyProvider).isAvailable();
       if (mounted) {
         setState(() {
           _challenge = e.challenge;
+          _hasPasskey = available;
+          _passkeyOptions = available ? e.passkeyOptions : null;
+          _hasTotp = e.totp;
           _code.clear();
           _lastAutoSubmitted = null;
         });
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _error = e.toString());
+        setState(() => _error = AppFeedback.errorMessage(e));
         _errorController.forward(from: 0);
+        AppFeedback.showError(context, e, placement: AppFeedbackPlacement.auth);
       }
     } finally {
-      _verifyController.stop();
-      _verifyController.reset();
-      if (mounted) setState(() => _busy = false);
+      if (mounted) {
+        _verifyController.stop();
+        _verifyController.reset();
+        setState(() => _busy = false);
+      }
+    }
+  }
+
+  Future<void> _submitPasskey() async {
+    final challenge = _challenge;
+    final options = _passkeyOptions;
+    if (challenge == null || options == null || _busy || _passkeyBusy) return;
+    final attempt = ++_passkeyAttempt;
+    setState(() {
+      _passkeyBusy = true;
+      _error = null;
+    });
+    try {
+      _activePasskey = ref.read(clientPasskeyProvider);
+      final response = await _activePasskey!.authenticate(options);
+      if (response == null || !mounted || attempt != _passkeyAttempt) return;
+      setState(() => _busy = true);
+      await ref
+          .read(sessionProvider.notifier)
+          .loginWithPasskey(challenge, response);
+      if (mounted && Navigator.canPop(context)) {
+        Navigator.popUntil(context, (route) => route.isFirst);
+      }
+    } catch (e) {
+      if (mounted && attempt == _passkeyAttempt) {
+        setState(() => _error = AppFeedback.errorMessage(e));
+        AppFeedback.showError(context, e, placement: AppFeedbackPlacement.auth);
+      }
+    } finally {
+      if (mounted && attempt == _passkeyAttempt) {
+        setState(() {
+          _passkeyBusy = false;
+          _busy = false;
+        });
+      }
     }
   }
 
@@ -143,6 +202,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                     child: Text(
                       _isAccessCode ? 'Welcome Back' : 'Verify your account',
                       textAlign: TextAlign.center,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.headlineLarge
                           ?.copyWith(
                             fontSize: 27,
@@ -157,8 +218,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                     index: 1,
                     child: Text(
                       _isAccessCode
-                          ? 'Enter your access code to access your secure network\ninfrastructure.'
-                          : 'Enter your authenticator or recovery code to continue securely.',
+                          ? 'Enter your access code to access your secure network infrastructure.'
+                          : _passkeyBusy
+                          ? 'Complete verification using your device.'
+                          : _hasPasskey
+                          ? 'Use your passkey to continue securely.'
+                          : _hasTotp
+                          ? 'Enter your authenticator or recovery code to continue securely.'
+                          : 'This device cannot use your passkey. Set up an authenticator code in your web account to sign in here.',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         color: Theme.of(context).brightness == Brightness.dark
@@ -170,54 +237,80 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                     ),
                   ),
                   const SizedBox(height: 40),
-                  AnimatedEntry(
-                    index: 2,
-                    child: Text(
-                      _isAccessCode ? 'ACCESS CODE' : 'VERIFICATION CODE',
-                      style: TextStyle(
-                        color: Theme.of(context).brightness == Brightness.dark
-                            ? const Color(0xFF64748B)
-                            : AppTheme.lightForegroundMuted,
-                        fontSize: 13,
-                        height: 1,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: .65,
+                  if (!_isAccessCode && _hasPasskey) ...[
+                    FilledButton.icon(
+                      onPressed: _busy || _passkeyBusy ? null : _submitPasskey,
+                      icon: const Icon(Icons.key_rounded),
+                      label: Text(
+                        _passkeyBusy
+                            ? 'Verifying passkey…'
+                            : 'Sign in with passkey',
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  AnimatedEntry(
-                    index: 3,
-                    child: _AccessCodeInput(
-                      controller: _code,
-                      focusNode: _codeFocus,
-                      isAccessCode: _isAccessCode,
-                      busy: _busy,
-                      error: _error != null,
-                      verifyAnimation: _verifyController,
-                      errorAnimation: _errorController,
-                      onChanged: _onCodeChanged,
-                    ),
-                  ),
-                  if (_error != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 16),
-                      child: Text(
-                        _error!,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(color: AppTheme.errorColor),
+                    if (_passkeyBusy)
+                      TextButton(
+                        onPressed: _busy
+                            ? null
+                            : () => setState(() {
+                                _passkeyAttempt++;
+                                unawaited(_activePasskey?.cancel());
+                                _passkeyBusy = false;
+                              }),
+                        child: const Text('Cancel'),
+                      ),
+                    const SizedBox(height: 20),
+                  ],
+                  if (_isAccessCode || _hasTotp) ...[
+                    if (!_isAccessCode)
+                      AnimatedEntry(
+                        index: 2,
+                        child: CompactLabel(
+                          'VERIFICATION CODE',
+                          textAlign: TextAlign.start,
+                          alignment: Alignment.centerLeft,
+                          style: TextStyle(
+                            color:
+                                Theme.of(context).brightness == Brightness.dark
+                                ? const Color(0xFF64748B)
+                                : AppTheme.lightForegroundMuted,
+                            fontSize: 13,
+                            height: 1,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: .65,
+                          ),
+                        ),
+                      ),
+                    const SizedBox(height: 12),
+                    AnimatedEntry(
+                      index: 3,
+                      child: _AccessCodeInput(
+                        controller: _code,
+                        focusNode: _codeFocus,
+                        isAccessCode: _isAccessCode,
+                        busy: _busy || _passkeyBusy,
+                        error: _error != null,
+                        verifyAnimation: _verifyController,
+                        errorAnimation: _errorController,
+                        onChanged: _onCodeChanged,
                       ),
                     ),
+                  ],
                   if (!_isAccessCode)
                     TextButton(
                       onPressed: _busy
                           ? null
                           : () => setState(() {
                               _challenge = null;
+                              _passkeyAttempt++;
+                              unawaited(_activePasskey?.cancel());
+                              _passkeyBusy = false;
+                              _hasPasskey = false;
+                              _passkeyOptions = null;
+                              _hasTotp = true;
                               _code.clear();
                               _lastAutoSubmitted = null;
                             }),
-                      child: const Text('Back to sign in'),
+                      child: const CompactLabel('Back to sign in'),
                     ),
                   if (_isAccessCode) ...[
                     const SizedBox(height: 20),
@@ -232,7 +325,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                           );
                         }
                       },
-                      child: const Text('New to Oculve? Create account'),
+                      child: const CompactLabel(
+                        'New to Oculve? Create account',
+                      ),
                     ),
                   ],
                 ],

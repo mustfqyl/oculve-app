@@ -394,16 +394,23 @@ def cleanup_dpi_attempt():
     terminate_worker(dpi_process)
     dpi_process = None
 
-def start_dpi_engine(dev, profile):
-    global dpi_process
+def dpi_strategy_args(profile):
+    if type(profile) is not int or profile not in range(5):
+        raise ValueError('Invalid DPI strategy')
     strategies = {
         0: ['--split', '1+s'],
         1: ['--split', '1+s', '--disorder', '3+s'],
         2: ['--disorder', '1+s'],
         3: ['--disorder', '1+s', '--split', '3+s'],
     }
+    strategies[4] = [arg for preset in range(4)
+                     for arg in ['--auto', 'torst,ssl_err', *strategies[preset]]]
+    return strategies[profile]
+
+def start_dpi_engine(dev, profile):
+    global dpi_process
     arguments = [BYEDPI, '--internal-ready', '--ip', '127.0.0.1', '--port', '0',
-                 '--no-domain', '--debug', '0', '--interface', dev, *strategies[profile]]
+                 '--no-domain', '--debug', '0', '--interface', dev, *dpi_strategy_args(profile)]
     dpi_process = subprocess.Popen(arguments, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                    stderr=subprocess.DEVNULL, text=True, bufsize=1, close_fds=True,
                                    preexec_fn=set_parent_death_signal)
@@ -487,12 +494,7 @@ def start_dpi_session(request, bypass_domains, dns_server, log_level, version,
         raise RuntimeError('Tunnel interface already exists')
     rules = validate_routing_rules(request['routingRules'], 'byedpi')
     signature = hashlib.sha256((dev + '|' + str(gateway) + '|' + dns_server).encode()).hexdigest()
-    cached = strategy_cache(signature)
-    first = cached if preferred_profile is None and cached is not None else (
-        request['dpiProfile'] if preferred_profile is None else preferred_profile)
-    profiles = [first] + [item for item in range(4) if item != first]
-    if excluded_profile in profiles:
-        profiles.remove(excluded_profile)
+    profiles = [request['dpiProfile']]
     for profile in profiles:
         try:
             endpoint_port = start_dpi_engine(dev, profile)
@@ -527,7 +529,6 @@ def start_dpi_session(request, bypass_domains, dns_server, log_level, version,
                 cleanup_dpi_attempt()
                 routes = []
                 continue
-            save_strategy_cache(signature, profile)
             event('CONNECTED')
             return dev, gateway, signature, profile
         except Exception:
@@ -580,8 +581,8 @@ def run_dpi_request(request, bypass_domains, dns_server, log_level, version):
                 preferred_profile = None
                 excluded_profile = None
             else:
-                preferred_profile = (profile + 1) % 4
-                excluded_profile = profile
+                preferred_profile = None
+                excluded_profile = None
             event('CONNECTING')
         except Exception:
             cleanup_dpi_attempt()
@@ -615,7 +616,7 @@ def main():
     log_level = validate_log_level(request['logLevel'])
     version = validate_version_guard(request['version'])
     if request['dpiBypass']:
-        if not isinstance(request['dpiProfile'], int) or isinstance(request['dpiProfile'], bool) or request['dpiProfile'] not in range(4) or not isinstance(request['routingRules'], list):
+        if not isinstance(request['dpiProfile'], int) or isinstance(request['dpiProfile'], bool) or request['dpiProfile'] not in range(5) or not isinstance(request['routingRules'], list):
             raise ValueError('Invalid DPI tunnel request')
         run_dpi_request(request, bypass_domains, dns_server, log_level, version)
         return

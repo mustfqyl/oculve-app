@@ -7,21 +7,34 @@ import 'package:flutter_vless/flutter_vless.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'core/desktop/desktop_tray_controller.dart';
+import 'core/desktop/startup_service.dart';
+import 'core/providers/animation_provider.dart';
+import 'core/providers/vpn_provider.dart';
 import 'core/navigation/app_navigator.dart';
 import 'core/providers/locale_provider.dart';
-import 'core/localization/localized_text.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/app_scroll_behavior.dart';
+import 'core/widgets/app_feedback.dart';
 import 'core/providers/theme_provider.dart';
 import 'core/vpn/linux_platform.dart';
 import 'features/auth/data/auth_repository.dart';
 import 'features/auth/presentation/signup_screen.dart';
 import 'features/home/presentation/home_screen.dart';
 
-void main() async {
+void main(List<String> arguments) async {
   WidgetsFlutterBinding.ensureInitialized();
   if (Platform.isLinux) VlessPlatform.instance = LinuxXrayPlatform();
-  final container = ProviderContainer();
+  var loginLaunch = false;
+  if (Platform.isMacOS || Platform.isWindows || Platform.isLinux) {
+    try {
+      loginLaunch = await DesktopStartupBackend().launchedAtLogin(arguments);
+    } catch (_) {
+      /* Manual launch remains available. */
+    }
+  }
+  final container = ProviderContainer(
+    overrides: [loginLaunchProvider.overrideWithValue(loginLaunch)],
+  );
 
   if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
     await windowManager.ensureInitialized();
@@ -40,7 +53,9 @@ void main() async {
     windowManager.waitUntilReadyToShow(windowOptions, () async {
       if (trayPlatform) {
         try {
-          await DesktopTrayController(container).initialize();
+          final tray = DesktopTrayController(container);
+          await tray.initialize();
+          if (loginLaunch) await tray.showWindow();
           return;
         } catch (_) {
           // Leave the UI reachable if tray creation fails on this machine.
@@ -66,6 +81,7 @@ class MyApp extends ConsumerWidget {
 
     return MaterialApp(
       navigatorKey: appNavigatorKey,
+      navigatorObservers: [appFeedbackNavigatorObserver],
       title: 'Oculve',
       debugShowCheckedModeBanner: false,
       locale: locale,
@@ -78,6 +94,18 @@ class MyApp extends ConsumerWidget {
         AppThemeMode.system => ThemeMode.system,
         AppThemeMode.light => ThemeMode.light,
         AppThemeMode.dark => ThemeMode.dark,
+      },
+      builder: (context, child) {
+        final systemDisablesAnimations = MediaQuery.disableAnimationsOf(
+          context,
+        );
+        final animationsEnabled = ref.watch(pageAnimationsProvider);
+        return MediaQuery(
+          data: MediaQuery.of(context).copyWith(
+            disableAnimations: systemDisablesAnimations || !animationsEnabled,
+          ),
+          child: child ?? const SizedBox.shrink(),
+        );
       },
       home: const SessionGate(),
     );
@@ -94,7 +122,27 @@ class _SessionGateState extends ConsumerState<SessionGate> {
   @override
   void initState() {
     super.initState();
-    Future.microtask(() => ref.read(sessionProvider.notifier).restore());
+    Future.microtask(() async {
+      await ref.read(sessionProvider.notifier).restore();
+      if (!mounted || !ref.read(loginLaunchProvider)) return;
+      try {
+        await ref
+            .read(startupServiceProvider)
+            .connectAfterRestore(
+              loginLaunch: true,
+              hasAccount: ref.read(sessionProvider).valueOrNull != null,
+              connect: () => ref.read(vpnProvider.notifier).connect(),
+            );
+      } catch (error) {
+        if (mounted) {
+          AppFeedback.showError(
+            context,
+            error,
+            fallback: 'Could not connect at startup.',
+          );
+        }
+      }
+    });
   }
 
   @override
@@ -106,26 +154,16 @@ class _SessionGateState extends ConsumerState<SessionGate> {
         error: (error, _) => Scaffold(
           body: PremiumBackground(
             child: Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(error.toString(), textAlign: TextAlign.center),
-                    TextButton(
-                      onPressed: () =>
-                          ref.read(sessionProvider.notifier).restore(),
-                      child: const Text('Retry'),
-                    ),
-                    TextButton(
-                      onPressed: () async {
-                        await ref.read(apiProvider).clear();
-                        await ref.read(sessionProvider.notifier).restore();
-                      },
-                      child: const Text('Sign in again'),
-                    ),
-                  ],
-                ),
+              child: AppErrorState(
+                title: 'Unable to load your account',
+                message: AppFeedback.errorMessage(error),
+                primaryLabel: 'Retry',
+                onPrimary: () => ref.read(sessionProvider.notifier).restore(),
+                secondaryLabel: 'Sign in again',
+                onSecondary: () async {
+                  await ref.read(apiProvider).clear();
+                  await ref.read(sessionProvider.notifier).restore();
+                },
               ),
             ),
           ),

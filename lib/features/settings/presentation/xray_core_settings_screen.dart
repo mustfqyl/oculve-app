@@ -1,18 +1,29 @@
+import 'package:oculve/core/connection/dpi_preferences.dart';
+import 'dpi_settings.dart';
+import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart' hide Text;
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:oculve/core/localization/app_strings.dart';
 import 'package:oculve/core/localization/localized_text.dart';
+import 'package:oculve/core/localization/app_strings.dart';
 import 'package:oculve/core/providers/vpn_provider.dart';
-import 'package:oculve/core/theme/app_theme.dart';
+import 'package:oculve/core/connection/connection_preferences.dart';
+import 'package:oculve/core/connection/lan_proxy_service.dart';
 import 'package:oculve/core/vpn/xray_preferences.dart';
 import 'package:oculve/core/widgets/app_page.dart';
+import 'package:oculve/core/widgets/app_feedback.dart';
 import 'package:oculve/core/widgets/app_route.dart';
 import 'package:oculve/features/auth/data/auth_repository.dart';
+import 'connection_settings_widgets.dart';
+import 'package:oculve/core/theme/app_theme.dart';
 import 'android_app_routing_screen.dart';
+import 'client_logs_screen.dart';
+import 'lan_sharing_screen.dart';
+import 'startup_setting.dart';
 
 class XrayCoreSettingsScreen extends ConsumerStatefulWidget {
   const XrayCoreSettingsScreen({super.key});
-
   @override
   ConsumerState<XrayCoreSettingsScreen> createState() =>
       _XrayCoreSettingsScreenState();
@@ -20,21 +31,22 @@ class XrayCoreSettingsScreen extends ConsumerStatefulWidget {
 
 class _XrayCoreSettingsScreenState
     extends ConsumerState<XrayCoreSettingsScreen> {
-  final _bypassController = TextEditingController();
-  final _expanded = <String>{};
-  XrayDnsSettings? _dns;
-  RealityFingerprint? _fingerprint;
-  XrayLogLevel? _logLevel;
-  bool _fragmentationEnabled = false;
-  bool _loading = true;
-  bool _saving = false;
-  String? _error;
-
-  static const _dnsPresets = <String, String>{
+  static const _presets = {
     'Cloudflare': 'https://cloudflare-dns.com/dns-query',
     'Google': 'https://dns.google/dns-query',
     'Quad9': 'https://dns.quad9.net/dns-query',
   };
+  final _custom = TextEditingController();
+  Timer? _customSaveTimer;
+  int _customRevision = 0;
+  bool _customDirty = false;
+  Future<void> _customWrites = Future.value();
+  XrayDnsSettings? _dns;
+  XrayLogLevel _log = XrayLogLevel.warning;
+  ConnectionPreferences _options = const ConnectionPreferences();
+  List<String> _domains = [];
+  int _dpiResetEpoch = 0;
+  bool _fragment = false, _customMode = false, _busy = false;
   @override
   void initState() {
     super.initState();
@@ -43,161 +55,239 @@ class _XrayCoreSettingsScreenState
 
   @override
   void dispose() {
-    _bypassController.dispose();
+    _customSaveTimer?.cancel();
+    if (_customDirty &&
+        _customMode &&
+        _dns != null &&
+        XrayPreferences.isUserDnsEndpoint(_custom.text.trim())) {
+      unawaited(
+        _persistCustomDns(
+          _dns!.copyWith(servers: [_custom.text.trim()]),
+        ).catchError((Object _) {}),
+      );
+    }
+    _custom.dispose();
     super.dispose();
   }
 
   Future<void> _load() async {
     try {
-      final values = await Future.wait<Object>([
-        XrayPreferences.fingerprint(),
-        XrayPreferences.userDnsSettings(),
-        XrayPreferences.bypassDomains(),
-        XrayPreferences.logLevel(),
-        XrayPreferences.tlsHelloFragmentationEnabled(),
-      ]);
+      final dns = await XrayPreferences.userDnsSettings();
+      final domains = await XrayPreferences.bypassDomains();
+      final log = await XrayPreferences.logLevel();
+      final fragment = await XrayPreferences.tlsHelloFragmentationEnabled();
+      final options = await ConnectionPreferences.read();
       if (!mounted) return;
       setState(() {
-        _fingerprint = values[0] as RealityFingerprint;
-        _dns = values[1] as XrayDnsSettings;
-        _bypassController.text = (values[2] as List<String>).join('\n');
-        final level = values[3] as XrayLogLevel;
-        _logLevel =
-            const {
+        _dns = dns;
+        _domains = domains;
+        _log =
+            [
               XrayLogLevel.error,
               XrayLogLevel.warning,
               XrayLogLevel.info,
-            }.contains(level)
-            ? level
+            ].contains(log)
+            ? log
             : XrayLogLevel.warning;
-        _fragmentationEnabled = values[4] as bool;
-        _loading = false;
+        _fragment = fragment;
+        _options = options;
+        _customMode = !_presets.containsValue(dns.servers.single);
+        _custom.text = _customMode ? dns.servers.single : '';
       });
     } catch (error) {
-      if (mounted) {
-        setState(() {
-          _fingerprint = RealityFingerprint.serverDefault;
-          _dns = const XrayDnsSettings(
-            servers: ['https://cloudflare-dns.com/dns-query'],
-            queryStrategy: DnsQueryStrategy.useSystem,
-          );
-          _logLevel = XrayLogLevel.warning;
-          _bypassController.clear();
-          _loading = false;
-          _error = error.toString();
-        });
-      }
+      if (!mounted) return;
+      setState(
+        () => _dns = const XrayDnsSettings(
+          servers: ['https://cloudflare-dns.com/dns-query'],
+          queryStrategy: DnsQueryStrategy.useSystem,
+        ),
+      );
+      AppFeedback.showError(
+        context,
+        error,
+        fallback: 'Could not load connection settings.',
+      );
     }
   }
 
-  Future<void> _saveDns({
-    String? server,
-    DnsQueryStrategy? queryStrategy,
-  }) async {
-    final current = _dns;
-    if (current == null || _saving) return;
-    setState(() => _saving = true);
+  Future<bool> _save(Future<void> Function() action) async {
+    if (_busy) return false;
+    setState(() => _busy = true);
     try {
-      final next = current.copyWith(
-        servers: server == null ? current.servers : [server],
-        queryStrategy: queryStrategy ?? current.queryStrategy,
+      await action();
+      return true;
+    } catch (error) {
+      if (mounted) {
+        AppFeedback.showError(
+          context,
+          error,
+          fallback:
+              'Could not save connection settings. Check your input and try again.',
+        );
+      }
+      return false;
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  void _queueCustomDns(String value) {
+    _customSaveTimer?.cancel();
+    _customDirty = true;
+    final revision = ++_customRevision;
+    if (!XrayPreferences.isUserDnsEndpoint(value.trim())) return;
+    _customSaveTimer = Timer(
+      const Duration(milliseconds: 400),
+      () => _commitCustomDns(revision),
+    );
+  }
+
+  Future<void> _commitCustomDns(int revision) async {
+    if (!mounted ||
+        !_customMode ||
+        revision != _customRevision ||
+        _dns == null) {
+      return;
+    }
+    final endpoint = _custom.text.trim();
+    if (!XrayPreferences.isUserDnsEndpoint(endpoint)) {
+      return;
+    }
+    if (_busy) {
+      _customSaveTimer = Timer(
+        const Duration(milliseconds: 100),
+        () => _commitCustomDns(revision),
       );
+      return;
+    }
+    await _save(() async {
+      final next = _dns!.copyWith(servers: [endpoint]);
+      await _persistCustomDns(next);
+      if (mounted && revision == _customRevision && _customMode) {
+        _customDirty = false;
+        setState(() => _dns = next);
+      }
+    });
+  }
+
+  Future<void> _persistCustomDns(XrayDnsSettings next) {
+    _customWrites = _customWrites
+        .catchError((Object _) {})
+        .then((_) => XrayPreferences.setUserDnsSettings(next));
+    return _customWrites;
+  }
+
+  Future<void> _provider() async {
+    _customSaveTimer?.cancel();
+    _customRevision++;
+    _customDirty = false;
+    final selected = _customMode
+        ? 'Custom'
+        : _presets.entries
+              .firstWhere((entry) => entry.value == _dns!.servers.single)
+              .key;
+    final providers = [..._presets.keys, 'Custom'];
+    final value =
+        providers[(providers.indexOf(selected) + 1) % providers.length];
+    if (value == 'Custom') {
+      setState(() => _customMode = true);
+      _queueCustomDns(_custom.text);
+      return;
+    }
+    await _save(() async {
+      await _customWrites.catchError((Object _) {});
+      final next = _dns!.copyWith(servers: [_presets[value]!]);
       await XrayPreferences.setUserDnsSettings(next);
       if (mounted) {
         setState(() {
           _dns = next;
-          _error = null;
+          _customMode = false;
         });
       }
-    } catch (error) {
-      if (mounted) setState(() => _error = error.toString());
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
+    });
   }
 
-  Future<void> _saveFingerprint(RealityFingerprint value) async {
-    try {
-      await XrayPreferences.setFingerprint(value);
-      if (mounted) {
-        setState(() {
-          _fingerprint = value;
-          _error = null;
-        });
-      }
-    } catch (error) {
-      if (mounted) setState(() => _error = error.toString());
-    }
+  static String _strategy(DnsQueryStrategy value) => switch (value) {
+    DnsQueryStrategy.useSystem => 'Network-aware',
+    DnsQueryStrategy.useIP => 'IPv4 + IPv6',
+    DnsQueryStrategy.useIPv4 => 'IPv4 only',
+    DnsQueryStrategy.useIPv6 => 'IPv6 only',
+  };
+  Future<void> _queryMode() async {
+    final modes = DnsQueryStrategy.values;
+    final value =
+        modes[(modes.indexOf(_dns!.queryStrategy) + 1) % modes.length];
+    await _save(() async {
+      final next = _dns!.copyWith(queryStrategy: value);
+      await XrayPreferences.setUserDnsSettings(next);
+      if (mounted) setState(() => _dns = next);
+    });
   }
 
-  Future<void> _saveBypassDomains() async {
-    if (_saving) return;
-    setState(() => _saving = true);
-    try {
-      await XrayPreferences.setBypassDomains(
-        _bypassController.text.split(RegExp(r'[,\n]')),
+  Future<void> _protection() async {
+    bool armed = false;
+    if (Platform.isMacOS) {
+      try {
+        armed =
+            (await const MethodChannel(
+              'flutter_vless',
+            ).invokeMapMethod<String, dynamic>(
+              'getTrafficProtection',
+            ))?['armed'] ==
+            true;
+      } catch (_) {}
+    }
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => SettingsModal(
+        title: const Text('Kill switch'),
+        content: SingleChildScrollView(
+          child: Text(
+            Platform.isMacOS
+                ? '${context.tr(armed ? 'System protection is armed.' : 'System protection activates when you connect.')}\n\n${context.tr('Traffic protection stays enabled during tunnel recovery. Disconnecting manually ends the VPN session and its protection. Certain essential system traffic is exempted by macOS.')}'
+                : context.tr(
+                    'Traffic protection depends on your platform. System-level verification is required before this feature can be enabled.',
+                  ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Done'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<bool> _reset() async {
+    _customSaveTimer?.cancel();
+    _customRevision++;
+    _customDirty = false;
+    return _save(() async {
+      await _customWrites.catchError((Object _) {});
+      await XrayPreferences.setUserDnsSettings(
+        const XrayDnsSettings(
+          servers: ['https://cloudflare-dns.com/dns-query'],
+          queryStrategy: DnsQueryStrategy.useSystem,
+        ),
       );
-      final saved = await XrayPreferences.bypassDomains();
-      if (mounted) {
-        setState(() {
-          _bypassController.text = saved.join('\n');
-          _error = null;
-        });
-      }
-    } catch (error) {
-      if (mounted) setState(() => _error = error.toString());
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
-  }
-
-  Future<void> _saveLogLevel(XrayLogLevel value) async {
-    try {
-      await XrayPreferences.setLogLevel(value);
-      if (mounted) {
-        setState(() {
-          _logLevel = value;
-          _error = null;
-        });
-      }
-    } catch (error) {
-      if (mounted) setState(() => _error = error.toString());
-    }
-  }
-
-  Future<void> _setFragmentation(bool enabled) async {
-    if (_saving) return;
-    setState(() => _saving = true);
-    try {
-      await XrayPreferences.setTlsHelloFragmentation(enabled);
-      if (mounted) {
-        setState(() {
-          _fragmentationEnabled = enabled;
-          _error = null;
-        });
-      }
-    } catch (error) {
-      if (mounted) setState(() => _error = error.toString());
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
-  }
-
-  void _toggleGroup(String title) => setState(() {
-    if (_expanded.contains(title)) {
-      _expanded.clear();
-    } else {
-      _expanded
-        ..clear()
-        ..add(title);
-    }
-  });
-
-  String _selectedDnsServer(XrayDnsSettings settings) {
-    final saved = settings.servers.firstOrNull;
-    return _dnsPresets.values.contains(saved)
-        ? saved!
-        : _dnsPresets.values.first;
+      await XrayPreferences.setBypassDomains([]);
+      await XrayPreferences.setTlsHelloFragmentation(false);
+      await XrayPreferences.setFragmentRanges(
+        length: '100-200',
+        delay: '10-20',
+        splits: '3-6',
+      );
+      await XrayPreferences.setLogLevel(XrayLogLevel.warning);
+      await ConnectionPreferences.setReconnect(true);
+      await DpiPreferences.save(DpiStrategy.automatic);
+      _dpiResetEpoch++;
+      await ConnectionPreferences.disableLan();
+      await ref.read(lanProxyProvider).stop();
+      await _load();
+    });
   }
 
   @override
@@ -205,526 +295,487 @@ class _XrayCoreSettingsScreenState
     final profiles = ref.watch(sessionProvider).valueOrNull?.profiles ?? [];
     final selected = ref.watch(selectedServerProvider);
     final profile =
-        profiles.where((item) => item.id == selected).firstOrNull ??
+        profiles.where((p) => p.id == selected).firstOrNull ??
         profiles.firstOrNull;
-    final supportsFingerprint = profile?.supportsTlsFingerprint ?? false;
-    final supportsFragmentation = selected == optimalServerId
+    final supportsFragment = selected == optimalServerId
         ? profiles.isNotEmpty &&
-              profiles.every((item) => item.supportsTlsHelloFragmentation)
+              profiles.every((p) => p.supportsTlsHelloFragmentation)
         : profile?.supportsTlsHelloFragmentation ?? false;
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    final muted = dark
-        ? AppTheme.foregroundMuted
-        : AppTheme.lightForegroundMuted;
-
+    final service = ref.watch(lanProxyProvider);
     return AppPage(
-      title: context.tr('Connection settings'),
-      child: _loading
+      title: 'Connection settings',
+      child: _dns == null
           ? const Center(child: CircularProgressIndicator())
           : ListView(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
               children: [
-                Container(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 9,
-                  ),
-                  decoration: BoxDecoration(
-                    color: dark
-                        ? Colors.white.withValues(alpha: 0.03)
-                        : Colors.black.withValues(alpha: 0.02),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: dark
-                          ? Colors.white.withValues(alpha: 0.05)
-                          : Colors.black.withValues(alpha: 0.04),
+                const SettingsCaption('DNS'),
+                SettingsGroup(
+                  children: [
+                    SettingsCycleRow(
+                      key: const ValueKey('dns-provider-row'),
+                      options: const [
+                        'Cloudflare',
+                        'Google',
+                        'Quad9',
+                        'Custom',
+                      ],
+                      title: 'Provider',
+                      label: _customMode
+                          ? 'Custom'
+                          : _presets.entries
+                                .firstWhere(
+                                  (entry) =>
+                                      entry.value == _dns!.servers.single,
+                                  orElse: () => const MapEntry('Custom', ''),
+                                )
+                                .key,
+                      onTap: _busy ? null : _provider,
                     ),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.info_outline_rounded, size: 16, color: muted),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          context.tr(
-                            'Most users can leave these settings as they are.',
-                          ),
-                          style: TextStyle(
-                            color: muted,
-                            fontSize: 11.5,
-                            height: 1.3,
-                          ),
+                    if (_customMode)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            TextField(
+                              key: const ValueKey('custom-dns-field'),
+                              controller: _custom,
+                              keyboardType: TextInputType.url,
+                              textInputAction: TextInputAction.done,
+                              autocorrect: false,
+                              enableSuggestions: false,
+                              style: const TextStyle(fontSize: 12),
+                              onChanged: _queueCustomDns,
+                              onSubmitted: (_) {
+                                _customSaveTimer?.cancel();
+                                _commitCustomDns(_customRevision);
+                              },
+                              decoration: InputDecoration(
+                                isDense: true,
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 10,
+                                ),
+                                hintText: 'https://dns.example.net/dns-query',
+                                hintStyle: TextStyle(
+                                  fontSize: 11,
+                                  color: settingsMuted(context),
+                                ),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                    ],
-                  ),
-                ),
-                if (_error != null) ...[
-                  _MessageCard(
-                    message: _error!,
-                    onDismiss: () => setState(() => _error = null),
-                  ),
-                  const SizedBox(height: 10),
-                ],
-                _GroupCard(
-                  title: 'DNS & network',
-                  subtitle: context.tr(
-                    'Choose an encrypted DNS provider and lookup address family.',
-                  ),
-                  icon: Icons.dns_rounded,
-                  expanded: _expanded.contains('DNS & network'),
-                  onToggle: () => _toggleGroup('DNS & network'),
-                  children: [
-                    _OptionRow<String>(
-                      label: context.tr('DNS provider'),
-                      value: _selectedDnsServer(_dns!),
-                      values: _dnsPresets.values.toList(),
-                      valueLabel: (server) => _dnsPresets.entries
-                          .firstWhere((entry) => entry.value == server)
-                          .key,
-                      onSelected: (server) => _saveDns(server: server),
-                    ),
-                    const SizedBox(height: 4),
-                    _OptionRow<DnsQueryStrategy>(
-                      label: context.tr('DNS address family'),
-                      value: _dns!.queryStrategy,
-                      values: DnsQueryStrategy.values,
-                      valueLabel: (strategy) => context.tr(switch (strategy) {
-                        DnsQueryStrategy.useSystem => 'Automatic',
-                        DnsQueryStrategy.useIP => 'IPv4 + IPv6',
-                        DnsQueryStrategy.useIPv4 => 'IPv4 only',
-                        DnsQueryStrategy.useIPv6 => 'IPv6 only',
-                      }),
-                      onSelected: (strategy) =>
-                          _saveDns(queryStrategy: strategy),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      context.tr('Changes apply after you reconnect.'),
-                      style: TextStyle(color: muted, fontSize: 10.5),
-                    ),
+                    if (!Platform.isMacOS)
+                      SettingsCycleRow(
+                        key: const ValueKey('dns-strategy-row'),
+                        title: 'IP lookup',
+                        label: _strategy(_dns!.queryStrategy),
+                        options: [
+                          for (final mode in DnsQueryStrategy.values)
+                            _strategy(mode),
+                        ],
+                        onTap: _busy ? null : _queryMode,
+                      )
+                    else
+                      SettingRow(
+                        key: const ValueKey('dns-strategy-row'),
+                        title: 'IP lookup',
+                        value: _strategy(
+                          Platform.isMacOS
+                              ? DnsQueryStrategy.useIPv4
+                              : _dns!.queryStrategy,
+                        ),
+                        subtitle: Platform.isMacOS
+                            ? 'macOS tunnel uses IPv4.'
+                            : null,
+                        onTap: _busy || Platform.isMacOS ? null : _queryMode,
+                      ),
                   ],
                 ),
-                _GroupCard(
-                  title: 'Split tunneling',
-                  subtitle: context.tr(
-                    'Choose which sites or Android apps bypass the VPN.',
-                  ),
-                  icon: Icons.alt_route_rounded,
-                  expanded: _expanded.contains('Split tunneling'),
-                  onToggle: () => _toggleGroup('Split tunneling'),
+                const SettingsCaption('VPN BYPASS'),
+                SettingsGroup(
                   children: [
-                    TextField(
-                      key: const ValueKey('bypass-domains-field'),
-                      controller: _bypassController,
-                      minLines: 1,
-                      maxLines: 4,
-                      autocorrect: false,
-                      enableSuggestions: false,
-                      style: const TextStyle(fontSize: 12),
-                      decoration: InputDecoration(
-                        labelText: context.tr('Sites outside the VPN'),
-                        hintText: 'example.com\nsubdomain.example.org',
-                        helperText: context.tr(
-                          'Enter one domain per line. These sites bypass the VPN.',
-                        ),
-                        helperMaxLines: 2,
-                        isDense: true,
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 10,
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
+                    SettingRow(
+                      key: const ValueKey('bypass-websites-row'),
+                      title: 'Websites outside VPN',
+                      subtitle: _domains.isEmpty
+                          ? 'No websites added'
+                          : '${_domains.length} ${context.tr('websites')}',
+                      onTap: () async {
+                        await Navigator.push(
+                          context,
+                          appRoute(const BypassWebsitesScreen()),
+                        );
+                        await _load();
+                      },
                     ),
-                    const SizedBox(height: 6),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: FilledButton.tonalIcon(
-                        key: const ValueKey('save-bypass-domains'),
-                        onPressed: _saving ? null : _saveBypassDomains,
-                        style: FilledButton.styleFrom(
-                          visualDensity: VisualDensity.compact,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 8,
-                          ),
-                        ),
-                        icon: const Icon(Icons.check_rounded, size: 15),
-                        label: Text(
-                          context.tr('Save domains'),
-                          style: const TextStyle(fontSize: 11.5),
-                        ),
-                      ),
-                    ),
-                    if (Theme.of(context).platform ==
-                        TargetPlatform.android) ...[
-                      const SizedBox(height: 6),
-                      OutlinedButton.icon(
-                        onPressed: () => Navigator.push(
+                    if (Platform.isAndroid)
+                      SettingRow(
+                        title: 'Android app routing',
+                        onTap: () => Navigator.push(
                           context,
                           appRoute(const AndroidAppRoutingScreen()),
                         ),
-                        icon: const Icon(Icons.apps_rounded, size: 16),
-                        label: Text(context.tr('Android app routing')),
+                      ),
+                  ],
+                ),
+                const SettingsCaption('CONNECTION'),
+                SettingsGroup(
+                  children: [
+                    SettingRow(
+                      title: 'Automatic reconnect',
+                      subtitle:
+                          'Retry interrupted sessions. Manual Disconnect cancels retries.',
+                      trailing: Switch(
+                        activeTrackColor: AppTheme.successColor,
+                        activeThumbColor: Colors.white,
+                        value: _options.reconnect,
+                        overlayColor: quietOverlay,
+                        onChanged: _busy
+                            ? null
+                            : (value) => _save(() async {
+                                await ConnectionPreferences.setReconnect(value);
+                                final next = await ConnectionPreferences.read();
+                                if (mounted) setState(() => _options = next);
+                              }),
+                      ),
+                    ),
+                    if (Platform.isMacOS ||
+                        Platform.isWindows ||
+                        Platform.isLinux)
+                      const StartupSetting(),
+                    SettingRow(
+                      title: 'Kill switch',
+                      value: Platform.isMacOS
+                          ? 'System-managed'
+                          : 'Platform dependent',
+                      onTap: _protection,
+                    ),
+                    SettingRow(
+                      title: 'TLS fragmentation',
+                      subtitle: supportsFragment
+                          ? 'For compatible connections'
+                          : 'Available for VLESS Reality over TCP.',
+                      trailing: Switch(
+                        activeTrackColor: AppTheme.successColor,
+                        activeThumbColor: Colors.white,
+                        key: const ValueKey('xray-fragmentation-switch'),
+                        value: _fragment,
+                        overlayColor: quietOverlay,
+                        onChanged: _busy || !supportsFragment
+                            ? null
+                            : (value) => _save(() async {
+                                await XrayPreferences.setTlsHelloFragmentation(
+                                  value,
+                                );
+                                if (mounted) setState(() => _fragment = value);
+                              }),
+                      ),
+                    ),
+                    if (supportsFragment)
+                      SettingRow(
+                        title: 'Fragmentation settings',
+                        onTap: () => Navigator.push(
+                          context,
+                          appRoute(const FragmentationSettingsScreen()),
+                        ),
+                      ),
+                  ],
+                ),
+                const SettingsCaption('DPI BYPASS'),
+                DpiSettings(key: ValueKey(_dpiResetEpoch)),
+                if (Platform.isMacOS) ...[
+                  const SettingsCaption('LOCAL NETWORK'),
+                  SettingsGroup(
+                    children: [
+                      SettingRow(
+                        title: 'LAN proxy sharing',
+                        value: service.running
+                            ? 'Active'
+                            : _options.shareLan
+                            ? 'Ready after reconnect'
+                            : 'Off',
+                        onTap: () async {
+                          await Navigator.push(
+                            context,
+                            appRoute(const LanSharingScreen()),
+                          );
+                          await _load();
+                        },
                       ),
                     ],
-                  ],
-                ),
-                _GroupCard(
-                  title: 'Transport & TLS',
-                  subtitle: context.tr(
-                    'Optional connection details. The server defaults work for most people.',
                   ),
-                  icon: Icons.security_rounded,
-                  expanded: _expanded.contains('Transport & TLS'),
-                  onToggle: () => _toggleGroup('Transport & TLS'),
+                ],
+                const SettingsCaption('DIAGNOSTICS'),
+                SettingsGroup(
                   children: [
-                    if (profile != null)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 6),
-                        child: Text(
-                          '${profile.name} · ${profile.proxyProtocol?.toUpperCase() ?? context.tr('Server')}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: muted,
-                            fontSize: 10.5,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    if (!supportsFingerprint)
-                      Text(
-                        context.tr(
-                          'The selected server does not use TLS or Reality.',
-                        ),
-                        style: TextStyle(color: muted, fontSize: 11),
-                      )
-                    else
-                      _OptionRow<RealityFingerprint>(
-                        label: context.tr('TLS identity'),
-                        value: _fingerprint!,
-                        values: const [
-                          RealityFingerprint.serverDefault,
-                          RealityFingerprint.chrome,
-                          RealityFingerprint.firefox,
-                          RealityFingerprint.safari,
-                        ],
-                        valueLabel: (value) => context.tr(value.label),
-                        onSelected: _saveFingerprint,
-                      ),
-                    const SizedBox(height: 2),
-                    Text(
-                      context.tr(
-                        'This changes the TLS ClientHello only. Keep the server default unless you need another profile.',
-                      ),
-                      style: TextStyle(color: muted, fontSize: 10.5),
+                    SettingsCycleRow(
+                      options: const ['Errors', 'Warnings', 'Detailed'],
+                      title: 'Diagnostic detail',
+                      label: switch (_log) {
+                        XrayLogLevel.error => 'Errors',
+                        XrayLogLevel.info => 'Detailed',
+                        _ => 'Warnings',
+                      },
+                      onTap: _busy
+                          ? null
+                          : () async {
+                              const levels = [
+                                XrayLogLevel.error,
+                                XrayLogLevel.warning,
+                                XrayLogLevel.info,
+                              ];
+                              final level =
+                                  levels[(levels.indexOf(_log) + 1) %
+                                      levels.length];
+                              if (mounted) {
+                                await _save(() async {
+                                  await XrayPreferences.setLogLevel(level);
+                                  if (mounted) setState(() => _log = level);
+                                });
+                              }
+                            },
                     ),
-                    const SizedBox(height: 6),
-                    if (supportsFragmentation)
-                      SwitchListTile.adaptive(
-                        key: const ValueKey('xray-fragmentation-switch'),
-                        contentPadding: EdgeInsets.zero,
-                        dense: true,
-                        title: Text(
-                          context.tr('Connection fragmentation'),
-                          style: const TextStyle(
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        subtitle: Text(
-                          context.tr(
-                            'Can help on restricted networks, but may reduce speed. Use only when needed.',
-                          ),
-                          style: TextStyle(color: muted, fontSize: 10.5),
-                        ),
-                        value: _fragmentationEnabled,
-                        onChanged: _saving ? null : _setFragmentation,
+                    SettingRow(
+                      title: 'Troubleshooting report',
+                      subtitle: 'Export without account codes or credentials.',
+                      onTap: () => Navigator.push(
+                        context,
+                        appRoute(const ClientLogsScreen()),
                       ),
-                    if (!supportsFragmentation)
-                      Text(
-                        context.tr(
-                          'Fragmentation is available for VLESS Reality over TCP.',
-                        ),
-                        style: TextStyle(color: muted, fontSize: 10.5),
-                      ),
-                  ],
-                ),
-                _GroupCard(
-                  title: 'Diagnostics',
-                  subtitle: context.tr(
-                    'Choose how much connection information is recorded.',
-                  ),
-                  icon: Icons.receipt_long_rounded,
-                  expanded: _expanded.contains('Diagnostics'),
-                  onToggle: () => _toggleGroup('Diagnostics'),
-                  children: [
-                    _OptionRow<XrayLogLevel>(
-                      label: context.tr('Diagnostic detail'),
-                      value: _logLevel!,
-                      values: const [
-                        XrayLogLevel.error,
-                        XrayLogLevel.warning,
-                        XrayLogLevel.info,
-                      ],
-                      valueLabel: (level) => context.tr(level.label),
-                      onSelected: _saveLogLevel,
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      context.tr('Access and DNS query logs are disabled.'),
-                      style: TextStyle(color: muted, fontSize: 10.5),
                     ),
                   ],
                 ),
+                const SizedBox(height: 16),
+                Text(
+                  'Changes apply after reconnecting.',
+                  style: TextStyle(color: settingsMuted(context), fontSize: 11),
+                ),
+                const SizedBox(height: 16),
+                SettingsRestoreButton(enabled: !_busy, onRestore: _reset),
               ],
             ),
     );
   }
 }
 
-class _GroupCard extends StatelessWidget {
-  const _GroupCard({
-    required this.title,
-    required this.subtitle,
-    required this.icon,
-    required this.expanded,
-    required this.onToggle,
-    required this.children,
-  });
-
-  final String title;
-  final String subtitle;
-  final IconData icon;
-  final bool expanded;
-  final VoidCallback onToggle;
-  final List<Widget> children;
-
+class BypassWebsitesScreen extends StatefulWidget {
+  const BypassWebsitesScreen({super.key});
   @override
-  Widget build(BuildContext context) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    final fg = dark ? AppTheme.foreground : AppTheme.lightForeground;
-    final muted = dark
-        ? AppTheme.foregroundMuted
-        : AppTheme.lightForegroundMuted;
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: FrostedCard(
-        padding: EdgeInsets.zero,
-        borderRadius: 14,
-        child: Column(
-          children: [
-            Material(
-              color: Colors.transparent,
-              borderRadius: BorderRadius.circular(14),
-              child: InkWell(
-                key: ValueKey('xray-section-$title'),
-                borderRadius: BorderRadius.circular(14),
-                onTap: onToggle,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 12,
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 32,
-                        height: 32,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(9),
-                          color: dark
-                              ? Colors.white.withValues(alpha: 0.06)
-                              : Colors.black.withValues(alpha: 0.04),
-                        ),
-                        child: Center(child: Icon(icon, size: 17, color: fg)),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              context.tr(title),
-                              style: TextStyle(
-                                fontSize: AppTheme.fontSizeBody,
-                                fontWeight: FontWeight.w700,
-                                color: fg,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              subtitle,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: AppTheme.fontSizeCaption,
-                                height: 1.25,
-                                color: muted,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Icon(
-                        expanded
-                            ? Icons.keyboard_arrow_up_rounded
-                            : Icons.keyboard_arrow_down_rounded,
-                        size: 20,
-                        color: muted,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            if (expanded)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Divider(
-                      height: 1,
-                      thickness: 0.8,
-                      color: dark
-                          ? Colors.white.withValues(alpha: 0.05)
-                          : Colors.black.withValues(alpha: 0.05),
-                    ),
-                    const SizedBox(height: 10),
-                    ...children.map(
-                      (child) => Padding(
-                        padding: const EdgeInsets.only(bottom: 6),
-                        child: child,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
+  State<BypassWebsitesScreen> createState() => _BypassWebsitesScreenState();
 }
 
-class _OptionRow<T> extends StatelessWidget {
-  const _OptionRow({
-    required this.label,
-    required this.value,
-    required this.values,
-    required this.valueLabel,
-    required this.onSelected,
-  });
+class _BypassWebsitesScreenState extends State<BypassWebsitesScreen> {
+  final _input = TextEditingController();
+  List<String> _domains = [];
+  bool _busy = false;
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
 
-  final String label;
-  final T value;
-  final List<T> values;
-  final String Function(T value) valueLabel;
-  final ValueChanged<T> onSelected;
+  Future<void> _load() async {
+    final domains = await XrayPreferences.bypassDomains();
+    if (mounted) setState(() => _domains = domains);
+  }
+
+  Future<void> _save(List<String> domains) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await XrayPreferences.setBypassDomains(domains);
+      await _load();
+      _input.clear();
+    } catch (error) {
+      if (mounted) {
+        AppFeedback.showError(
+          context,
+          error,
+          fallback: 'Enter valid website domains, such as example.com.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
 
   @override
-  Widget build(BuildContext context) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    final foreground = dark ? AppTheme.foreground : AppTheme.lightForeground;
+  void dispose() {
+    _input.dispose();
+    super.dispose();
+  }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+  @override
+  Widget build(BuildContext context) => AppPage(
+    title: 'Websites outside VPN',
+    child: ListView(
+      padding: const EdgeInsets.all(16),
       children: [
         Text(
-          label,
-          style: TextStyle(
-            color: foreground,
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
+          'These websites bypass the VPN. Changes apply after reconnecting.',
+          style: TextStyle(color: settingsMuted(context), fontSize: 12),
+        ),
+        const SizedBox(height: 16),
+        TextField(
+          key: const ValueKey('bypass-domains-field'),
+          controller: _input,
+          autocorrect: false,
+          enableSuggestions: false,
+          decoration: InputDecoration(
+            labelText: context.tr('Website domain'),
+            hintText: 'example.com',
+          ),
+          onSubmitted: _busy ? null : (_) => _save([..._domains, _input.text]),
+        ),
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton(
+            key: const ValueKey('save-bypass-domains'),
+            onPressed: _busy ? null : () => _save([..._domains, _input.text]),
+            child: const Text('Add website'),
           ),
         ),
-        const SizedBox(height: 6),
-        Wrap(
-          spacing: 6,
-          runSpacing: 5,
-          children: [
-            for (final option in values)
-              ChoiceChip(
-                key: ValueKey('xray-choice-$label-${valueLabel(option)}'),
-                label: Text(
-                  valueLabel(option),
-                  style: TextStyle(
-                    color: option == value ? AppTheme.successColor : foreground,
-                    fontSize: 10,
-                    fontWeight: option == value
-                        ? FontWeight.w700
-                        : FontWeight.w500,
+        const SizedBox(height: 12),
+        if (_domains.isEmpty)
+          const Text('No websites added')
+        else
+          SettingsGroup(
+            children: [
+              for (final domain in _domains)
+                SettingRow(
+                  title: domain,
+                  trailing: Semantics(
+                    label: 'Remove $domain',
+                    child: IconButton(
+                      style: IconButton.styleFrom().copyWith(
+                        overlayColor: quietOverlay,
+                      ),
+                      onPressed: _busy
+                          ? null
+                          : () => _save(
+                              _domains.where((d) => d != domain).toList(),
+                            ),
+                      icon: const Icon(Icons.remove_circle_outline, size: 18),
+                    ),
                   ),
                 ),
-                selected: option == value,
-                showCheckmark: false,
-                visualDensity: VisualDensity.compact,
-                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                pressElevation: 0,
-                side: BorderSide(
-                  color: option == value
-                      ? AppTheme.successColor.withValues(alpha: .5)
-                      : (dark
-                            ? Colors.white.withValues(alpha: .08)
-                            : Colors.black.withValues(alpha: .07)),
-                ),
-                selectedColor: AppTheme.successColor.withValues(
-                  alpha: dark ? .15 : .12,
-                ),
-                backgroundColor: dark
-                    ? Colors.white.withValues(alpha: .03)
-                    : Colors.black.withValues(alpha: .02),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                onSelected: (selected) {
-                  if (selected) onSelected(option);
-                },
-              ),
-          ],
-        ),
+            ],
+          ),
       ],
-    );
-  }
+    ),
+  );
 }
 
-class _MessageCard extends StatelessWidget {
-  const _MessageCard({required this.message, required this.onDismiss});
-  final String message;
-  final VoidCallback onDismiss;
+class FragmentationSettingsScreen extends StatefulWidget {
+  const FragmentationSettingsScreen({super.key});
+  @override
+  State<FragmentationSettingsScreen> createState() =>
+      _FragmentationSettingsScreenState();
+}
+
+class _FragmentationSettingsScreenState
+    extends State<FragmentationSettingsScreen> {
+  final _length = TextEditingController(),
+      _delay = TextEditingController(),
+      _splits = TextEditingController();
+  bool _busy = false;
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final ranges = await XrayPreferences.fragmentRanges();
+    if (mounted) {
+      setState(() {
+        _length.text = ranges['length']!;
+        _delay.text = ranges['delay']!;
+        _splits.text = ranges['splits']!;
+      });
+    }
+  }
 
   @override
-  Widget build(BuildContext context) => FrostedCard(
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-    borderRadius: 12,
-    child: Row(
+  void dispose() {
+    _length.dispose();
+    _delay.dispose();
+    _splits.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    setState(() => _busy = true);
+    try {
+      await XrayPreferences.setFragmentRanges(
+        length: _length.text.trim(),
+        delay: _delay.text.trim(),
+        splits: _splits.text.trim(),
+      );
+      if (mounted) {
+        AppFeedback.showMessage(
+          context,
+          'Fragmentation settings saved. Reconnect to apply.',
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        AppFeedback.showError(
+          context,
+          error,
+          fallback:
+              'Enter valid numeric ranges for fragment length, delay and splits.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => AppPage(
+    title: 'Fragmentation settings',
+    child: ListView(
+      padding: const EdgeInsets.all(16),
       children: [
-        const Icon(
-          Icons.error_outline_rounded,
-          color: AppTheme.errorColor,
-          size: 16,
+        Text(
+          'Only the TLS hello is fragmented. Smaller fragments or longer delays may reduce speed.',
+          style: TextStyle(color: settingsMuted(context), fontSize: 12),
         ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            message,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: AppTheme.errorColor, fontSize: 11),
+        const SizedBox(height: 20),
+        TextField(
+          controller: _length,
+          decoration: InputDecoration(
+            labelText: context.tr('Fragment length (bytes)'),
+            helperText: context.tr('1–16384, for example 100-200'),
           ),
         ),
-        IconButton(
-          onPressed: onDismiss,
-          visualDensity: VisualDensity.compact,
-          icon: const Icon(Icons.close_rounded, size: 15),
+        const SizedBox(height: 16),
+        TextField(
+          controller: _delay,
+          decoration: InputDecoration(
+            labelText: context.tr('Delay (milliseconds)'),
+            helperText: context.tr('0–1000, for example 10-20'),
+          ),
+        ),
+        const SizedBox(height: 16),
+        TextField(
+          controller: _splits,
+          decoration: InputDecoration(
+            labelText: context.tr('Maximum splits'),
+            helperText: context.tr('1–32, for example 3-6'),
+          ),
+        ),
+        const SizedBox(height: 20),
+        OutlinedButton(
+          onPressed: _busy ? null : _save,
+          child: const Text('Save'),
         ),
       ],
     ),

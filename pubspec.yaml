@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.0+1
+version: 0.1.0+1
 
 environment:
   sdk: ^3.10.8
@@ -43,6 +43,8 @@ dependencies:
     path: vendor/flutter_vless
   flutter_secure_storage: ^10.3.4
   crypto: ^3.0.6
+  device_info_plus: 12.4.0
+  package_info_plus: 9.0.1
   flutter_animate: ^4.5.2
   window_manager: ^0.5.1
   url_launcher: ^6.3.2
@@ -51,8 +53,12 @@ dependencies:
   screen_retriever: 0.2.2
   file_selector: ^1.1.0
   share_plus: 11.1.0
+  passkeys: ^2.23.1
+  local_auth: ^3.0.2
 
 dependency_overrides:
+  passkeys_darwin:
+    path: vendor/passkeys_darwin
   flutter_vless_android:
     path: vendor/flutter_vless/packages/flutter_vless_android
   flutter_vless_macos:

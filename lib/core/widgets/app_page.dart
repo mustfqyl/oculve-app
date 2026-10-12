@@ -13,11 +13,13 @@ class AppPage extends StatelessWidget {
     required this.title,
     required this.child,
     this.action,
+    this.headerHeight = 64,
   });
 
   final String title;
   final Widget child;
   final Widget? action;
+  final double headerHeight;
 
   @override
   Widget build(BuildContext context) {
@@ -30,7 +32,7 @@ class AppPage extends StatelessWidget {
           child: Column(
             children: [
               SizedBox(
-                height: 64,
+                height: headerHeight,
                 child: Stack(
                   children: [
                     Align(
@@ -38,21 +40,30 @@ class AppPage extends StatelessWidget {
                       child: Padding(
                         padding: const EdgeInsets.only(left: 16),
                         child: IconButton(
-                          tooltip: context.tr('Back'),
-                          icon: const Icon(Icons.arrow_back_ios_new, size: 18),
+                          icon: Icon(
+                            Icons.arrow_back_ios_new,
+                            size: 18,
+                            semanticLabel: context.tr('Back'),
+                          ),
                           color: foreground,
                           onPressed: () => Navigator.of(context).pop(),
                         ),
                       ),
                     ),
-                    Align(
-                      alignment: Alignment.center,
-                      child: Text(
-                        title,
-                        style: TextStyle(
-                          color: foreground,
-                          fontSize: 17,
-                          fontWeight: FontWeight.w600,
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 66),
+                      child: Center(
+                        child: Text(
+                          title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: foreground,
+                            fontSize: 17,
+                            height: 1.12,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
                     ),

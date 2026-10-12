@@ -2,11 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/material.dart' hide Text;
 import 'package:oculve/core/localization/localized_text.dart';
-import 'package:oculve/core/localization/app_strings.dart';
 import 'package:oculve/core/theme/app_theme.dart';
 import 'package:oculve/core/vpn/android_app_catalog.dart';
 import 'package:oculve/core/vpn/xray_preferences.dart';
 import 'package:oculve/core/widgets/app_page.dart';
+import 'package:oculve/core/widgets/app_feedback.dart';
 
 class AndroidAppRoutingScreen extends StatefulWidget {
   const AndroidAppRoutingScreen({super.key});
@@ -17,12 +17,10 @@ class AndroidAppRoutingScreen extends StatefulWidget {
 }
 
 class _AndroidAppRoutingScreenState extends State<AndroidAppRoutingScreen> {
-  late final Future<List<AndroidVpnApp>> _apps =
-      AndroidAppCatalog.listLaunchableApps();
+  late Future<List<AndroidVpnApp>> _apps;
   final Set<String> _selected = {};
   bool _loaded = false;
   bool _saving = false;
-  String? _error;
 
   Future<void> _loadSelection() async {
     try {
@@ -34,30 +32,42 @@ class _AndroidAppRoutingScreenState extends State<AndroidAppRoutingScreen> {
       });
     } catch (error) {
       if (!mounted) return;
-      setState(() {
-        _error = error.toString();
-        _loaded = true;
-      });
+      setState(() => _loaded = true);
+      AppFeedback.showError(
+        context,
+        error,
+        fallback: 'Could not load app routing settings.',
+        placement: AppFeedbackPlacement.pageBottom,
+      );
     }
   }
 
   @override
   void initState() {
     super.initState();
+    _apps = AndroidAppCatalog.listLaunchableApps();
     unawaited(_loadSelection());
   }
+
+  void _retryLoadingApps() =>
+      setState(() => _apps = AndroidAppCatalog.listLaunchableApps());
 
   Future<void> _save() async {
     if (_saving) return;
     setState(() {
       _saving = true;
-      _error = null;
     });
     try {
       await XrayPreferences.setBlockedApps(_selected.toList());
       if (mounted) Navigator.of(context).pop(true);
     } catch (error) {
-      if (mounted) setState(() => _error = error.toString());
+      if (mounted) {
+        AppFeedback.showError(
+          context,
+          error,
+          placement: AppFeedbackPlacement.pageBottom,
+        );
+      }
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -70,15 +80,14 @@ class _AndroidAppRoutingScreenState extends State<AndroidAppRoutingScreen> {
       future: _apps,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          return Center(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Text(
-                context.tr('Could not load installed apps.'),
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: AppTheme.errorColor),
-              ),
+          return AppErrorState(
+            title: 'Could not load installed apps.',
+            message: AppFeedback.errorMessage(
+              snapshot.error!,
+              fallback: 'Could not load installed apps.',
             ),
+            primaryLabel: 'Try again',
+            onPrimary: _retryLoadingApps,
           );
         }
         if (!snapshot.hasData || !_loaded) {
@@ -143,20 +152,6 @@ class _AndroidAppRoutingScreenState extends State<AndroidAppRoutingScreen> {
                 },
               ),
             ),
-            if (_error != null)
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 18,
-                  vertical: 6,
-                ),
-                child: Text(
-                  _error!,
-                  style: const TextStyle(
-                    color: AppTheme.errorColor,
-                    fontSize: 12,
-                  ),
-                ),
-              ),
             SafeArea(
               top: false,
               child: Padding(
@@ -165,7 +160,7 @@ class _AndroidAppRoutingScreenState extends State<AndroidAppRoutingScreen> {
                   width: double.infinity,
                   child: FilledButton(
                     onPressed: _saving ? null : _save,
-                    child: Text(
+                    child: CompactLabel(
                       _saving ? 'Saving…' : 'Save ${_selected.length} apps',
                     ),
                   ),

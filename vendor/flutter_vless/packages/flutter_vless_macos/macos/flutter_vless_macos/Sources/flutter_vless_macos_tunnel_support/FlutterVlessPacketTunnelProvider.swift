@@ -302,13 +302,15 @@ open class FlutterVlessPacketTunnelProvider: NEPacketTunnelProvider {
         guard let tunnelFileDescriptor = TunnelDpiRuntime.packetTunnelFileDescriptor() else {
             throw tunnelError("Xray could not locate the NetworkExtension TUN interface")
         }
-        for profile in TunnelDpiRuntime.profileCandidates(interfaceName: interfaceName) {
+        guard let selected = TunnelDpiRuntime.selectedProfile(data: spec.config) else {
+            throw tunnelError("Invalid DPI strategy")
+        }
+        for profile in [selected] {
             let localProxyPort = TunnelDpiRuntime.start(profile: profile, interfaceName: interfaceName)
             guard (1...65535).contains(localProxyPort),
                   let config = TunnelDpiRuntime.config(data: spec.config, localProxyPort: localProxyPort,
                     interfaceName: interfaceName) else {
                 _ = TunnelDpiRuntime.stop()
-                TunnelDpiRuntime.invalidate(profile: profile, interfaceName: interfaceName)
                 continue
             }
             do {
@@ -316,15 +318,13 @@ open class FlutterVlessPacketTunnelProvider: NEPacketTunnelProvider {
                               tunFileDescriptor: tunnelFileDescriptor)
                 if TunnelDpiRuntime.isRunning(),
                    LocalProxyDelayClient.checkConnectivity(port: spec.port, credentials: spec.credentials) {
-                    TunnelDpiRuntime.save(profile: profile, interfaceName: interfaceName)
-                    rememberTunnelLog("Xray TUN and automatic DPI strategy passed authenticated HTTPS connectivity")
+                    rememberTunnelLog("Xray TUN and DPI runtime passed authenticated HTTPS connectivity")
                     return
                 }
             } catch {
                 // Profile details and probe destinations stay out of diagnostics.
             }
             _ = stopNativeRuntime()
-            TunnelDpiRuntime.invalidate(profile: profile, interfaceName: interfaceName)
         }
         throw tunnelError("DPI Bypass could not establish verified Internet connectivity")
     }
@@ -390,7 +390,13 @@ open class FlutterVlessPacketTunnelProvider: NEPacketTunnelProvider {
 
     open override func handleAppMessage(_ messageData: Data, completionHandler: ((Data?) -> Void)?) {
         if let message = String(data: messageData, encoding: .utf8) {
-            if message == "xray_runtime_state" {
+            if message == "oculve_local_proxy" {
+                watchdogQueue.async {
+                    guard self.isForwardingReady(), let spec = self.runtimeSpec else { completionHandler?(nil); return }
+                    completionHandler?(try? JSONSerialization.data(withJSONObject: ["port": spec.port,
+                        "username": spec.credentials.username, "password": spec.credentials.password]))
+                }
+            } else if message == "xray_runtime_state" {
                 completionHandler?(Data((isForwardingReady() ? "ready" : "recovering").utf8))
             } else if (message == "xray_traffic"){
                 logTrafficStats(context: "poll")

@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart' hide Text;
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:oculve/core/localization/localized_text.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:oculve/features/auth/data/auth_repository.dart';
@@ -10,9 +9,11 @@ import 'package:oculve/core/models/vpn_state.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:oculve/core/theme/app_theme.dart';
 import 'package:oculve/core/widgets/app_page.dart';
+import 'package:oculve/core/widgets/app_feedback.dart';
 import 'package:oculve/core/vpn/server_latency.dart';
 import 'package:oculve/core/vpn/profile.dart';
 import 'widgets/country_icon.dart';
+import 'widgets/dpi_bypass_logo.dart';
 import 'widgets/latency_label.dart';
 import 'package:oculve/core/localization/app_strings.dart';
 
@@ -28,8 +29,6 @@ class ServerSelectionScreen extends ConsumerStatefulWidget {
 
 class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
   ServerSort _sort = ServerSort.latency;
-  bool _subscriptionRefreshFailed = false;
-  Timer? _refreshFailureTimer;
 
   @override
   void initState() {
@@ -38,13 +37,15 @@ class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
       if (!mounted) return;
       try {
         await ref.read(sessionProvider.notifier).refresh();
-      } catch (_) {
+      } catch (error) {
         if (mounted) {
-          _refreshFailureTimer?.cancel();
-          setState(() => _subscriptionRefreshFailed = true);
-          _refreshFailureTimer = Timer(const Duration(seconds: 6), () {
-            if (mounted) setState(() => _subscriptionRefreshFailed = false);
-          });
+          AppFeedback.showError(
+            context,
+            error,
+            fallback:
+                'Could not refresh servers. Showing the last saved locations.',
+            placement: AppFeedbackPlacement.pageTop,
+          );
         }
       }
       if (!mounted) return;
@@ -53,12 +54,6 @@ class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
         ref.invalidate(serverLatencyProvider(profile.id));
       }
     });
-  }
-
-  @override
-  void dispose() {
-    _refreshFailureTimer?.cancel();
-    super.dispose();
   }
 
   @override
@@ -163,6 +158,7 @@ class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
                 trailing: LatencyLabel(latency: latencies[profile.id]!),
                 enabled: enabled,
                 onTap: () {
+                  ref.read(optimalServerProfileProvider.notifier).state = null;
                   ref.read(selectedServerProvider.notifier).state = profile.id;
                   Navigator.pop(context);
                 },
@@ -176,7 +172,6 @@ class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
       title: context.tr('Locations'),
       action: IconButton(
         key: const ValueKey('server-sort-toggle'),
-        tooltip: sortHint,
         splashRadius: 20,
         icon: AnimatedSwitcher(
           duration: const Duration(milliseconds: 200),
@@ -194,6 +189,7 @@ class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
             key: ValueKey(_sort),
             size: 21,
             color: sortForeground,
+            semanticLabel: sortHint,
           ),
         ),
         onPressed: () => setState(
@@ -205,19 +201,6 @@ class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
       child: ListView(
         padding: const EdgeInsets.all(24),
         children: [
-          if (_subscriptionRefreshFailed)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: Text(
-                context.tr(
-                  'Could not refresh servers. Showing the last saved locations.',
-                ),
-                style: const TextStyle(
-                  color: AppTheme.errorColor,
-                  fontSize: AppTheme.fontSizeCaption,
-                ),
-              ),
-            ),
           if (!enabled)
             Padding(
               padding: const EdgeInsets.only(bottom: 16),
@@ -242,6 +225,8 @@ class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
                       color: AppTheme.successColor,
                     ),
                     onTap: () {
+                      ref.read(optimalServerProfileProvider.notifier).state =
+                          null;
                       ref.read(selectedServerProvider.notifier).state =
                           optimalServerId;
                       Navigator.pop(context);
@@ -256,8 +241,10 @@ class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
                     selected: selected == dpiBypassServerId,
                     enabled: enabled,
                     accentColor: Colors.blueAccent,
-                    icon: const _DpiBypassLogo(),
+                    icon: const DpiBypassLogo(),
                     onTap: () {
+                      ref.read(optimalServerProfileProvider.notifier).state =
+                          null;
                       ref.read(selectedServerProvider.notifier).state =
                           dpiBypassServerId;
                       Navigator.pop(context);
@@ -329,10 +316,8 @@ class _ServerModeCard extends StatelessWidget {
                     child: icon,
                   ),
                   const SizedBox(height: 6),
-                  Text(
+                  CompactLabel(
                     label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
                     textAlign: TextAlign.center,
                     style: const TextStyle(
                       fontSize: AppTheme.fontSizeBody,
@@ -345,19 +330,6 @@ class _ServerModeCard extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-class _DpiBypassLogo extends StatelessWidget {
-  const _DpiBypassLogo();
-
-  @override
-  Widget build(BuildContext context) {
-    return SvgPicture.asset(
-      'assets/dpi_bypass_packet.svg',
-      width: 24,
-      height: 24,
     );
   }
 }

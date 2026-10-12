@@ -250,7 +250,7 @@ bool SocksReady(uint16_t port, const std::string& user, const std::string& passw
 std::unique_ptr<ProcessHandle> StartByeDpi(const fs::path& executable,
     const std::string& interface_name, int profile, uint16_t& proxy_port) {
   proxy_port = 0;
-  if (interface_name.empty() || profile < 0 || profile > 3) return nullptr;
+  if (interface_name.empty() || profile < 0 || profile > 4) return nullptr;
   const std::vector<std::vector<std::wstring>> strategies = {
       {L"--split", L"1+s"},
       {L"--split", L"1+s", L"--disorder", L"3+s"},
@@ -260,7 +260,12 @@ std::unique_ptr<ProcessHandle> StartByeDpi(const fs::path& executable,
   std::vector<std::wstring> arguments = {L"--internal-ready", L"--ip", L"127.0.0.1",
       L"--port", L"0", L"--no-domain", L"--debug", L"0", L"--interface", Wide(interface_name)};
   if (arguments.back().empty()) return nullptr;
-  arguments.insert(arguments.end(), strategies[profile].begin(), strategies[profile].end());
+  if (profile == 4) {
+    for (const auto& strategy : strategies) {
+      arguments.push_back(L"--auto"); arguments.push_back(L"torst,ssl_err");
+      arguments.insert(arguments.end(), strategy.begin(), strategy.end());
+    }
+  } else arguments.insert(arguments.end(), strategies[profile].begin(), strategies[profile].end());
   auto process = Launch(executable, arguments, true);
   if (!process) return nullptr;
 

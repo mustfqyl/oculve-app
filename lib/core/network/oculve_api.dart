@@ -4,6 +4,9 @@ import 'dart:math';
 import 'package:crypto/crypto.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+import 'device_hwid.dart';
+import 'subscription_device_info.dart';
 
 class ApiFailure implements Exception {
   final String message;
@@ -30,26 +33,40 @@ class _ApiResponse {
 /// Native client for the existing Oculve cookie-authenticated API.
 /// Credentials never travel in URLs or to the subscription host.
 class OculveApi {
-  OculveApi({Uri? origin, FlutterSecureStorage? storage})
+  OculveApi({
+    Uri? origin,
+    FlutterSecureStorage? storage,
+    DeviceHwid? deviceHwid,
+    SubscriptionDeviceInfo? deviceInfo,
+  })
     // The public apex redirects POST requests to www with HTTP 307. Keep the
     // mobile client pinned to the canonical API origin so it never has to
     // repeat a credential-bearing request through a redirect.
     : origin = origin ?? Uri.parse('https://www.oculve.com'),
-      _storage =
-          storage ??
-          const FlutterSecureStorage(
-            aOptions: AndroidOptions(
-              migrateOnAlgorithmChange: true,
-              migrateWithBackup: true,
-              resetOnError: false,
-            ),
-          );
+       _storage =
+           storage ??
+           const FlutterSecureStorage(
+             aOptions: AndroidOptions(
+               migrateOnAlgorithmChange: true,
+               migrateWithBackup: true,
+               resetOnError: false,
+             ),
+           ),
+       _subscriptionHwid = deviceHwid ?? DeviceHwid(),
+       _subscriptionDeviceInfo = deviceInfo ?? SubscriptionDeviceInfo(),
+       _client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
   final Uri origin;
   final FlutterSecureStorage _storage;
+  final HttpClient _client;
+  final DeviceHwid _subscriptionHwid;
+  final SubscriptionDeviceInfo _subscriptionDeviceInfo;
   String? _token;
   String? _deviceId;
+  Future<String>? _clientUserAgent;
   bool get hasSession => _token != null && _token!.isNotEmpty;
   String get _key => 'oculve.session.${origin.origin}';
+
+  void close() => _client.close(force: true);
 
   Future<void> restore() async {
     try {
@@ -101,13 +118,8 @@ class OculveApi {
     final response = await _send(
       uri,
       authenticated: false,
-      // Oculve's PasarGuard subscription rule accepts Happ clients and returns
-      // the Xray configuration format that its existing subscriptions use.
-      headers: {
-        HttpHeaders.userAgentHeader: 'Happ/1.0',
-        'X-HWID': await _hwid(),
-        'X-Device-OS': Platform.operatingSystem,
-      },
+      // Identify Oculve explicitly so provider rules can select its format.
+      headers: await subscriptionRequestHeaders(),
     );
     return SubscriptionResponse(
       body: response.body,
@@ -115,11 +127,41 @@ class OculveApi {
     );
   }
 
+  Future<Map<String, String>> subscriptionRequestHeaders() async {
+    try {
+      return {
+        HttpHeaders.userAgentHeader: await _userAgent(),
+        'X-HWID': await _subscriptionHwid.get(),
+        ...await _subscriptionDeviceInfo.headers(),
+      };
+    } on DeviceHwidUnavailable {
+      throw const ApiFailure(
+        'Could not read your device identity. Please restart the app and try again.',
+      );
+    }
+  }
+
+  Future<String> _userAgent() => _clientUserAgent ??= _readUserAgent();
+
+  static Future<String> _readUserAgent() async {
+    try {
+      final version = (await PackageInfo.fromPlatform()).version.trim();
+      if (version.isNotEmpty &&
+          version.length <= 64 &&
+          RegExp(r'^[a-zA-Z0-9.+_-]+$').hasMatch(version)) {
+        return 'oculve/$version';
+      }
+    } catch (_) {
+      // Keep our own identity even if native package metadata is unavailable.
+    }
+    return 'oculve/unknown';
+  }
+
   Future<Map<String, String>> registrationHeaders() async {
     // Derive the registration ID from the persistent device secret. Hashing
     // also handles older stored IDs that were not 64-character hex strings.
     final hex = sha256
-        .convert(utf8.encode(await _hwid()))
+        .convert(utf8.encode(await _registrationDeviceSecret()))
         .toString()
         .substring(0, 32)
         .split('');
@@ -132,7 +174,8 @@ class OculveApi {
     return {'x-oculve-device-id': id};
   }
 
-  Future<String> _hwid() async {
+  // Preserve the existing registration identity; it is not subscription HWID.
+  Future<String> _registrationDeviceSecret() async {
     if (_deviceId != null) return _deviceId!;
     const key = 'oculve.device.hwid.v1';
     try {
@@ -166,16 +209,14 @@ class OculveApi {
       throw const ApiFailure('A secure HTTPS service address is required.');
     }
     final tokenForRequest = authenticated ? _token : null;
-    final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 15);
     try {
-      final request = await client.openUrl(
+      final request = await _client.openUrl(
         method ?? (body == null ? 'GET' : 'POST'),
         uri,
       );
       // Do not forward session credentials through redirects.
       request.followRedirects = false;
-      request.headers.set(HttpHeaders.userAgentHeader, 'Oculve/1.0');
+      request.headers.set(HttpHeaders.userAgentHeader, await _userAgent());
       headers?.forEach(request.headers.set);
       if (authenticated) {
         request.headers.set('Origin', origin.origin);
@@ -217,8 +258,9 @@ class OculveApi {
                   'Your access code or session is invalid. Please sign in again.',
                 403 => 'Access denied. Check your account status.',
                 429 => 'Too many attempts. Please wait before trying again.',
-                _ =>
-                  'Service unavailable (${response.statusCode}). Please try again.',
+                >= 500 =>
+                  'The service is temporarily unavailable. Please try again.',
+                _ => 'The request could not be completed. Please try again.',
               };
         throw ApiFailure(message, response.statusCode);
       }
@@ -253,8 +295,6 @@ class OculveApi {
       throw const ApiFailure(
         'Could not reach the service securely. Check your connection.',
       );
-    } finally {
-      client.close(force: true);
     }
   }
 

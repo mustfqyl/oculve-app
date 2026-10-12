@@ -106,3 +106,37 @@ class Text extends material.StatelessWidget {
     );
   }
 }
+
+/// Keeps short labels on one line and scales them only when their container is
+/// narrower than the translated phrase. Paragraphs should continue using
+/// [Text] so they can reflow naturally instead of shrinking.
+class CompactLabel extends material.StatelessWidget {
+  const CompactLabel(
+    this.data, {
+    super.key,
+    this.style,
+    this.textAlign = material.TextAlign.center,
+    this.alignment = material.Alignment.center,
+    this.semanticsLabel,
+  });
+
+  final String data;
+  final material.TextStyle? style;
+  final material.TextAlign textAlign;
+  final material.Alignment alignment;
+  final String? semanticsLabel;
+
+  @override
+  material.Widget build(material.BuildContext context) => material.FittedBox(
+    fit: material.BoxFit.scaleDown,
+    alignment: alignment,
+    child: Text(
+      data,
+      style: style,
+      textAlign: textAlign,
+      softWrap: false,
+      maxLines: 1,
+      semanticsLabel: semanticsLabel,
+    ),
+  );
+}

@@ -12,6 +12,20 @@ import UIKit
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "DeviceIdentity") {
+      let channel = FlutterMethodChannel(
+        name: "com.oculve/device_identity", binaryMessenger: registrar.messenger()
+      )
+      channel.setMethodCallHandler { call, result in
+        guard call.method == "getHwid" else {
+          result(FlutterMethodNotImplemented); return
+        }
+        guard let value = UIDevice.current.identifierForVendor?.uuidString else {
+          result(FlutterError(code: "HWID_UNAVAILABLE", message: "Device identity unavailable.", details: nil)); return
+        }
+        result(value)
+      }
+    }
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "PhysicalTcpPing") {
       registerPhysicalTcpPingChannel(binaryMessenger: registrar.messenger())
     }

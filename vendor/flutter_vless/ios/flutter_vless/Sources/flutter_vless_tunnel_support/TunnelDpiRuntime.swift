@@ -1,4 +1,5 @@
 import Foundation
+import CoreFoundation
 import Network
 import ByeDpiEngine
 
@@ -35,8 +36,18 @@ public enum TunnelDpiRuntime {
         return true
     }
 
+    public static func selectedProfile(data: Data) -> Int? {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        guard let value = root["oculveDpiProfile"] else { return 4 }
+        guard let number = value as? NSNumber,
+              CFGetTypeID(number) != CFBooleanGetTypeID(),
+              number.doubleValue == Double(number.intValue),
+              (0...4).contains(number.intValue) else { return nil }
+        return number.intValue
+    }
+
     public static func start(profile: Int, interfaceName: String) -> Int {
-        guard (0...3).contains(profile), !interfaceName.isEmpty else { return 0 }
+        guard (0...4).contains(profile), !interfaceName.isEmpty else { return 0 }
         return Int(interfaceName.withCString { byedpi_engine_start(Int32(profile), nil, $0) })
     }
 
@@ -89,6 +100,7 @@ public enum TunnelDpiRuntime {
             outbounds[index]["streamSettings"] = stream
         }
         var result = root
+        result.removeValue(forKey: "oculveDpiProfile")
         result["outbounds"] = outbounds
         return try? JSONSerialization.data(withJSONObject: result, options: [])
     }

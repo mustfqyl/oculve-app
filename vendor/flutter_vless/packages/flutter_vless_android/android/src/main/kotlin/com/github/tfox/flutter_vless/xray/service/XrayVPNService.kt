@@ -45,7 +45,6 @@ class XrayVPNService : VpnService() {
     private var tunConfigFile: File? = null
     private var socketFile: File? = null
     private val dpiEngine = ByeDpiEngine()
-    private lateinit var dpiProfileCache: DpiProfileCache
     private var diagnosticsGeneration = 0L
     private var connectedAt = 0L
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
@@ -54,7 +53,6 @@ class XrayVPNService : VpnService() {
     override fun onCreate() {
         super.onCreate()
         profiles = AuthorizedProfileStore(this)
-        dpiProfileCache = DpiProfileCache(this)
         // Cold start cleanup must also run when authorization cannot be decrypted or is absent.
         // The helper preserves files referenced by live native workers and all standalone delays.
         worker.execute { SessionRuntimeFiles.removeAbandoned(noBackupFilesDir) }
@@ -233,13 +231,13 @@ class XrayVPNService : VpnService() {
         } catch (_: Exception) { if (recovery.owns(owner)) recover(if (tun == null) Event.TUN_FAILED else Event.WORKER_START_FAILED) }
     }
 
-    /** A cached preset is tried first; failed connectivity advances through all internal presets. */
+    /** Readiness checks connectivity only; the engine chooses strategies per destination. */
     private fun startDpiBypass(current: XrayConfig, owner: Long) {
         if (!recovery.owns(owner)) return
         val secret = requireNotNull(credentials)
         var forwardingStarted = process?.isAlive == true
         val source = requireNotNull(sourceConfig)
-        for (profile in dpiProfileCache.candidates()) {
+        for (profile in listOf(current.DPI_PROFILE)) {
             if (!recovery.owns(owner)) return
             val tunnelProtector = requireNotNull(protector)
             val endpointPort = dpiEngine.start(profile, "@${tunnelProtector.socketName}")
@@ -248,7 +246,9 @@ class XrayVPNService : VpnService() {
                 continue
             }
             try {
+                require(profile in 0..4) { "Invalid DPI strategy" }
                 val sourceJson = JSONObject(source.V2RAY_FULL_JSON_CONFIG)
+                sourceJson.remove("oculveDpiProfile")
                 val outbounds = sourceJson.getJSONArray("outbounds")
                 var endpointUpdated = false
                 for (index in 0 until outbounds.length()) {
@@ -284,7 +284,6 @@ class XrayVPNService : VpnService() {
                     forwardingStarted = true
                 }
                 if (AuthenticatedSocksClient.checkConnectivity(current.LOCAL_SOCKS5_PORT, secret)) {
-                    dpiProfileCache.save(profile)
                     current.V2RAY_FULL_JSON_CONFIG = source.V2RAY_FULL_JSON_CONFIG
                     prepared = runtime
                     recovery.recovered()

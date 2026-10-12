@@ -5,7 +5,8 @@
 extern "C" {
 #endif
 
-/* Starts one loopback-only listener using an internal strategy preset.
+/* Starts one loopback-only listener. Profiles 0..3 pin a preset; profile 4
+ * selects native per-destination automatic fallback on torst/ssl_err.
  * protect_path is used by Android's VpnService socket broker; interface_name
  * pins sockets to the underlay on platforms that support interface binding.
  * Returns the dynamically allocated SOCKS port, or 0 on failure. */

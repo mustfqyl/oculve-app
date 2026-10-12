@@ -1,18 +1,23 @@
 import 'dart:async';
+import 'package:oculve/main.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart' as cupertino;
 import 'package:flutter/services.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:oculve/features/auth/presentation/login_screen.dart';
 import 'package:oculve/features/auth/presentation/signup_screen.dart';
 import 'package:oculve/features/home/presentation/home_screen.dart';
+import 'package:oculve/core/widgets/oculve_wordmark.dart';
 import 'package:oculve/features/home/presentation/server_selection_screen.dart';
 import 'package:oculve/features/settings/presentation/account_screen.dart';
+import 'package:oculve/features/settings/presentation/android_app_routing_screen.dart';
 import 'package:oculve/features/settings/presentation/client_logs_screen.dart';
 import 'package:oculve/features/settings/presentation/settings_screen.dart';
 import 'package:oculve/features/settings/presentation/usage_statistics_screen.dart';
+import 'package:oculve/features/settings/presentation/tray_preferences_screen.dart';
 import 'package:oculve/features/settings/presentation/xray_core_settings_screen.dart';
 import 'package:oculve/core/vpn/xray_preferences.dart';
 import 'package:oculve/core/vpn/profile.dart';
@@ -91,6 +96,39 @@ class _SignupSession extends SessionController {
   Future<String> generateRegistrationCode() async => 'ABCD-EFGH-IJKL';
 }
 
+class _OnboardingSession extends _SignupSession {
+  int codeRequests = 0;
+  int registrations = 0;
+  @override
+  Future<void> restore() async {
+    state = const AsyncValue.data(null);
+  }
+
+  @override
+  Future<String> generateRegistrationCode() async {
+    codeRequests++;
+    return super.generateRegistrationCode();
+  }
+
+  @override
+  Future<void> register(String code) async {
+    registrations++;
+    state = AsyncValue.data(Account({'status': 'active'}, const []));
+  }
+}
+
+class _LoginFlowSession extends _OnboardingSession {
+  String? submittedCode;
+
+  @override
+  Future<void> login(String code, {String? challenge}) async {
+    submittedCode = code;
+    state = AsyncValue.data(
+      Account({'authCode': code, 'status': 'active'}, const []),
+    );
+  }
+}
+
 class _VlessSession extends SessionController {
   _VlessSession(VpnProfile profile) : super(OculveApi()) {
     state = AsyncValue.data(Account({'status': 'active'}, [profile]));
@@ -98,6 +136,120 @@ class _VlessSession extends SessionController {
 }
 
 void main() {
+  testWidgets('sign in returns to the session gate after a valid code', (
+    tester,
+  ) async {
+    final session = _LoginFlowSession();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [sessionProvider.overrideWith((ref) => session)],
+        child: MaterialApp(
+          theme: AppTheme.darkTheme,
+          home: const SessionGate(),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    await tester.tap(find.byKey(const ValueKey('welcome-sign-in')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(find.byType(LoginScreen), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField).first, 'ABCD-EFGH-IJKL');
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump(const Duration(milliseconds: 250));
+
+    expect(session.submittedCode, 'ABCD-EFGH-IJKL');
+    expect(find.byType(HomeScreen), findsOneWidget);
+  });
+
+  testWidgets('welcome only requests a code after choosing create account', (
+    tester,
+  ) async {
+    final session = _OnboardingSession();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sessionProvider.overrideWith((ref) => session),
+          accessCodeSaverProvider.overrideWithValue(
+            (context, code) async => true,
+          ),
+        ],
+        child: MaterialApp(
+          theme: AppTheme.darkTheme,
+          home: const SessionGate(),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.byType(SignUpScreen), findsOneWidget);
+    expect(session.codeRequests, 0);
+    expect(find.text('1 / 3'), findsNothing);
+    expect(find.text('Already have an account?'), findsOneWidget);
+    expect(find.text('Sign in'), findsOneWidget);
+    expect(find.byKey(const ValueKey('signup-step-0-action')), findsOneWidget);
+    expect(find.text('Get my access code'), findsNothing);
+    await tester.tap(find.text('Continue setup'));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('Your sign-in key'), findsOneWidget);
+    expect(session.codeRequests, 1);
+    expect(find.text('Continue'), findsOneWidget);
+    await tester.tap(find.text('Continue'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('Ready to create your account?'), findsOneWidget);
+    expect(find.text('Access code saved to this device'), findsOneWidget);
+    expect(find.byType(Checkbox), findsNothing);
+    expect(session.registrations, 0);
+    expect(
+      tester
+          .widget<FilledButton>(
+            find.widgetWithText(FilledButton, 'Create account'),
+          )
+          .onPressed,
+      isNotNull,
+    );
+    await tester.tap(find.text('Create account'));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    expect(session.registrations, 1);
+    expect(find.byType(HomeScreen), findsOneWidget);
+    session.clearLocalSession();
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.byType(SignUpScreen), findsOneWidget);
+    expect(find.byType(HomeScreen), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('existing-account path opens sign in without generating a code', (
+    tester,
+  ) async {
+    final session = _OnboardingSession();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [sessionProvider.overrideWith((ref) => session)],
+        child: MaterialApp(
+          theme: AppTheme.darkTheme,
+          home: const SessionGate(),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    await tester.tap(find.byKey(const ValueKey('welcome-sign-in')));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.byType(LoginScreen), findsOneWidget);
+    expect(session.codeRequests, 0);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('desktop popup overlays never show scrollbars', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -198,57 +350,46 @@ void main() {
       await tester.pump();
       expect(session.refreshCount, 1);
       expect(tester.takeException(), isNull);
-      expect(find.text('ABCD-EFGH-IJKL'), findsOneWidget);
-      expect(find.text('••••-••••-••••'), findsNothing);
-      expect(find.byTooltip('Show code'), findsNothing);
-      expect(find.text('Export'), findsNothing);
-      final blur = find.byType(TweenAnimationBuilder<double>);
-      expect(tester.widget<TweenAnimationBuilder<double>>(blur).tween.end, 5.5);
+      expect(find.text('ABCD-EFGH-IJKL'), findsNothing);
+      expect(find.text('••••••••••'), findsOneWidget);
       expect(
-        find.ancestor(
-          of: find.text('ABCD-EFGH-IJKL'),
-          matching: find.byType(ImageFiltered),
-        ),
+        find.byKey(const ValueKey('account-code-visibility')),
         findsOneWidget,
       );
-      expect(find.byType(ShaderMask), findsNothing);
-      expect(find.text('Premium'), findsOneWidget);
-      expect(find.text('SUBSCRIPTION LINK'), findsNothing);
-      expect(find.textContaining('d remaining'), findsOneWidget);
-      expect(find.byType(Scrollable), findsNothing);
+      expect(find.text('SUBSCRIPTION'), findsNothing);
+      expect(find.text('Created on'), findsOneWidget);
+      expect(find.text('22.09.2026'), findsOneWidget);
+      expect(find.text('22.10.2026'), findsNothing);
+      final codeButton = tester.widget<IconButton>(
+        find.byKey(const ValueKey('account-code-visibility')),
+      );
+      expect(codeButton.tooltip, isNull);
+      expect(
+        codeButton.style!.overlayColor!.resolve({WidgetState.hovered}),
+        Colors.transparent,
+      );
+      expect(
+        tester
+            .widget<IconButton>(find.byKey(const ValueKey('account-code-copy')))
+            .tooltip,
+        isNull,
+      );
+      expect(find.text('Manage subscription'), findsNothing);
+      expect(find.byType(Scrollable), findsOneWidget);
       expect(
         tester.getCenter(find.text('Log out')).dy,
         lessThan(tester.getCenter(find.text('Delete account')).dy),
       );
-      expect(
-        tester
-            .getSize(
-              find.ancestor(
-                of: find.text('Delete account'),
-                matching: find.byType(OutlinedButton),
-              ),
-            )
-            .height,
-        greaterThanOrEqualTo(54),
-      );
-      expect(
-        tester
-            .getSize(
-              find.ancestor(
-                of: find.text('Log out'),
-                matching: find.byType(FilledButton),
-              ),
-            )
-            .height,
-        greaterThanOrEqualTo(54),
-      );
-      await tester.tap(find.text('ABCD-EFGH-IJKL'));
-      await tester.pump(const Duration(milliseconds: 350));
-      expect(tester.widget<TweenAnimationBuilder<double>>(blur).tween.end, 0);
+      await tester.tap(find.byKey(const ValueKey('account-code-visibility')));
+      await tester.pump();
+      expect(find.text('ABCD-EFGH-IJKL'), findsOneWidget);
       expect(copiedCode, isNull);
-      await tester.tap(find.text('ABCD-EFGH-IJKL'));
+      await tester.tap(find.byKey(const ValueKey('account-code-copy')));
       await tester.pump();
       expect(copiedCode, 'ABCD-EFGH-IJKL');
+      await tester.tap(find.byKey(const ValueKey('account-code-visibility')));
+      await tester.pump();
+      expect(find.text('ABCD-EFGH-IJKL'), findsNothing);
       await tester.tap(find.text('Security'));
       await tester.pump(const Duration(milliseconds: 300));
       expect(tester.takeException(), isNull);
@@ -265,88 +406,6 @@ void main() {
       expect(session.refreshCount, 3);
     },
   );
-  testWidgets(
-    'account deletion needs the exact phrase in a single confirmation',
-    (tester) async {
-      tester.view.physicalSize = const Size(320, 568);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [sessionProvider.overrideWith((ref) => _AccountSession())],
-          child: MaterialApp(
-            theme: AppTheme.darkTheme,
-            home: const AccountScreen(),
-          ),
-        ),
-      );
-      await tester.tap(find.text('Delete account'));
-      await tester.pump(const Duration(milliseconds: 300));
-      expect(
-        find.textContaining('Type the phrase below to confirm.'),
-        findsOneWidget,
-      );
-      final deleteAction = find.byType(FilledButton).last;
-      expect(tester.widget<FilledButton>(deleteAction).onPressed, isNull);
-      final confirmation = find.byType(TextField);
-      await tester.enterText(confirmation, 'DELETE MY ACCOUNT');
-      await tester.pump();
-      expect(tester.widget<FilledButton>(deleteAction).onPressed, isNotNull);
-      await tester.tap(find.text('Cancel').last);
-      await tester.pump(const Duration(milliseconds: 300));
-      expect(tester.takeException(), isNull);
-    },
-  );
-  testWidgets('account deletion follows native iOS and macOS dialog patterns', (
-    tester,
-  ) async {
-    tester.view.physicalSize = const Size(360, 640);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-
-    for (final platform in [TargetPlatform.iOS, TargetPlatform.macOS]) {
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [sessionProvider.overrideWith((ref) => _AccountSession())],
-          child: MaterialApp(
-            theme: AppTheme.darkTheme.copyWith(platform: platform),
-            home: const AccountScreen(),
-          ),
-        ),
-      );
-      await tester.pump(const Duration(milliseconds: 350));
-      await tester.ensureVisible(find.text('Delete account'));
-      await tester.tap(find.text('Delete account').first);
-      await tester.pump(const Duration(milliseconds: 350));
-
-      final field = find.byKey(
-        const ValueKey('delete-account-confirmation-field'),
-      );
-      expect(field, findsOneWidget);
-      expect(find.byType(cupertino.CupertinoAlertDialog), findsOneWidget);
-      final action = find
-          .descendant(
-            of: find.byType(cupertino.CupertinoAlertDialog),
-            matching: find.byType(cupertino.CupertinoDialogAction),
-          )
-          .last;
-      expect(
-        tester.widget<cupertino.CupertinoDialogAction>(action).onPressed,
-        isNull,
-      );
-      await tester.enterText(field, 'DELETE MY ACCOUNT');
-      await tester.pump();
-      expect(
-        tester.widget<cupertino.CupertinoDialogAction>(action).onPressed,
-        isNotNull,
-      );
-      await tester.tap(find.text('Cancel').last);
-      await tester.pump(const Duration(milliseconds: 350));
-      expect(tester.takeException(), isNull, reason: '$platform dialog');
-    }
-  });
   testWidgets('TOTP setup fits the compact app window in the app theme', (
     tester,
   ) async {
@@ -369,10 +428,10 @@ void main() {
     await tester.pump();
     await tester.tap(find.text('Security'));
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump(const Duration(seconds: 2));
     await tester.tap(find.text('2FA / TOTP'));
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump(const Duration(seconds: 2));
     expect(find.text('Set up authenticator'), findsOneWidget);
     expect(find.text('MANUAL SETUP KEY'), findsOneWidget);
     expect(find.text('JBSWY3DPEHPK3PXP'), findsOneWidget);
@@ -381,7 +440,7 @@ void main() {
     expect(tester.takeException(), isNull);
     await tester.tap(find.text('Cancel'));
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump(const Duration(seconds: 2));
   });
   testWidgets('sign-in asks for existing account code, not subscription URL', (
     tester,
@@ -392,7 +451,7 @@ void main() {
       ),
     );
     await tester.pump(const Duration(seconds: 1));
-    expect(find.text('ACCESS CODE'), findsOneWidget);
+    expect(find.text('ACCESS CODE'), findsNothing);
     expect(find.text('Continue'), findsNothing);
     expect(find.text('CONNECTED'), findsNothing);
   });
@@ -405,7 +464,12 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [sessionProvider.overrideWith((ref) => _SignupSession())],
+        overrides: [
+          sessionProvider.overrideWith((ref) => _SignupSession()),
+          accessCodeSaverProvider.overrideWithValue(
+            (context, code) async => true,
+          ),
+        ],
         child: MaterialApp(
           theme: AppTheme.darkTheme,
           home: const SignUpScreen(),
@@ -413,13 +477,250 @@ void main() {
       ),
     );
     await tester.pump(const Duration(milliseconds: 350));
-    expect(find.text('Account Setup'), findsOneWidget);
-    expect(find.text('YOUR UNIQUE ACCESS CODE'), findsOneWidget);
-    expect(find.text('ABCD-EFGH-IJKL'), findsOneWidget);
-    expect(find.text('GO TO DASHBOARD'), findsOneWidget);
-    expect(find.text('Terms'), findsOneWidget);
+    expect(find.text('Your private connection starts here.'), findsOneWidget);
+    expect(find.byType(OculveWordmark), findsOneWidget);
+    expect(tester.widget<Text>(find.text('oculve')).style?.fontSize, 22.8);
+    expect(
+      find.text(
+        'Set up your access key, save it somewhere safe, then choose a location for your first private connection.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('1 / 3'), findsNothing);
+    expect(find.text('No email or password required.'), findsNothing);
+    expect(find.text('YOUR ACCESS CODE'), findsNothing);
+    expect(find.text('ABCD-EFGH-IJKL'), findsNothing);
+    expect(find.byKey(const ValueKey('signup-step-0-action')), findsOneWidget);
+    await tester.drag(find.byType(PageView), const Offset(-600, 0));
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('Your sign-in key'), findsOneWidget);
+    expect(find.text('Continue'), findsOneWidget);
+    expect(
+      find.text(
+        'This is your access code. Tap it to copy; continuing saves it to your device.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Copy'), findsNothing);
+    expect(find.text('Save code'), findsNothing);
+    expect(find.byIcon(Icons.key_rounded), findsNothing);
+    expect(find.byIcon(Icons.copy_rounded), findsNothing);
+    expect(find.text('Terms'), findsNothing);
+    await tester.tap(find.text('Continue'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('Ready to create your account?'), findsOneWidget);
+    expect(find.text('Access code saved to this device'), findsOneWidget);
+    expect(find.text('Terms of Service'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('access code tap copies; saving is required before continuing', (
+    tester,
+  ) async {
+    var saveResult = false;
+    var saveAttempts = 0;
+    final clipboardCalls = <MethodCall>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        clipboardCalls.add(call);
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sessionProvider.overrideWith((ref) => _SignupSession()),
+          accessCodeSaverProvider.overrideWithValue((context, code) async {
+            saveAttempts++;
+            return saveResult;
+          }),
+        ],
+        child: MaterialApp(
+          theme: AppTheme.darkTheme,
+          home: const SignUpScreen(),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.drag(find.byType(PageView), const Offset(-600, 0));
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pump(const Duration(milliseconds: 500));
+
+    await tester.ensureVisible(find.text('ABCD-EFGH-IJKL'));
+    await tester.pump();
+    await tester.tap(find.text('ABCD-EFGH-IJKL'));
+    await tester.pump();
+    final setClipboardCalls = clipboardCalls
+        .where((call) => call.method == 'Clipboard.setData')
+        .toList();
+    expect(setClipboardCalls, hasLength(1));
+    expect(setClipboardCalls.single.arguments, {'text': 'ABCD-EFGH-IJKL'});
+    expect(find.text('Copied'), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 800));
+    expect(find.text('ABCD-EFGH-IJKL'), findsOneWidget);
+
+    await tester.tap(find.text('Continue'));
+    await tester.pump();
+    expect(saveAttempts, 1);
+    expect(
+      find.text('Choose a place to save your code before continuing.'),
+      findsOneWidget,
+    );
+    expect(find.text('Ready to create your account?'), findsNothing);
+
+    saveResult = true;
+    await tester.tap(find.text('Continue'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(saveAttempts, 2);
+    expect(find.text('Ready to create your account?'), findsOneWidget);
+    expect(find.byType(Checkbox), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('sign-up pages can be swiped horizontally', (tester) async {
+    final session = _OnboardingSession();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sessionProvider.overrideWith((ref) => session),
+          accessCodeSaverProvider.overrideWithValue(
+            (context, code) async => true,
+          ),
+        ],
+        child: MaterialApp(
+          theme: AppTheme.darkTheme,
+          home: const SignUpScreen(),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.drag(find.byType(PageView), const Offset(-600, 0));
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('Your sign-in key'), findsOneWidget);
+    expect(session.codeRequests, 1);
+
+    await tester.drag(find.byType(PageView), const Offset(-600, 0));
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('Your sign-in key').hitTestable(), findsOneWidget);
+    expect(
+      find.text('Ready to create your account?').hitTestable(),
+      findsNothing,
+    );
+    await tester.tap(find.text('Continue'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(
+      find.text('Ready to create your account?').hitTestable(),
+      findsOneWidget,
+    );
+    expect(find.text('Create account'), findsOneWidget);
+    await tester.tap(find.widgetWithIcon(IconButton, Icons.arrow_back_rounded));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('Your sign-in key').hitTestable(), findsOneWidget);
+    expect(find.text('Continue'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('sign-up wizard fits every step in the compact app window', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 568);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    for (final theme in [AppTheme.darkTheme, AppTheme.lightTheme]) {
+      final session = _OnboardingSession();
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            sessionProvider.overrideWith((ref) => session),
+            accessCodeSaverProvider.overrideWithValue(
+              (context, code) async => true,
+            ),
+          ],
+          child: MaterialApp(
+            theme: theme,
+            home: SignUpScreen(key: ValueKey(theme.brightness)),
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 350));
+      expect(tester.takeException(), isNull);
+
+      await tester.drag(find.byType(PageView), const Offset(-600, 0));
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(find.text('Your sign-in key'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+
+      await tester.tap(find.text('Continue'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.text('Ready to create your account?'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    }
+  });
+
+  testWidgets('Turkish sign-up copy fits the compact app window', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 568);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sessionProvider.overrideWith((ref) => _SignupSession()),
+          accessCodeSaverProvider.overrideWithValue(
+            (context, code) async => true,
+          ),
+        ],
+        child: MaterialApp(
+          locale: const Locale('tr'),
+          supportedLocales: const [Locale('en'), Locale('tr')],
+          localizationsDelegates: GlobalMaterialLocalizations.delegates,
+          theme: AppTheme.darkTheme,
+          home: const SignUpScreen(),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(find.text('Özel bağlantın burada başlıyor.'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.drag(find.byType(PageView), const Offset(-600, 0));
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(find.text('Giriş anahtarın'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.tap(find.byKey(const ValueKey('signup-step-1-action')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('Hesabını oluşturmaya hazır mısın?'), findsOneWidget);
+    expect(find.text('Erişim kodu bu cihaza kaydedildi'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('access-code field gets the website focus halo', (tester) async {
     await tester.pumpWidget(
       ProviderScope(
@@ -471,9 +772,9 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(find.text('CONNECT'), findsOneWidget);
       final connectControl = find.byKey(const ValueKey('vpn-connect-control'));
-      expect(tester.getSize(connectControl).width, 232);
-      expect(tester.getSize(connectControl).height, 72);
-      expect(find.byIcon(Icons.power_settings_new_rounded), findsOneWidget);
+      expect(tester.getSize(connectControl).width, 280);
+      expect(tester.getSize(connectControl).height, lessThanOrEqualTo(300));
+      expect(find.byIcon(Icons.power_settings_new_rounded), findsNothing);
       expect(find.text('CONNECTED'), findsNothing);
       expect(find.text('Choose location'), findsOneWidget);
     }
@@ -518,6 +819,7 @@ void main() {
       addTearDown(tester.view.resetDevicePixelRatio);
 
       final screens = <Widget>[
+        const SignUpScreen(),
         const LoginScreen(),
         const HomeScreen(),
         const ServerSelectionScreen(),
@@ -526,33 +828,49 @@ void main() {
         const UsageStatisticsScreen(),
         const ClientLogsScreen(),
         const XrayCoreSettingsScreen(),
+        const TrayPreferencesScreen(),
+        const AndroidAppRoutingScreen(),
       ];
-      for (final size in [const Size(320, 568), const Size(360, 640)]) {
-        tester.view.physicalSize = size;
-        for (final screen in screens) {
-          await tester.pumpWidget(
-            ProviderScope(
-              child: MaterialApp(
-                theme: AppTheme.darkTheme.copyWith(
-                  platform: TargetPlatform.macOS,
+      const locales = [Locale('en'), Locale('es'), Locale('tr')];
+      for (final locale in locales) {
+        for (final size in [
+          const Size(320, 568),
+          const Size(360, 640),
+          const Size(800, 600),
+        ]) {
+          tester.view.physicalSize = size;
+          for (final screen in screens) {
+            await tester.pumpWidget(
+              ProviderScope(
+                child: MaterialApp(
+                  locale: locale,
+                  supportedLocales: locales,
+                  localizationsDelegates: GlobalMaterialLocalizations.delegates,
+                  theme: AppTheme.darkTheme.copyWith(
+                    platform: TargetPlatform.macOS,
+                  ),
+                  scrollBehavior: const AppScrollBehavior(),
+                  home: screen,
                 ),
-                scrollBehavior: const AppScrollBehavior(),
-                home: screen,
               ),
-            ),
-          );
-          await tester.pump(const Duration(seconds: 1));
-          expect(tester.takeException(), isNull, reason: '$screen at $size');
-          expect(
-            find.byWidgetPredicate((widget) => widget is RawScrollbar),
-            findsNothing,
-            reason: 'Scrollbars should stay hidden on $screen at $size',
-          );
-          expect(
-            find.byType(cupertino.CupertinoScrollbar),
-            findsNothing,
-            reason: 'Cupertino indicators should stay hidden on $screen',
-          );
+            );
+            await tester.pump(const Duration(milliseconds: 350));
+            expect(
+              tester.takeException(),
+              isNull,
+              reason: '$screen at $size in ${locale.languageCode}',
+            );
+            expect(
+              find.byWidgetPredicate((widget) => widget is RawScrollbar),
+              findsNothing,
+              reason: 'Scrollbars should stay hidden on $screen at $size',
+            );
+            expect(
+              find.byType(cupertino.CupertinoScrollbar),
+              findsNothing,
+              reason: 'Cupertino indicators should stay hidden on $screen',
+            );
+          }
         }
       }
     },
@@ -578,74 +896,36 @@ void main() {
         ),
       ),
     );
-    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump(const Duration(seconds: 2));
 
     expect(find.text('Connection settings'), findsOneWidget);
-    expect(
-      find.text('Most users can leave these settings as they are.'),
-      findsOneWidget,
-    );
-    expect(find.text('DNS & network'), findsOneWidget);
-    expect(find.text('Split tunneling'), findsOneWidget);
-    expect(find.text('Transport & TLS'), findsOneWidget);
+    expect(find.text('DNS'), findsOneWidget);
+    expect(find.text('VPN BYPASS'), findsOneWidget);
     expect(find.text('Advanced'), findsNothing);
-    expect(find.text('Diagnostics'), findsOneWidget);
-    for (final removed in [
-      'XHTTP transport',
-      'Mux and XUDP',
-      'Custom Xray JSON',
-      'Core version guard',
-      'TCP Fast Open',
-      'Per-user upload statistics',
-      'VLESS Encryption',
-    ]) {
-      expect(find.text(removed), findsNothing);
-    }
-
-    await tester.tap(find.byKey(const ValueKey('xray-section-DNS & network')));
-    await tester.pump(const Duration(milliseconds: 250));
-    await tester.tap(
-      find.byKey(const ValueKey('xray-choice-DNS provider-Google')),
-    );
-    await tester.pump(const Duration(milliseconds: 250));
-    expect(find.byType(Scrollbar), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('dns-provider-row')));
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pump(const Duration(milliseconds: 350));
     expect((await XrayPreferences.userDnsSettings()).servers, [
       'https://dns.google/dns-query',
     ]);
-
-    await tester.tap(
-      find.byKey(const ValueKey('xray-choice-DNS address family-IPv6 only')),
-    );
-    await tester.pump(const Duration(milliseconds: 250));
-    expect(
-      (await XrayPreferences.userDnsSettings()).queryStrategy,
-      DnsQueryStrategy.useIPv6,
-    );
-
     await tester.ensureVisible(
-      find.byKey(const ValueKey('xray-section-Split tunneling')),
+      find.byKey(const ValueKey('bypass-websites-row')),
     );
-    await tester.tap(
-      find.byKey(const ValueKey('xray-section-Split tunneling')),
-    );
-    await tester.pump(const Duration(milliseconds: 250));
+    await tester.tap(find.byKey(const ValueKey('bypass-websites-row')));
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pump(const Duration(milliseconds: 350));
     final domains = find.byKey(const ValueKey('bypass-domains-field'));
-    await tester.ensureVisible(domains);
-    await tester.enterText(domains, 'example.com\nnews.example.org');
-    await tester.tap(find.byKey(const ValueKey('save-bypass-domains')));
-    await tester.pump(const Duration(milliseconds: 250));
+    for (final domain in ['example.com', 'news.example.org']) {
+      await tester.enterText(domains, domain);
+      await tester.tap(find.byKey(const ValueKey('save-bypass-domains')));
+      await tester.pump(const Duration(milliseconds: 350));
+    }
     expect(await XrayPreferences.bypassDomains(), [
       'example.com',
       'news.example.org',
     ]);
-
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('xray-section-Transport & TLS')),
-    );
-    await tester.tap(
-      find.byKey(const ValueKey('xray-section-Transport & TLS')),
-    );
-    await tester.pump(const Duration(milliseconds: 250));
+    Navigator.of(tester.element(domains)).pop();
+    await tester.pump(const Duration(milliseconds: 350));
     final fragmentation = find.byKey(
       const ValueKey('xray-fragmentation-switch'),
     );

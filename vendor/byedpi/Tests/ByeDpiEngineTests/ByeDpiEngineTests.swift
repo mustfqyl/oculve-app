@@ -3,6 +3,16 @@ import XCTest
 @testable import ByeDpiEngine
 
 final class ByeDpiEngineTests: XCTestCase {
+    func testAutomaticAndPinnedStrategiesStartAndReset() {
+        for profile in 0...4 {
+            let port = byedpi_engine_start(Int32(profile), nil, nil)
+            XCTAssertTrue((1...65535).contains(port))
+            XCTAssertEqual(byedpi_engine_profile(), Int32(profile))
+            XCTAssertEqual(byedpi_engine_stop(), 1)
+        }
+        XCTAssertEqual(byedpi_engine_start(5, nil, nil), 0)
+    }
+
     func testDynamicLoopbackEndpointLifecycle() throws {
         let port = byedpi_engine_start(0, nil, nil)
         XCTAssertTrue((1...65535).contains(port))

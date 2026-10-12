@@ -952,6 +952,21 @@ public class FlutterVlessPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
             getConnectedServerDelay(call: call, result: result)
         case "getServerDelay":
             getServerDelay(call: call, result: result)
+        case "getTrafficProtection":
+            result(["supported": true, "armed": packetTunnelManager?.isRecoveryEnabled == true])
+        case "getLocalProxyEndpoint":
+            Task {
+                do {
+                    guard let response = try await packetTunnelManager?.sendProviderMessage(data: Data("oculve_local_proxy".utf8)),
+                          let endpoint = try JSONSerialization.jsonObject(with: response) as? [String: Any],
+                          endpoint["port"] is Int, endpoint["username"] is String, endpoint["password"] is String else {
+                        result(FlutterError(code: "NOT_READY", message: "The VPN is not ready for sharing.", details: nil)); return
+                    }
+                    // This secret crosses only the owning app/provider IPC. It
+                    // must never be included in diagnostics or shared reports.
+                    result(endpoint)
+                } catch { result(FlutterError(code: "NOT_READY", message: "The VPN is not ready for sharing.", details: nil)) }
+            }
         case "getProviderDebugSnapshot":
             getProviderDebugSnapshot(result: result)
         default:

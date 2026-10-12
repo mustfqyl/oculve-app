@@ -12,6 +12,16 @@ HELPER = SourceFileLoader(
 
 
 class LinuxTunnelConfigTest(unittest.TestCase):
+    def test_dpi_automatic_groups_and_pinned_manual_strategies(self):
+        automatic = HELPER.dpi_strategy_args(4)
+        self.assertEqual(automatic.count('--auto'), 4)
+        self.assertEqual(automatic.count('torst,ssl_err'), 4)
+        for profile in range(4):
+            self.assertNotIn('--auto', HELPER.dpi_strategy_args(profile))
+        for profile in (-1, 5, True, '4'):
+            with self.assertRaises(ValueError):
+                HELPER.dpi_strategy_args(profile)
+
     def test_only_plain_domains_are_accepted(self):
         self.assertEqual(
             HELPER.validate_bypass_domains(['example.com', 'example.com']),

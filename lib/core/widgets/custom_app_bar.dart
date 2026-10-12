@@ -52,10 +52,14 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
         leading: actualLeading,
         title: Text(
           title,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          textAlign: centerTitle ? TextAlign.center : TextAlign.start,
           style: TextStyle(
             color: fg,
             fontWeight: FontWeight.w600,
             fontSize: 17,
+            height: 1.12,
           ),
         ),
         centerTitle: centerTitle,

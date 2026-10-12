@@ -6,6 +6,7 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.os.SystemClock
+import android.provider.Settings
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.Drawable
@@ -14,15 +15,32 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.util.concurrent.Executors
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
-class MainActivity : FlutterActivity() {
+class MainActivity : FlutterFragmentActivity() {
     private val latencyExecutor = Executors.newFixedThreadPool(3)
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "com.oculve/device_identity",
+        ).setMethodCallHandler { call, result ->
+            if (call.method != "getHwid") {
+                result.notImplemented()
+            } else {
+                val id = runCatching {
+                    Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
+                }.getOrNull()
+                if (id.isNullOrBlank() || id == "9774d56d682e549c") {
+                    result.error("HWID_UNAVAILABLE", "Device identity unavailable.", null)
+                } else {
+                    result.success(id)
+                }
+            }
+        }
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "com.oculve/vpn_app_catalog",

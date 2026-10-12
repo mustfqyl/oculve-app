@@ -2308,20 +2308,6 @@ class XrayPreferences {
   static const _tcpAdvancedSettingsKey = 'xray.tcp.advanced.v1';
   static const _vlessEncryptionOverridesKey =
       'xray.vless.encryption.profiles.v1';
-  static const _userTlsHelloFragmentation = <String, dynamic>{
-    'tcp': [
-      {
-        'type': 'fragment',
-        'settings': {
-          'packets': 'tlshello',
-          'lengths': ['100-200'],
-          'delays': ['10-20'],
-          'maxSplit': '3-6',
-        },
-      },
-    ],
-  };
-
   static Future<XrayVlessEncryptionSettings?> vlessEncryptionSettingsFor(
     String profileId,
   ) async {
@@ -2541,22 +2527,34 @@ class XrayPreferences {
         ? null
         : known.contains(first)
         ? first
-        : legacy[first];
+        : legacy[first] ?? (isUserDnsEndpoint(first) ? first : null);
     return XrayDnsSettings(
       servers: [endpoint ?? 'https://cloudflare-dns.com/dns-query'],
       queryStrategy: stored.queryStrategy,
     );
   }
 
+  static bool isUserDnsEndpoint(String? value) {
+    final uri = Uri.tryParse(value ?? '');
+    return value != null &&
+        value.length <= 2048 &&
+        uri != null &&
+        uri.scheme == 'https' &&
+        uri.host.isNotEmpty &&
+        uri.userInfo.isEmpty &&
+        !uri.hasFragment &&
+        uri.path.isNotEmpty &&
+        !value.contains(RegExp(r'\s')) &&
+        (!uri.hasPort || uri.port > 0 && uri.port <= 65535);
+  }
+
   /// Persists the small, validated DNS surface exposed by Oculve's UI.
   static Future<void> setUserDnsSettings(XrayDnsSettings settings) async {
     if (settings.servers.length != 1 ||
-        !const {
-          'https://cloudflare-dns.com/dns-query',
-          'https://dns.google/dns-query',
-          'https://dns.quad9.net/dns-query',
-        }.contains(settings.servers.single)) {
-      throw const FormatException('Choose a supported DNS provider.');
+        !isUserDnsEndpoint(settings.servers.single)) {
+      throw const FormatException(
+        'Enter a valid HTTPS DNS URL without credentials or a fragment.',
+      );
     }
     await setDnsSettings(
       XrayDnsSettings(
@@ -2668,41 +2666,80 @@ class XrayPreferences {
 
   static Future<bool> tlsHelloFragmentationEnabled() async {
     final actual = (await finalMaskSettings()).toXrayJson();
-    final expectedTcp = _userTlsHelloFragmentation['tcp'] as List;
-    final actualTcp = actual['tcp'];
-    if (actual.length != 1 || actualTcp is! List || actualTcp.length != 1) {
+    final tcp = actual['tcp'];
+    if (actual.length != 1 ||
+        tcp is! List ||
+        tcp.length != 1 ||
+        tcp.single is! Map) {
       return false;
     }
-    final expected = Map<String, dynamic>.from(expectedTcp.single as Map);
-    final item = actualTcp.single;
-    if (item is! Map ||
-        item['type'] != 'fragment' ||
-        item['settings'] is! Map) {
-      return false;
+    final item = tcp.single as Map;
+    final settings = item['settings'];
+    return item['type'] == 'fragment' &&
+        settings is Map &&
+        settings['packets'] == 'tlshello';
+  }
+
+  static Future<Map<String, String>> fragmentRanges() async {
+    final p = await SharedPreferences.getInstance();
+    return {
+      'length': p.getString('connection.fragment.length') ?? '100-200',
+      'delay': p.getString('connection.fragment.delay') ?? '10-20',
+      'splits': p.getString('connection.fragment.splits') ?? '3-6',
+    };
+  }
+
+  static Future<void> setFragmentRanges({
+    required String length,
+    required String delay,
+    required String splits,
+  }) async {
+    bool valid(String value, int min, int max) {
+      if (!RegExp(r'^\d+(?:-\d+)?$').hasMatch(value)) return false;
+      final parts = value.split('-').map(int.parse).toList();
+      return parts.first >= min &&
+          parts.last <= max &&
+          parts.first <= parts.last;
     }
-    final settings = Map<String, dynamic>.from(item['settings'] as Map);
-    final expectedSettings = Map<String, dynamic>.from(
-      expected['settings'] as Map,
-    );
-    return settings.keys.toSet().containsAll(expectedSettings.keys) &&
-        expectedSettings.keys.toSet().containsAll(settings.keys) &&
-        expectedSettings.entries.every(
-          (entry) => jsonEncode(settings[entry.key]) == jsonEncode(entry.value),
-        );
+
+    if (!valid(length, 1, 16384) ||
+        !valid(delay, 0, 1000) ||
+        !valid(splits, 1, 32)) {
+      throw const FormatException(
+        'Enter valid numeric ranges for fragment length, delay and splits.',
+      );
+    }
+    final enabled = await tlsHelloFragmentationEnabled();
+    final p = await SharedPreferences.getInstance();
+    await p.setString('connection.fragment.length', length);
+    await p.setString('connection.fragment.delay', delay);
+    await p.setString('connection.fragment.splits', splits);
+    if (enabled) await setTlsHelloFragmentation(true);
   }
 
   static Future<XrayFinalMaskSettings> userFinalMaskSettings() async =>
       await tlsHelloFragmentationEnabled()
-      ? XrayFinalMaskSettings.fromJsonText(
-          jsonEncode(_userTlsHelloFragmentation),
-        )
+      ? await finalMaskSettings()
       : const XrayFinalMaskSettings();
 
   static Future<void> setTlsHelloFragmentation(bool enabled) async {
+    final ranges = await fragmentRanges();
     await setFinalMaskSettings(
       enabled
           ? XrayFinalMaskSettings.fromJsonText(
-              jsonEncode(_userTlsHelloFragmentation),
+              jsonEncode({
+                'tcp': [
+                  {
+                    'type': 'fragment',
+                    'settings': {
+                      'packets': 'tlshello',
+                      'lengths': [ranges['length']],
+                      'delays': [ranges['delay']],
+                      'maxSplit': ranges['splits'],
+                    },
+                  },
+                ],
+              }),
             )
           : const XrayFinalMaskSettings(),
     );
@@ -2866,11 +2903,15 @@ class XrayPreferences {
   /// port returned by its managed ByeDPI engine before starting Xray.
   static String configureDpiBypass({
     required int localProxyPort,
+    int dpiProfile = 4,
     required XrayDnsSettings dnsSettings,
     List<String> bypassDomains = const [],
     List<XrayRoutingRule> routingRules = const [],
   }) {
     dnsSettings.validate();
+    if (dpiProfile < 0 || dpiProfile > 4) {
+      throw const FormatException('Invalid DPI strategy.');
+    }
     if (localProxyPort < 1 || localProxyPort > 65535) {
       throw const FormatException('Invalid local DPI proxy port.');
     }
@@ -2927,6 +2968,7 @@ class XrayPreferences {
       });
     }
     return jsonEncode({
+      'oculveDpiProfile': dpiProfile,
       'log': {
         'loglevel': 'warning',
         'access': 'none',

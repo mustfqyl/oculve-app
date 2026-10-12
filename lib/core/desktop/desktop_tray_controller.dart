@@ -33,6 +33,7 @@ class DesktopTrayController with TrayListener, WindowListener {
   sni.StatusNotifierItemClient? _linuxTray;
   List<String> _linuxMenuServerIds = const [];
   Future<void> _menuUpdateQueue = Future<void>.value();
+  ProviderSubscription<TrayClickPreferences>? _preferencesSubscription;
   ProviderSubscription<Locale>? _localeSubscription;
   ProviderSubscription<VpnState>? _vpnSubscription;
   ProviderSubscription<AsyncValue<Account?>>? _sessionSubscription;
@@ -63,7 +64,16 @@ class DesktopTrayController with TrayListener, WindowListener {
     try {
       await windowManager.setPreventClose(true);
       await windowManager.setResizable(false);
+      await container.read(trayClickPreferencesProvider.notifier).ready;
       await _updateStatusIcon(container.read(vpnProvider));
+      _preferencesSubscription = container.listen(
+        trayClickPreferencesProvider,
+        (previous, next) {
+          if (previous?.indicator != next.indicator) {
+            unawaited(_updateStatusIcon(container.read(vpnProvider)));
+          }
+        },
+      );
       if (!Platform.isLinux) await trayManager.setToolTip('Oculve VPN');
       _localeSubscription = container.listen(localeProvider, (_, locale) {
         unawaited(_setContextMenu(locale.languageCode));
@@ -107,7 +117,10 @@ class DesktopTrayController with TrayListener, WindowListener {
     final revision = ++_iconRevision;
     _breathingTimer?.cancel();
     _breathingTimer = null;
-    if (state == VpnState.connected) {
+    if (container.read(trayClickPreferencesProvider).indicator ==
+        TrayStatusIndicator.appIcon) {
+      await _renderIcon(_baseIcon, revision, template: Platform.isMacOS);
+    } else if (state == VpnState.connected) {
       _breathingFrame = 0;
       await _renderIcon(_connectedIcons.first, revision, template: false);
       if (revision != _iconRevision) return;
@@ -186,6 +199,8 @@ class DesktopTrayController with TrayListener, WindowListener {
 
   void _disposeSubscriptions() {
     _breathingTimer?.cancel();
+    _preferencesSubscription?.close();
+    _preferencesSubscription = null;
     _localeSubscription?.close();
     _vpnSubscription?.close();
     _sessionSubscription?.close();
@@ -213,6 +228,12 @@ class DesktopTrayController with TrayListener, WindowListener {
       await _setLinuxContextMenu(languageCode, state, profiles, selected);
       return;
     }
+    final status = AppStrings.translate(trayStateLabel(state), languageCode);
+    final location = trayLocationLabel(
+      profiles,
+      selected,
+      container.read(optimalServerProfileProvider),
+    );
     final locations = Menu(
       items: [
         MenuItem(
@@ -239,9 +260,11 @@ class DesktopTrayController with TrayListener, WindowListener {
       Menu(
         items: [
           MenuItem(
-            key: 'open',
-            label: AppStrings.translate('Open Oculve', languageCode),
+            key: 'status',
+            label: '$status · ${AppStrings.translate(location, languageCode)}',
+            disabled: true,
           ),
+          MenuItem.separator(),
           MenuItem(
             key: 'connection',
             label: AppStrings.translate(
@@ -256,6 +279,10 @@ class DesktopTrayController with TrayListener, WindowListener {
             label: AppStrings.translate('Choose location', languageCode),
             submenu: locations,
             disabled: false,
+          ),
+          MenuItem(
+            key: 'open',
+            label: AppStrings.translate('Open Oculve', languageCode),
           ),
           MenuItem.separator(),
           MenuItem(
@@ -299,9 +326,11 @@ class DesktopTrayController with TrayListener, WindowListener {
     final menu = sni.DBusMenuItem(
       children: [
         sni.DBusMenuItem(
-          label: AppStrings.translate('Open Oculve', languageCode),
-          onClicked: showWindow,
+          label:
+              '${AppStrings.translate(trayStateLabel(state), languageCode)} · ${AppStrings.translate(trayLocationLabel(profiles, selected, container.read(optimalServerProfileProvider)), languageCode)}',
+          enabled: false,
         ),
+        sni.DBusMenuItem.separator(),
         sni.DBusMenuItem(
           label: AppStrings.translate(
             state == VpnState.connected ? 'Disconnect VPN' : 'Connect VPN',
@@ -314,6 +343,10 @@ class DesktopTrayController with TrayListener, WindowListener {
         sni.DBusMenuItem(
           label: AppStrings.translate('Choose location', languageCode),
           children: serverItems,
+        ),
+        sni.DBusMenuItem(
+          label: AppStrings.translate('Open Oculve', languageCode),
+          onClicked: showWindow,
         ),
         sni.DBusMenuItem.separator(),
         sni.DBusMenuItem(
@@ -487,12 +520,22 @@ class DesktopTrayController with TrayListener, WindowListener {
 
   @override
   void onWindowClose() {
-    if (!_quitting) unawaited(windowManager.hide());
+    if (_quitting) return;
+    if (container.read(trayClickPreferencesProvider).closeAction ==
+        TrayCloseAction.quit) {
+      unawaited(quit());
+    } else {
+      unawaited(windowManager.hide());
+    }
   }
 
   @override
   void onWindowBlur() {
-    if (_ready && !_quitting) unawaited(windowManager.hide());
+    if (_ready &&
+        !_quitting &&
+        container.read(trayClickPreferencesProvider).hideOnBlur) {
+      unawaited(windowManager.hide());
+    }
   }
 
   Future<void> toggleWindow() async {
@@ -539,6 +582,19 @@ class DesktopTrayController with TrayListener, WindowListener {
     return position & size;
   }
 
+  Future<void> dispose() async {
+    _ready = false;
+    trayManager.removeListener(this);
+    windowManager.removeListener(this);
+    _disposeSubscriptions();
+    if (Platform.isLinux) {
+      await _linuxTray?.close();
+      _linuxTray = null;
+    } else {
+      await trayManager.destroy();
+    }
+  }
+
   Future<void> quit() async {
     if (_quitting) return;
     _quitting = true;
@@ -554,15 +610,7 @@ class DesktopTrayController with TrayListener, WindowListener {
       await showWindow();
       return;
     }
-    trayManager.removeListener(this);
-    windowManager.removeListener(this);
-    _disposeSubscriptions();
-    if (Platform.isLinux) {
-      await _linuxTray?.close();
-      _linuxTray = null;
-    } else {
-      await trayManager.destroy();
-    }
+    await dispose();
     await windowManager.setPreventClose(false);
     await windowManager.destroy();
     container.dispose();
@@ -586,4 +634,24 @@ Offset trayWindowPosition(Rect tray, Rect area, {required bool menuBar}) {
     math.max(area.top, area.bottom - desktopWindowSize.height),
   );
   return Offset(x.toDouble(), y.toDouble());
+}
+
+String trayStateLabel(VpnState state) => switch (state) {
+  VpnState.connected => 'Connected',
+  VpnState.connecting => 'Connecting',
+  VpnState.disconnecting => 'Disconnecting',
+  VpnState.error => 'Connection error',
+  VpnState.disconnected => 'Disconnected',
+};
+String trayLocationLabel(
+  List<VpnProfile> profiles,
+  String? selected,
+  String? optimal,
+) {
+  if (selected == dpiBypassServerId) return 'DPI Bypass';
+  final id = selected == optimalServerId ? optimal : selected;
+  for (final profile in profiles) {
+    if (profile.id == id) return profile.name;
+  }
+  return 'Optimal';
 }

@@ -84,6 +84,16 @@ bool VpnService::Start(const std::string& config) {
     Event("DPI config rejected because it contains a non-client or remote outbound");
     return false;
   }
+  int selected_profile = 4;
+  if (dpi_request) {
+    auto source = xray_config::Parse(config);
+    if (source.contains("oculveDpiProfile")) {
+      if (!source["oculveDpiProfile"].is_number_integer()) return false;
+      const auto value = source["oculveDpiProfile"].get<int64_t>();
+      if (value < 0 || value > 4) return false;
+      selected_profile = static_cast<int>(value);
+    }
+  }
   auto bundled_byedpi = dpi_request ? native::FindBundledFile(L"byedpi.exe") : std::nullopt;
   if (!native::IsAdministrator() || !xray || !tun || !wintun || wintun->parent_path() != tun->parent_path()
       || (dpi_request && !bundled_byedpi)) {
@@ -123,6 +133,7 @@ bool VpnService::Start(const std::string& config) {
         outbound["streamSettings"]["sockopt"].erase("interface");
       }
     }
+    prepared_config.erase("oculveDpiProfile");
     *prepared = prepared_config.dump();
   }
   auto runtime = std::make_unique<native::ProtectedRuntime>();
@@ -134,6 +145,7 @@ bool VpnService::Start(const std::string& config) {
   if (requested_.load()) StopSession(false);
   bootstrap_cache_ = std::move(cache);
   dpi_bypass_ = dpi_request;
+  dpi_selected_profile_ = selected_profile;
   private_runtime_ = std::move(runtime);
   xray_executable_path_ = private_runtime_->Executable(); tun2socks_executable_path_ = *tun;
   byedpi_executable_path_ = dpi_bypass_ ? private_runtime_->ByeDpiExecutable() : fs::path{};
@@ -196,22 +208,7 @@ void VpnService::RunVpn() {
 }
 bool VpnService::StartWorkers() {
   if (!dpi_bypass_) return StartWorkersForProfile(-1);
-  std::string signature;
-  if (!Underlay(nullptr, &signature)) return false;
-  std::vector<int> profiles;
-  auto cached = dpi_profile_cache_.find(signature);
-  if (cached != dpi_profile_cache_.end()) profiles.push_back(cached->second);
-  for (int profile = 0; profile < 4; ++profile) {
-    if (std::find(profiles.begin(), profiles.end(), profile) == profiles.end()) profiles.push_back(profile);
-  }
-  for (int profile : profiles) {
-    if (StartWorkersForProfile(profile)) {
-      dpi_profile_cache_[underlay_signature_] = profile;
-      return true;
-    }
-    StopWorkers();
-  }
-  return false;
+  return StartWorkersForProfile(dpi_selected_profile_);
 }
 bool VpnService::StartWorkersForProfile(int dpi_profile) {
   using namespace flutter_vless;

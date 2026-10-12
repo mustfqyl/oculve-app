@@ -6,6 +6,10 @@ import 'package:flutter_vless/flutter_vless.dart';
 import 'package:oculve/core/providers/vpn_provider.dart';
 import 'package:oculve/core/vpn/server_latency.dart';
 import 'package:oculve/core/widgets/app_page.dart';
+import 'package:oculve/core/widgets/app_feedback.dart';
+import 'package:oculve/core/connection/connection_preferences.dart';
+import 'package:oculve/core/connection/diagnostic_report.dart';
+import 'package:oculve/core/account/private_text_export.dart';
 
 class ClientLogsScreen extends ConsumerStatefulWidget {
   const ClientLogsScreen({super.key});
@@ -34,6 +38,43 @@ class _ClientLogsScreenState extends ConsumerState<ClientLogsScreen> {
     }();
   }
 
+  bool _exporting = false;
+  Future<void> _export() async {
+    if (_exporting) return;
+    setState(() => _exporting = true);
+    try {
+      final options = await ConnectionPreferences.read();
+      final version = await VlessPlatform.instance
+          .getCoreVersion()
+          .timeout(const Duration(seconds: 3))
+          .catchError((_) => 'Unavailable');
+      if (!mounted) return;
+      final report = diagnosticReport(
+        state: ref.read(vpnProvider).name,
+        events: ref.read(vpnProvider.notifier).events,
+        pingChecks: ref.read(serverLatencyDiagnosticsProvider).length,
+        sharing: options.shareLan,
+        reconnect: options.reconnect,
+        coreVersion: version,
+      );
+      await exportPrivateText(
+        context,
+        fileName: 'oculve-diagnostics.txt',
+        contents: report,
+      );
+    } catch (error) {
+      if (mounted) {
+        AppFeedback.showError(
+          context,
+          error,
+          fallback: 'Could not save the troubleshooting report.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     ref.watch(vpnProvider);
@@ -42,13 +83,21 @@ class _ClientLogsScreenState extends ConsumerState<ClientLogsScreen> {
     return AppPage(
       title: 'Connection events',
       action: IconButton(
-        tooltip: context.tr('Refresh diagnostics'),
-        icon: const Icon(Icons.refresh),
+        icon: Icon(
+          Icons.refresh,
+          semanticLabel: context.tr('Refresh diagnostics'),
+        ),
         onPressed: () => setState(_refresh),
       ),
       child: ListView(
         padding: const EdgeInsets.all(24),
         children: [
+          OutlinedButton.icon(
+            onPressed: _exporting ? null : _export,
+            icon: const Icon(Icons.download_outlined, size: 18),
+            label: const Text('Export troubleshooting report'),
+          ),
+          const SizedBox(height: 16),
           const Text(
             'APP EVENTS',
             style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700),

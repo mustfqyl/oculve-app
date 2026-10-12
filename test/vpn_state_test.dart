@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_vless/flutter_vless.dart';
@@ -41,6 +42,8 @@ class TestApi extends OculveApi {
 class TestPlatform extends VlessPlatform {
   late void Function(VlessStatus) emit;
   bool permission = true;
+  Completer<bool>? permissionGate;
+  Completer<void>? startGate;
   int starts = 0;
   int stops = 0;
   String? lastConfig;
@@ -61,7 +64,8 @@ class TestPlatform extends VlessPlatform {
   }
 
   @override
-  Future<bool> requestPermission() async => permission;
+  Future<bool> requestPermission() async =>
+      permissionGate == null ? permission : await permissionGate!.future;
   @override
   Future<void> startVless({
     required String remark,
@@ -76,14 +80,15 @@ class TestPlatform extends VlessPlatform {
     AndroidDnsPolicy androidDnsPolicy = AndroidDnsPolicy.config,
     String? androidDnsProxyOutboundTag,
   }) async {
-    expect(proxyOnly, false);
-    expect(androidDnsPolicy, AndroidDnsPolicy.proxy);
+    expectSync(proxyOnly, false);
+    expectSync(androidDnsPolicy, AndroidDnsPolicy.proxy);
     starts++;
     lastRemark = remark;
     lastConfig = config;
     lastDpiBypass = dpiBypass;
     lastDpiProfile = dpiProfile;
     lastAndroidDnsProxyOutboundTag = androidDnsProxyOutboundTag;
+    await startGate?.future;
   }
 
   @override
@@ -124,6 +129,72 @@ void main() {
     await container.read(sessionProvider.notifier).refresh();
   });
   tearDown(() => container.dispose());
+  test('cancel while awaiting permission never starts a tunnel', () async {
+    platform.permissionGate = Completer<bool>();
+    final controller = container.read(vpnProvider.notifier);
+    final pending = controller.connect();
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    await controller.disconnect();
+    platform.permissionGate!.complete(true);
+    await pending;
+    expect(platform.starts, 0);
+    expect(container.read(vpnProvider), VpnState.disconnected);
+  });
+
+  test('cancel during native start stops late-started tunnel', () async {
+    platform.startGate = Completer<void>();
+    final controller = container.read(vpnProvider.notifier);
+    final pending = controller.connect();
+    while (platform.starts == 0) {
+      await Future<void>.delayed(const Duration(milliseconds: 1));
+    }
+    await controller.disconnect();
+    platform.startGate!.complete();
+    await pending;
+    expect(platform.stops, 2);
+    expect(container.read(vpnProvider), VpnState.disconnected);
+    expect(container.read(vpnTunnelMayBeActiveProvider), isFalse);
+  });
+
+  testWidgets(
+    'automatic retry restarts interrupted session and manual stop cancels further retries',
+    (tester) async {
+      final controller = container.read(vpnProvider.notifier);
+      await controller.connect();
+      platform.emit(VlessStatus(state: 'CONNECTED'));
+      platform.emit(VlessStatus(state: 'DISCONNECTED'));
+      await tester.pump(const Duration(seconds: 3));
+      for (var i = 0; i < 20; i++) {
+        await tester.pump();
+      }
+      expect(
+        platform.starts,
+        2,
+        reason:
+            controller.events.toString() +
+            container.read(vpnProvider).toString(),
+      );
+      await controller.disconnect();
+      platform.emit(VlessStatus(state: 'ERROR'));
+      await tester.pump(const Duration(seconds: 60));
+      expect(platform.starts, 2);
+      expect(container.read(vpnProvider), VpnState.disconnected);
+    },
+  );
+  testWidgets('disabled retry never restarts an interrupted session', (
+    tester,
+  ) async {
+    await (await SharedPreferences.getInstance()).setBool(
+      'connection.reconnect',
+      false,
+    );
+    final controller = container.read(vpnProvider.notifier);
+    await controller.connect();
+    platform.emit(VlessStatus(state: 'CONNECTED'));
+    platform.emit(VlessStatus(state: 'DISCONNECTED'));
+    await tester.pump(const Duration(seconds: 60));
+    expect(platform.starts, 1);
+  });
   test('session preserves provider DNS metadata for server pings', () async {
     api.subscriptionHeaders = const {
       'server-address-resolve-enable': '1',
@@ -160,8 +231,12 @@ void main() {
   testWidgets('repeated native errors do not pin the home error message', (
     tester,
   ) async {
+    await (await SharedPreferences.getInstance()).setBool(
+      'connection.reconnect',
+      false,
+    );
     final controller = container.read(vpnProvider.notifier);
-    await controller.initialize();
+    await controller.connect();
 
     platform.emit(VlessStatus(state: 'ERROR'));
     expect(container.read(vpnErrorProvider), isNotNull);
@@ -192,16 +267,37 @@ void main() {
 
       expect(probe.checkedNames, ['Slow route', 'Fast route']);
       expect(platform.lastRemark, 'Fast route');
+      expect(container.read(optimalServerProfileProvider), fast.id);
       final config = jsonDecode(platform.lastConfig!) as Map<String, dynamic>;
       final outbound = (config['outbounds'] as List).single;
       expect(outbound['settings']['vnext'][0]['port'], 444);
     },
   );
+  test('unsolicited native errors do not create a UI failure', () async {
+    final controller = container.read(vpnProvider.notifier);
+    await controller.initialize();
+    platform.emit(VlessStatus(state: 'ERROR'));
+    expect(container.read(vpnErrorProvider), isNull);
+    expect(container.read(vpnProvider), VpnState.disconnected);
+    expect(platform.stops, 0);
+  });
+
+  test('late native errors after manual disconnect stay dismissed', () async {
+    final controller = container.read(vpnProvider.notifier);
+    await controller.connect();
+    platform.emit(VlessStatus(state: 'CONNECTED'));
+    await controller.disconnect();
+    platform.emit(VlessStatus(state: 'ERROR'));
+    expect(container.read(vpnErrorProvider), isNull);
+    expect(container.read(vpnProvider), VpnState.disconnected);
+  });
+
   test('permission denial never starts Xray', () async {
     platform.permission = false;
     await container.read(vpnProvider.notifier).connect();
     expect(platform.starts, 0);
     expect(container.read(vpnProvider), VpnState.error);
+    expect(container.read(vpnErrorProvider), 'VPN permission was not granted.');
   });
   test('expired account cannot start a tunnel', () async {
     api.active = false;
@@ -327,7 +423,7 @@ void main() {
       expect(api.requests, beforeRequests);
       expect(platform.lastRemark, 'DPI Bypass');
       expect(platform.lastDpiBypass, isTrue);
-      expect(platform.lastDpiProfile, 0);
+      expect(platform.lastDpiProfile, 4);
       expect(platform.lastAndroidDnsProxyOutboundTag, 'byedpi');
       final config = jsonDecode(platform.lastConfig!) as Map<String, dynamic>;
       final inbounds = config['inbounds'] as List;
@@ -366,6 +462,20 @@ void main() {
       expect(rules[3]['outboundTag'], 'direct');
       expect(rules[4]['domain'], ['domain:blocked.example']);
       expect(rules[4]['outboundTag'], 'block');
+    },
+  );
+
+  test(
+    'DPI manual profile is forwarded unchanged to the native runtime',
+    () async {
+      await (await SharedPreferences.getInstance()).setInt(
+        'connection.dpi.strategy.v1',
+        2,
+      );
+      container.read(selectedServerProvider.notifier).state = dpiBypassServerId;
+      await container.read(vpnProvider.notifier).connect();
+      expect(platform.lastDpiProfile, 2);
+      expect((jsonDecode(platform.lastConfig!) as Map)['oculveDpiProfile'], 2);
     },
   );
 

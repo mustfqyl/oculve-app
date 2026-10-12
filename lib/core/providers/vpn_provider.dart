@@ -1,8 +1,13 @@
+import 'package:oculve/core/connection/dpi_preferences.dart';
 import 'dart:async';
 import 'dart:io';
+import 'dart:convert';
+import '../connection/connection_preferences.dart';
+import '../connection/lan_proxy_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_vless/flutter_vless.dart';
 import '../models/vpn_state.dart';
+import '../models/user_facing_failure.dart';
 import '../vpn/xray_preferences.dart';
 import '../vpn/server_latency.dart';
 import '../vpn/profile.dart';
@@ -11,6 +16,7 @@ import '../../features/auth/data/auth_repository.dart';
 final selectedServerProvider = StateProvider<String?>((ref) => null);
 const optimalServerId = '__oculve_optimal__';
 const dpiBypassServerId = '__oculve_dpi_bypass__';
+final optimalServerProfileProvider = StateProvider<String?>((ref) => null);
 final vpnErrorProvider = StateProvider<String?>((ref) => null);
 
 /// True until the native tunnel has confirmed that it stopped. Direct TCP
@@ -29,8 +35,14 @@ class VpnNotifier extends StateNotifier<VpnState> {
   late final FlutterVless _engine;
   bool _initialized = false;
   bool _busy = false;
+  int _connectAttempt = 0;
   bool _requested = false;
   bool _runtimeErrorHandled = false;
+  bool _wanted = false;
+  Timer? _retry;
+  int _retryCount = 0;
+  int _lanAttempt = 0;
+  bool _sessionLanConfigured = false;
   Timer? _timeout;
   Timer? _errorTimer;
   final List<String> events = [];
@@ -45,15 +57,20 @@ class VpnNotifier extends StateNotifier<VpnState> {
       // Native runtimes may report the same error again as the tunnel is
       // stopping. Replaying _fail would restart the dismiss timer indefinitely
       // and make a single failure look permanent in the home screen.
-      if (_runtimeErrorHandled) return;
+      if (!_requested || _runtimeErrorHandled) return;
       _runtimeErrorHandled = true;
       _fail(
         'The VPN runtime failed. Check permissions and connection settings.',
       );
-      unawaited(_stopAfterRuntimeError());
+      unawaited(ref.read(lanProxyProvider).stop());
+      // macOS keeps recovery and traffic protection inside NetworkExtension.
+      // stopVless would deliberately disarm that protection on a runtime error.
+      if (!Platform.isMacOS) unawaited(_stopAfterRuntimeError());
+      _scheduleReconnect();
       return;
     }
     if (!_requested &&
+        !_wanted &&
         [
           VlessConnectionState.connected,
           VlessConnectionState.connecting,
@@ -70,12 +87,23 @@ class VpnNotifier extends StateNotifier<VpnState> {
     if (next == VpnState.connected || next == VpnState.disconnected) {
       _timeout?.cancel();
     }
-    if (next == VpnState.disconnected) {
+    if (next != VpnState.connected) {
+      ++_lanAttempt;
+      unawaited(ref.read(lanProxyProvider).stop());
+    }
+    if (next == VpnState.disconnected && (!_wanted || !Platform.isMacOS)) {
       ref.read(vpnTunnelMayBeActiveProvider.notifier).state = false;
+    }
+    if (next == VpnState.connected) {
+      _requested = true;
+      _retry?.cancel();
+      _retryCount = 0;
+      if (state != VpnState.connected) unawaited(syncLanSharing());
     }
     if (next == VpnState.disconnected && _requested) {
       _requested = false;
       _fail('VPN disconnected. Reconnect to protect your traffic.');
+      _scheduleReconnect();
       return;
     }
     if (state == VpnState.error && next == VpnState.disconnected) return;
@@ -93,26 +121,34 @@ class VpnNotifier extends StateNotifier<VpnState> {
     _initialized = true;
   }
 
-  Future<void> connect() async {
+  Future<void> connect({bool automatic = false}) async {
     if (_busy || state == VpnState.connected || state == VpnState.connecting) {
       return;
     }
-    if (ref.read(vpnTunnelMayBeActiveProvider)) {
+    if (!automatic && ref.read(vpnTunnelMayBeActiveProvider)) {
       await disconnect();
       return;
     }
+    _wanted = true;
+    _retry?.cancel();
     _busy = true;
+    final attempt = ++_connectAttempt;
+    bool cancelled() => !mounted || attempt != _connectAttempt;
     _runtimeErrorHandled = false;
     dismissError();
     state = VpnState.connecting;
     try {
       final selected = ref.read(selectedServerProvider);
       final dpiBypass = selected == dpiBypassServerId;
+      if (selected != optimalServerId) {
+        ref.read(optimalServerProfileProvider.notifier).state = null;
+      }
       VpnProfile? profile;
       if (!dpiBypass) {
         // Revalidate account status without downloading the subscription again.
         // DPI Bypass is client-side and does not depend on a selected Oculve node.
         await ref.read(sessionProvider.notifier).refreshAccount();
+        if (cancelled()) return;
         final account = ref.read(sessionProvider).valueOrNull;
         if (account == null || !account.canConnect) {
           throw StateError('Your subscription is not active.');
@@ -127,8 +163,14 @@ class VpnNotifier extends StateNotifier<VpnState> {
                 orElse: () => account.profiles.first,
               );
       }
+      if (cancelled()) return;
       await initialize();
-      if (!await _engine.requestPermission()) {
+      if (cancelled()) return;
+      final permission = automatic
+          ? _initialized
+          : await _engine.requestPermission();
+      if (cancelled()) return;
+      if (!permission) {
         throw StateError('VPN permission was not granted.');
       }
       _requested = true;
@@ -139,9 +181,11 @@ class VpnNotifier extends StateNotifier<VpnState> {
       final blockedApps = Platform.isAndroid
           ? await XrayPreferences.blockedApps()
           : const <String>[];
-      final config = dpiBypass
+      final dpiStrategy = await DpiPreferences.read();
+      var config = dpiBypass
           ? XrayPreferences.configureDpiBypass(
               localProxyPort: 65535,
+              dpiProfile: dpiStrategy.engineProfile,
               dnsSettings: dnsSettings,
               bypassDomains: bypassDomains,
               routingRules: routingRules,
@@ -152,16 +196,57 @@ class VpnNotifier extends StateNotifier<VpnState> {
               bypassDomains,
               logLevel,
             );
+      final options = await ConnectionPreferences.read();
+      _sessionLanConfigured = Platform.isMacOS && options.shareLan;
+      if (_sessionLanConfigured) {
+        // Replies to LAN proxy clients use protected Xray direct routing rather
+        // than OS route exclusions; global IPv6/DNS protection still takes priority.
+        final root = jsonDecode(config) as Map<String, dynamic>;
+        final routing = root['routing'] as Map<String, dynamic>? ?? {};
+        final rules = List<dynamic>.from(routing['rules'] as List? ?? []);
+        final direct = (root['outbounds'] as List)
+            .whereType<Map>()
+            .where((o) => o['protocol'] == 'freedom')
+            .firstOrNull;
+        if (direct == null) {
+          throw StateError('Could not configure LAN sharing.');
+        }
+        rules.insert(0, {
+          'type': 'field',
+          'ip': ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'],
+          'outboundTag': direct['tag'],
+        });
+        routing['rules'] = rules;
+        root['routing'] = routing;
+        config = jsonEncode(root);
+      }
+      if (cancelled()) return;
       ref.read(vpnTunnelMayBeActiveProvider.notifier).state = true;
       await _engine.startVless(
         remark: dpiBypass ? 'DPI Bypass' : profile!.name,
         config: config,
         dpiBypass: dpiBypass,
-        dpiProfile: 0,
+        dpiProfile: dpiStrategy.engineProfile,
         androidDnsPolicy: AndroidDnsPolicy.proxy,
         androidDnsProxyOutboundTag: dpiBypass ? 'byedpi' : 'proxy',
         blockedApps: blockedApps,
       );
+      if (cancelled()) {
+        try {
+          await _engine.stopVless();
+          if (mounted) {
+            ref.read(vpnTunnelMayBeActiveProvider.notifier).state = false;
+          }
+        } catch (_) {
+          if (mounted) {
+            ref.read(vpnTunnelMayBeActiveProvider.notifier).state = true;
+            _fail(
+              'The VPN could not be stopped. Check the system VPN settings.',
+            );
+          }
+        }
+        return;
+      }
       // A successful start call is acceptance, not proof of a working tunnel.
       // Only native forwarding readiness events can set CONNECTED.
       if (state != VpnState.connected) {
@@ -178,10 +263,12 @@ class VpnNotifier extends StateNotifier<VpnState> {
         });
       }
     } catch (error) {
+      if (cancelled()) return;
       _requested = false;
+      if (!automatic) _wanted = false;
       var tunnelStopped = !_initialized;
       try {
-        if (_initialized) {
+        if (_initialized && !(automatic && Platform.isMacOS)) {
           await _engine.stopVless();
           tunnelStopped = true;
         }
@@ -190,12 +277,87 @@ class VpnNotifier extends StateNotifier<VpnState> {
         ref.read(vpnTunnelMayBeActiveProvider.notifier).state = false;
       }
       _fail(
-        error is FormatException
-            ? error.message.toString()
-            : 'Could not establish the VPN. Check your account, VPN permission and server availability.',
+        UserFacingFailure.message(
+          error,
+          fallback:
+              'Could not establish the VPN. Check your account, VPN permission and server availability.',
+        ),
       );
     } finally {
       _busy = false;
+      if (automatic && _wanted && state != VpnState.connected) {
+        _scheduleReconnect();
+      }
+    }
+  }
+
+  void _scheduleReconnect() {
+    if (!_wanted || !mounted || _retryCount >= 5 || _retry?.isActive == true) {
+      return;
+    }
+    final attempt = _connectAttempt;
+    _retry = Timer(Duration(seconds: 3 * (1 << _retryCount)), () async {
+      if (!mounted || !_wanted || attempt != _connectAttempt) return;
+      if (!(await ConnectionPreferences.read()).reconnect) return;
+      if (!mounted ||
+          !_wanted ||
+          attempt != _connectAttempt ||
+          state == VpnState.connected) {
+        return;
+      }
+      if (_busy) {
+        _scheduleReconnect();
+        return;
+      }
+      _retryCount++;
+      _record('automatic reconnect attempt $_retryCount');
+      await connect(automatic: true);
+    });
+  }
+
+  Future<void> syncLanSharing() async {
+    final attempt = ++_lanAttempt;
+    final service = ref.read(lanProxyProvider);
+    await service.stop();
+    if (!Platform.isMacOS || !mounted) return;
+    try {
+      final options = await ConnectionPreferences.read();
+      if (!_sessionLanConfigured ||
+          !options.shareLan ||
+          state != VpnState.connected ||
+          !_wanted ||
+          attempt != _lanAttempt) {
+        return;
+      }
+      final addresses = await LanProxyService.addresses();
+      final address = options.address.isEmpty
+          ? addresses.firstOrNull
+          : options.address;
+      if (address == null || !addresses.contains(address)) {
+        throw StateError('Local network address unavailable.');
+      }
+      final password = await ConnectionPreferences.password();
+      if (!mounted || attempt != _lanAttempt || state != VpnState.connected) {
+        return;
+      }
+      await service.start(
+        address: address,
+        port: options.port,
+        username: options.username,
+        password: password,
+        ready: () =>
+            mounted &&
+            _wanted &&
+            state == VpnState.connected &&
+            attempt == _lanAttempt,
+      );
+    } catch (_) {
+      if (mounted && attempt == _lanAttempt) {
+        service.reportFailure(
+          'Could not start LAN sharing. Check your address, port and password.',
+        );
+        _record('LAN sharing unavailable');
+      }
     }
   }
 
@@ -224,11 +386,14 @@ class VpnNotifier extends StateNotifier<VpnState> {
       for (var index = 0; index < profiles.length; index++)
         profiles[index].id: samples[index],
     };
-    return sortProfilesByLatency(profiles, latencyById).first;
+    final selected = sortProfilesByLatency(profiles, latencyById).first;
+    ref.read(optimalServerProfileProvider.notifier).state = selected.id;
+    return selected;
   }
 
   void _fail(String message) {
     if (!mounted) return;
+    _timeout?.cancel();
     _requested = false;
     _errorTimer?.cancel();
     ref.read(vpnErrorProvider.notifier).state = message;
@@ -262,6 +427,12 @@ class VpnNotifier extends StateNotifier<VpnState> {
   }
 
   Future<void> disconnect() async {
+    ++_connectAttempt;
+    _wanted = false;
+    _retryCount = 0;
+    _retry?.cancel();
+    ++_lanAttempt;
+    await ref.read(lanProxyProvider).stop();
     _timeout?.cancel();
     _requested = false;
     state = VpnState.disconnecting;
@@ -286,6 +457,7 @@ class VpnNotifier extends StateNotifier<VpnState> {
 
   @override
   void dispose() {
+    _retry?.cancel();
     _timeout?.cancel();
     _errorTimer?.cancel();
     super.dispose();

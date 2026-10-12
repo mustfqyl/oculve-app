@@ -4,6 +4,302 @@ import 'package:flutter/widgets.dart';
 /// passed through unchanged unless they exactly match a product label.
 class AppStrings {
   static const _es = <String, String>{
+    'Tray & window': 'Bandeja y ventana',
+    'CLICK ACTIONS': 'ACCIONES DE CLIC',
+    'Left click': 'Clic izquierdo',
+    'Right click': 'Clic derecho',
+    'Open or hide app': 'Abrir u ocultar la aplicación',
+    'Show tray menu': 'Mostrar menú de la bandeja',
+    'On Linux, click behavior depends on the desktop environment.':
+        'En Linux, el comportamiento del clic depende del entorno de escritorio.',
+    'WINDOW BEHAVIOR': 'COMPORTAMIENTO DE LA VENTANA',
+    'Hide when focus is lost': 'Ocultar al perder el foco',
+    'Keep the app running in the tray.': 'Mantén la aplicación en la bandeja.',
+    'When closing the window': 'Al cerrar la ventana',
+    'Hide to tray': 'Ocultar en la bandeja',
+    'TRAY APPEARANCE': 'ASPECTO DE LA BANDEJA',
+    'Status indicator': 'Indicador de estado',
+    'Connection state': 'Estado de conexión',
+    'App icon': 'Icono de la aplicación',
+    'MENU PREVIEW': 'VISTA PREVIA DEL MENÚ',
+    'Preview of the tray menu.': 'Vista previa del menú de la bandeja.',
+    'Could not save tray settings. Please try again.':
+        'No se pudieron guardar los ajustes de la bandeja. Inténtalo de nuevo.',
+    'Connection error': 'Error de conexión',
+
+    'macOS tunnel uses IPv4.': 'El túnel macOS utiliza IPv4.',
+    'Retry interrupted sessions. Manual Disconnect cancels retries.':
+        'Reintenta sesiones interrumpidas. Desconectar manualmente cancela los reintentos.',
+    'Could not start LAN sharing. Check your address, port and password.':
+        'No se pudo iniciar la compartición. Comprueba la dirección, puerto y contraseña.',
+
+    'Provider': 'Proveedor',
+    'Custom': 'Personalizado',
+    'Custom DNS over HTTPS URL': 'URL DNS personalizada por HTTPS',
+    'IP lookup': 'Consulta de IP',
+    'Network-aware': 'Según la red',
+    'Uses the address types available on your network.':
+        'Consulta los tipos de dirección disponibles en tu red.',
+    'Queries both IPv4 and IPv6 records.': 'Consulta registros IPv4 e IPv6.',
+    'Queries IPv4 records only.': 'Consulta solo registros IPv4.',
+    'Queries IPv6 records only.': 'Consulta solo registros IPv6.',
+    'VPN BYPASS': 'EXCLUSIONES DE LA VPN',
+    'Websites outside VPN': 'Sitios fuera de la VPN',
+    'No websites added': 'No hay sitios añadidos',
+    'websites': 'sitios',
+    'Website domain': 'Dominio del sitio',
+    'Add website': 'Añadir sitio',
+    'These websites bypass the VPN. Changes apply after reconnecting.':
+        'Estos sitios quedan fuera de la VPN. Los cambios se aplican al reconectar.',
+    'CONNECTION': 'CONEXIÓN',
+    'Automatic reconnect': 'Reconexión automática',
+    'Retry an interrupted session. Manual Disconnect cancels retries. System tunnel recovery stays enabled.':
+        'Reintenta sesiones interrumpidas. Desconectar manualmente cancela los reintentos. La recuperación del sistema sigue activa.',
+    'Kill switch': 'Protección de conexión',
+    'System-managed': 'Gestionada por el sistema',
+    'Platform dependent': 'Depende de la plataforma',
+    'System protection is armed.': 'La protección del sistema está activa.',
+    'System protection activates when you connect.':
+        'La protección del sistema se activa al conectar.',
+    'Traffic protection stays enabled during tunnel recovery. Disconnecting manually ends the VPN session and its protection. Certain essential system traffic is exempted by macOS.':
+        'La protección continúa durante la recuperación. Desconectar manualmente termina la sesión y su protección. macOS excluye cierto tráfico esencial del sistema.',
+    'Traffic protection depends on your platform. System-level verification is required before this feature can be enabled.':
+        'La protección depende de la plataforma. Requiere verificación a nivel del sistema antes de activarse.',
+    'TLS fragmentation': 'Fragmentación TLS',
+    'For compatible connections': 'Para conexiones compatibles',
+    'Available for VLESS Reality over TCP.':
+        'Disponible para VLESS Reality sobre TCP.',
+    'Fragmentation settings': 'Ajustes de fragmentación',
+    'Only the TLS hello is fragmented. Smaller fragments or longer delays may reduce speed.':
+        'Solo se fragmenta el saludo TLS. Los fragmentos pequeños o retrasos largos pueden reducir la velocidad.',
+    'Fragment length (bytes)': 'Tamaño del fragmento (bytes)',
+    'Delay (milliseconds)': 'Retraso (milisegundos)',
+    'Maximum splits': 'Máximo de divisiones',
+    '1–16384, for example 100-200': '1–16384, por ejemplo 100-200',
+    '0–1000, for example 10-20': '0–1000, por ejemplo 10-20',
+    '1–32, for example 3-6': '1–32, por ejemplo 3-6',
+    'LOCAL NETWORK': 'RED LOCAL',
+    'LAN proxy sharing': 'Compartir proxy en la red local',
+    'Share VPN connection': 'Compartir conexión VPN',
+    'HTTP and SOCKS5 proxy with password authentication.':
+        'Proxy HTTP y SOCKS5 con contraseña.',
+    'Local address': 'Dirección local',
+    'Proxy port': 'Puerto del proxy',
+    'Username': 'Usuario',
+    'New password': 'Nueva contraseña',
+    'Sharing is active.': 'Compartición activa.',
+    'Sharing starts after the VPN connects. Reconnect after changes.':
+        'La compartición comienza al conectar la VPN. Reconecta después de cambiar los ajustes.',
+    'Sharing is off.': 'Compartición desactivada.',
+    'Ready after reconnect': 'Disponible al reconectar',
+    'LAN proxy sharing is currently available on macOS.':
+        'La compartición del proxy está disponible actualmente en macOS.',
+    'Set this address and port as the proxy on your other device. Both devices must be on the same local network. TCP traffic only; this does not create a Wi-Fi hotspot.':
+        'Configura esta dirección y puerto como proxy en el otro dispositivo. Ambos deben estar en la misma red local. Solo tráfico TCP; no crea un punto de acceso Wi-Fi.',
+    'When your computer starts': 'Al iniciar el equipo',
+    'Oculve will not start automatically.':
+        'Oculve no se iniciará automáticamente.',
+    'Open Oculve without connecting to the VPN.':
+        'Abrir Oculve sin conectar la VPN.',
+    'Open Oculve and connect to the VPN automatically.':
+        'Abrir Oculve y conectar la VPN automáticamente.',
+    'Could not update startup settings.':
+        'No se pudo cambiar el inicio automático.',
+    'Could not load startup settings. Tap to retry.':
+        'No se pudo cargar el inicio automático. Toca para reintentar.',
+    'Could not connect at startup.': 'No se pudo conectar al iniciar.',
+    'Off': 'Apagado',
+    'Open': 'Abrir',
+    'Connect': 'Conectar',
+    'On': 'Activado',
+    'ACCOUNT USAGE': 'USO DE LA CUENTA',
+    'CURRENT SESSION': 'SESIÓN ACTUAL',
+    '30 days': '30 días',
+    '12 months': '12 meses',
+    'Daily data usage': 'Uso diario de datos',
+    'Monthly data usage': 'Uso mensual de datos',
+    'Server usage': 'Uso por servidor',
+    'View all servers': 'Ver todos los servidores',
+    'Show fewer servers': 'Mostrar menos servidores',
+    'No server usage yet.': 'Aún no hay uso por servidor.',
+    'No usage recorded for this period.':
+        'No hay uso registrado en este período.',
+    'Startup': 'Inicio',
+    'STARTUP': 'INICIO',
+    'Launch at login': 'Abrir al iniciar sesión',
+    'Open Oculve in the menu bar when you sign in. This does not connect the VPN.':
+        'Abre Oculve en la barra de menús al iniciar sesión. No conecta la VPN.',
+    'Approve Oculve in System Settings → General → Login Items.':
+        'Autoriza Oculve en Ajustes del Sistema → General → Ítems de inicio.',
+    'Refresh status': 'Actualizar estado',
+    'Login startup is currently available on macOS.':
+        'El inicio automático está disponible actualmente en macOS.',
+    'Could not update login startup. Check System Settings.':
+        'No se pudo actualizar el inicio automático. Comprueba los Ajustes del Sistema.',
+    'DIAGNOSTICS': 'DIAGNÓSTICO',
+    'Errors': 'Errores',
+    'Warnings': 'Advertencias',
+    'Detailed': 'Detallado',
+    'Troubleshooting report': 'Informe de diagnóstico',
+    'Export without account codes or credentials.':
+        'Exportar sin códigos de cuenta ni credenciales.',
+    'Export troubleshooting report': 'Exportar informe de diagnóstico',
+    'Changes apply after reconnecting.':
+        'Los cambios se aplican al reconectar.',
+    'Restore defaults': 'Restaurar valores predeterminados',
+    'Restore connection defaults?': '¿Restaurar los ajustes de conexión?',
+    'This resets DNS, bypass websites, fragmentation, reconnect preferences and LAN sharing. Login startup stays unchanged.':
+        'Restablece DNS, sitios excluidos, fragmentación, reconexión y compartición local. El inicio automático se conserva.',
+    'Save DNS': 'Guardar DNS',
+    'DNS saved. Reconnect to apply.': 'DNS guardado. Reconecta para aplicarlo.',
+    'Could not load LAN sharing settings.':
+        'No se pudieron cargar los ajustes de compartición local.',
+    'Could not save connection settings. Check your input and try again.':
+        'No se pudieron guardar los ajustes. Comprueba los datos e inténtalo de nuevo.',
+    'Could not save the troubleshooting report.':
+        'No se pudo guardar el informe de diagnóstico.',
+    'Check your LAN address, port, username and password. Use at least 12 characters for the password.':
+        'Comprueba la dirección local, puerto, usuario y contraseña. La contraseña debe tener al menos 12 caracteres.',
+    'LAN sharing saved. Reconnect to apply these settings.':
+        'Compartición guardada. Reconecta para aplicar los ajustes.',
+    'LAN sharing stopped.': 'Compartición local detenida.',
+    'LAN sharing stopped. Check your local network.':
+        'La compartición se detuvo. Comprueba la red local.',
+    'Proxy address copied.': 'Dirección del proxy copiada.',
+    'Enter valid numeric ranges for fragment length, delay and splits.':
+        'Introduce rangos válidos para tamaño, retraso y divisiones.',
+    'Enter a valid HTTPS DNS URL without credentials or a fragment.':
+        'Introduce una URL DNS HTTPS válida sin credenciales ni fragmento.',
+    'macOS currently carries IPv4 only. IPv6 lookups are unavailable in this tunnel.':
+        'El túnel macOS actualmente solo transporta IPv4. Las consultas IPv6 no están disponibles.',
+
+    'Created on': 'Creada el',
+    'Two-factor authentication on': 'Autenticación de dos factores activada',
+    'Two-factor authentication off':
+        'Autenticación de dos factores desactivada',
+
+    'SUBSCRIPTION': 'SUSCRIPCIÓN',
+    'Expires on': 'Vence el',
+    'Data usage': 'Uso de datos',
+    'Manage subscription': 'Gestionar suscripción',
+    'ACCOUNT SETTINGS': 'AJUSTES DE CUENTA',
+    'Show access code': 'Mostrar código de acceso',
+    'Hide access code': 'Ocultar código de acceso',
+    'Copy access code': 'Copiar código de acceso',
+
+    'Statistics unavailable': 'Estadísticas no disponibles',
+    'Could not reach the service securely. Check your connection.':
+        'No se pudo conectar con el servicio de forma segura. Comprueba tu conexión.',
+    'Could not generate an access code.':
+        'No se pudo generar un código de acceso.',
+    'Your access code or session is invalid. Please sign in again.':
+        'Tu código de acceso o sesión no es válido. Vuelve a iniciar sesión.',
+    'Access denied. Check your account status.':
+        'Acceso denegado. Comprueba el estado de tu cuenta.',
+    'Subscription access was rejected. Your device limit may be reached.':
+        'Se rechazó el acceso a la suscripción. Es posible que hayas alcanzado el límite de dispositivos.',
+    'Could not read your device identity. Please restart the app and try again.':
+        'No se pudo leer la identidad de tu dispositivo. Reinicia la aplicación e inténtalo de nuevo.',
+    'The service rejected this request. Check your details and try again.':
+        'El servicio rechazó la solicitud. Comprueba tus datos e inténtalo de nuevo.',
+    'Enter valid website domains, such as example.com.':
+        'Introduce dominios válidos, como example.com.',
+    'Choose a supported DNS provider.': 'Elige un proveedor DNS compatible.',
+    'Add at most 32 bypass domains.':
+        'Añade como máximo 32 dominios fuera de la VPN.',
+    'Choose at most 100 apps to bypass.':
+        'Elige como máximo 100 aplicaciones fuera de la VPN.',
+    'Something went wrong. Please try again.':
+        'Algo salió mal. Inténtalo de nuevo.',
+    'Too many attempts. Please wait and try again.':
+        'Demasiados intentos. Espera un momento e inténtalo de nuevo.',
+    'The service is temporarily unavailable. Please try again.':
+        'El servicio no está disponible temporalmente. Inténtalo de nuevo.',
+    'Could not connect to the service. Check your internet connection and try again.':
+        'No se pudo conectar con el servicio. Comprueba tu conexión a internet e inténtalo de nuevo.',
+    'The service returned an invalid response. Please try again.':
+        'El servicio devolvió una respuesta no válida. Inténtalo de nuevo.',
+    'Unable to load your account': 'No se pudo cargar tu cuenta',
+    'Could not load app routing settings.':
+        'No se pudo cargar la configuración de las aplicaciones.',
+    'Statistics are currently unavailable. Try again shortly.':
+        'Las estadísticas no están disponibles. Inténtalo de nuevo más tarde.',
+    'Your account was created, but server setup is still finishing. Sign in again shortly.':
+        'Tu cuenta se creó, pero la configuración del servidor aún está en curso. Inicia sesión de nuevo en unos momentos.',
+    'Could not create your sign-in key. Please try again.':
+        'No se pudo crear tu clave de acceso. Inténtalo de nuevo.',
+    'Could not load connection settings.':
+        'No se pudo cargar la configuración de conexión.',
+    'The request could not be completed. Please try again.':
+        'No se pudo completar la solicitud. Inténtalo de nuevo.',
+    'Could not establish the VPN. Please try again.':
+        'No se pudo establecer la VPN. Inténtalo de nuevo.',
+    'SEE THE UNSEEN': 'Descubre lo que no se ve',
+    'Your private connection starts here.': 'Tu conexión privada empieza aquí.',
+    'Set up your access key, save it somewhere safe, then choose a location for your first private connection.':
+        'Configura tu clave de acceso, guárdala en un lugar seguro y elige una ubicación para tu primera conexión privada.',
+    'Already have an account?': '¿Ya tienes una cuenta?',
+    'Create your Oculve account in three quick steps.':
+        'Crea tu cuenta de Oculve en tres pasos sencillos.',
+    'No email or password required.': 'No necesitas correo ni contraseña.',
+    'Your sign-in key': 'Tu clave de acceso',
+    'This is your access code. Tap it to copy; continuing saves it to your device.':
+        'Este es tu código de acceso. Tócalo para copiarlo; al continuar, se guardará en tu dispositivo.',
+    'Ready to create your account?': '¿Todo listo para crear tu cuenta?',
+    'Your access code is saved. Keep the file private; you’ll need it each time you sign in.':
+        'Tu código de acceso está guardado. Mantén el archivo en privado; lo necesitarás cada vez que inicies sesión.',
+    'Access code saved to this device':
+        'Código de acceso guardado en este dispositivo',
+    'Choose a place to save your code before continuing.':
+        'Elige dónde guardar el código antes de continuar.',
+    'Could not save your code. Choose a location and try again.':
+        'No se pudo guardar el código. Elige una ubicación e inténtalo de nuevo.',
+    'Saving code…': 'Guardando código…',
+    'oculve-access-code.txt': 'oculve-access-code.txt',
+    'Use this code every time you sign in to Oculve.':
+        'Usa este código cada vez que inicies sesión en Oculve.',
+    'YOUR ACCESS CODE': 'TU CÓDIGO DE ACCESO',
+    'Copied': 'Copiado',
+    'Saved to file': 'Guardado en un archivo',
+    'Save code': 'Guardar código',
+    'Oculve can’t recover a lost code.':
+        'Oculve no puede recuperar un código perdido.',
+    'Keep your code safe': 'Guarda tu código en un lugar seguro',
+    'Your code is the only way to sign in. Oculve can’t restore it if it’s lost.':
+        'Este código es la única forma de iniciar sesión. Oculve no puede recuperarlo si lo pierdes.',
+    'I’ve saved my access code somewhere safe.':
+        'He guardado mi código de acceso en un lugar seguro.',
+    'By continuing, you agree to the ': 'Al continuar, aceptas los ',
+    'Terms of Service': 'Términos del servicio',
+    'Get my access code': 'Obtener mi código de acceso',
+    'Continue setup': 'Continuar configuración',
+    'Try again to create your code.':
+        'No se pudo crear el código. Inténtalo de nuevo.',
+    'One access code keeps your account yours.':
+        'Un código de acceso mantiene tu cuenta bajo tu control.',
+    'No email or password needed.': 'No necesitas correo ni contraseña.',
+    'One last step': 'Un último paso',
+    'Keep your access code somewhere safe. You will use it whenever you sign in.':
+        'Guarda tu código de acceso en un lugar seguro. Lo necesitarás cada vez que inicies sesión.',
+    'Your code is the only way to access your account.':
+        'Este código es la única forma de acceder a tu cuenta.',
+    'Create my account': 'Crear mi cuenta',
+    'Saved': 'Guardado',
+    'Welcome to Oculve': 'Bienvenido a Oculve',
+    'Start your secure connection in a few simple steps.':
+        'Inicia tu conexión segura en unos sencillos pasos.',
+    'Already have an account? Sign in': 'Ya tengo una cuenta · Iniciar sesión',
+    'No email. No password. Just your access code.':
+        'Sin correo ni contraseña. Solo tu código de acceso.',
+    'This code is your sign-in key': 'Este código es tu clave de acceso',
+    'Use this code to sign in to Oculve. No email or password needed.':
+        'Usa este código para entrar en Oculve. No necesitas correo ni contraseña.',
+    'Copy code': 'Copiar código',
+    'Save to file': 'Guardar en un archivo',
+    'I have saved my access code somewhere safe.':
+        'He guardado mi código de acceso en un lugar seguro.',
+    'If you lose this code, you cannot recover your account.':
+        'Si pierdes este código, no podrás recuperar tu cuenta.',
     '2FA active': '2FA activa',
     '2FA off': '2FA desactivada',
     '2FA / TOTP': '2FA / TOTP',
@@ -21,6 +317,9 @@ class AppStrings {
     'Alphabetical': 'Alfabético',
     'Allow invalid certificates': 'Permitir certificados no válidos',
     'Appearance': 'Apariencia',
+    'Page animations': 'Animaciones de página',
+    'Use smooth transitions between screens.':
+        'Usa transiciones suaves entre pantallas.',
     'Automatic selection': 'Selección automática',
     'Back': 'Volver',
     'Back to sign in': 'Volver al inicio de sesión',
@@ -28,6 +327,22 @@ class AppStrings {
     'Best ping': 'Menor latencia',
     'By proceeding, you agree to our ': 'Al continuar, aceptas nuestros ',
     'Cancel': 'Cancelar',
+    'Sign in with passkey': 'Iniciar sesión con clave de acceso',
+    'Verifying passkey…': 'Verificando la clave de acceso…',
+    'Complete verification using your device.':
+        'Completa la verificación con tu dispositivo.',
+    'This device cannot use your passkey. Set up an authenticator code in your web account to sign in here.':
+        'Este dispositivo no puede usar tu clave de acceso. Configura un autenticador en tu cuenta web para iniciar sesión aquí.',
+    'Passkey is unavailable on this device. Use your authenticator code.':
+        'La clave de acceso no está disponible en este dispositivo. Usa tu código de autenticación.',
+    'No matching passkey is available on this device. Use your authenticator code.':
+        'No hay una clave de acceso compatible en este dispositivo. Usa tu código de autenticación.',
+    'Passkey is not configured for this app yet. Use your authenticator code.':
+        'La clave de acceso aún no está configurada para esta aplicación. Usa tu código de autenticación.',
+    'Passkey verification failed. Try again or use your authenticator code.':
+        'La verificación falló. Inténtalo de nuevo o usa tu código de autenticación.',
+    'Use your passkey to continue securely.':
+        'Usa tu clave de acceso para continuar de forma segura.',
     'Certificate SHA-256 pin(s)': 'Huella(s) SHA-256 del certificado',
     'Certificate verification name': 'Nombre para verificar el certificado',
     'Change password': 'Cambiar contraseña',
@@ -57,7 +372,7 @@ class AppStrings {
     'Connect VPN': 'Conectar VPN',
     'Disconnect VPN': 'Desconectar VPN',
     'VPN connection in progress': 'Conexión VPN en curso',
-    'Tap to connect to the VPN': 'Toca para conectar la VPN',
+    'Tap to connect': 'Toca para conectar',
     'Tap to retry.': 'Toca para volver a intentarlo.',
     'Dismiss': 'Cerrar',
     'The VPN runtime failed. Check permissions and connection settings.':
@@ -90,8 +405,8 @@ class AppStrings {
     'Secure connection': 'Conexión segura',
     'Keep the server defaults unless troubleshooting a connection.':
         'Mantén los valores predeterminados del servidor, salvo que estés solucionando un problema de conexión.',
-    'Optional connection details. The server defaults work for most people.':
-        'Opciones de conexión. La configuración del servidor funciona para la mayoría.',
+    'Optional connection adjustments. Defaults work for most people.':
+        'Los ajustes de conexión son opcionales. La configuración predeterminada funciona para la mayoría.',
     'Connection fingerprint': 'Huella de conexión',
     'Connection fragmentation': 'Fragmentación de la conexión',
     'Connection optimization': 'Optimización de conexión',
@@ -130,8 +445,8 @@ class AppStrings {
     'Enable Mux': 'Activar Mux',
     'Enable sniffing': 'Activar inspección',
     'English': 'Inglés',
-    'Enter your access code to access your secure network\ninfrastructure.':
-        'Introduce tu código de acceso para entrar en tu\nred segura.',
+    'Enter your access code to access your secure network infrastructure.':
+        'Introduce tu código de acceso para entrar en tu red segura.',
     'Enter your authenticator or recovery code to continue securely.':
         'Introduce tu código de autenticación o recuperación para continuar de forma segura.',
     'Expires': 'Caduca',
@@ -207,7 +522,7 @@ class AppStrings {
     'Traffic inspection': 'Inspección del tráfico',
     'Traffic sniffing': 'Inspección del tráfico',
     'Transport': 'Transporte',
-    'Transport & TLS': 'Transporte y TLS',
+    'Connection options': 'Opciones de conexión',
     'Transport security': 'Seguridad del transporte',
     'Try again': 'Intentar de nuevo',
     'DNS': 'DNS',
@@ -342,6 +657,20 @@ class AppStrings {
     'registered': 'registrados',
     'GB left': 'GB restantes',
     'Next billing': 'Próxima facturación',
+    'DPI BYPASS': 'EVITAR DPI',
+    'Strategy': 'Estrategia',
+    'Split': 'Dividir',
+    'Split & reorder': 'Dividir y reordenar',
+    'Reorder': 'Reordenar',
+    'Reorder & split': 'Reordenar y dividir',
+    'Retry DPI Bypass': 'Reintentar evasión DPI',
+    'Clears learned strategies. Reconnects if active.':
+        'Borra las estrategias aprendidas. Reconecta si está activo.',
+    'Time left': 'Tiempo restante',
+    'Are you sure?': '¿Estás seguro?',
+    'Deleting…': 'Eliminando…',
+    '2FA enabled': '2FA activada',
+    'passkey': 'clave de acceso',
     'Limited': 'Limitada',
     'Expired': 'Caducada',
     'On hold': 'En pausa',
@@ -733,6 +1062,295 @@ class AppStrings {
   };
 
   static const _tr = <String, String>{
+    'Tray & window': 'Tepsi ve pencere',
+    'CLICK ACTIONS': 'TIKLAMA İŞLEMLERİ',
+    'Left click': 'Sol tıklama',
+    'Right click': 'Sağ tıklama',
+    'Open or hide app': 'Uygulamayı aç veya gizle',
+    'Show tray menu': 'Tepsi menüsünü göster',
+    'On Linux, click behavior depends on the desktop environment.':
+        'Linux üzerinde tıklama davranışı masaüstü ortamına bağlıdır.',
+    'WINDOW BEHAVIOR': 'PENCERE DAVRANIŞI',
+    'Hide when focus is lost': 'Odak kaybolunca gizle',
+    'Keep the app running in the tray.':
+        'Uygulama tepside çalışmaya devam eder.',
+    'When closing the window': 'Pencere kapatıldığında',
+    'Hide to tray': 'Tepsiye gizle',
+    'TRAY APPEARANCE': 'TEPSİ GÖRÜNÜMÜ',
+    'Status indicator': 'Durum göstergesi',
+    'Connection state': 'Bağlantı durumu',
+    'App icon': 'Uygulama simgesi',
+    'MENU PREVIEW': 'MENÜ ÖNİZLEMESİ',
+    'Preview of the tray menu.': 'Tepsi menüsünün önizlemesi.',
+    'Could not save tray settings. Please try again.':
+        'Tepsi ayarları kaydedilemedi. Yeniden deneyin.',
+    'Connection error': 'Bağlantı hatası',
+
+    'macOS tunnel uses IPv4.': 'macOS tüneli IPv4 kullanır.',
+    'Retry interrupted sessions. Manual Disconnect cancels retries.':
+        'Kesilen oturumları yeniden dener. Elle bağlantıyı kesmek denemeleri durdurur.',
+    'Could not start LAN sharing. Check your address, port and password.':
+        'Paylaşım başlatılamadı. Adres, bağlantı noktası ve parolayı kontrol edin.',
+
+    'Provider': 'Sağlayıcı',
+    'Custom': 'Özel',
+    'Custom DNS over HTTPS URL': 'Özel HTTPS DNS adresi',
+    'IP lookup': 'IP sorgulama',
+    'Network-aware': 'Ağa göre',
+    'Uses the address types available on your network.':
+        'Ağınızda kullanılabilen adres türlerini sorgular.',
+    'Queries both IPv4 and IPv6 records.': 'IPv4 ve IPv6 kayıtlarını sorgular.',
+    'Queries IPv4 records only.': 'Yalnızca IPv4 kayıtlarını sorgular.',
+    'Queries IPv6 records only.': 'Yalnızca IPv6 kayıtlarını sorgular.',
+    'VPN BYPASS': 'VPN DIŞINDA',
+    'Websites outside VPN': 'VPN dışında kalan siteler',
+    'No websites added': 'Henüz site eklenmedi',
+    'websites': 'site',
+    'Website domain': 'Site alan adı',
+    'Add website': 'Site ekle',
+    'These websites bypass the VPN. Changes apply after reconnecting.':
+        'Bu siteler VPN dışında kalır. Değişiklikler yeniden bağlanınca uygulanır.',
+    'CONNECTION': 'BAĞLANTI',
+    'Automatic reconnect': 'Otomatik yeniden bağlanma',
+    'Retry an interrupted session. Manual Disconnect cancels retries. System tunnel recovery stays enabled.':
+        'Kesilen bağlantıyı yeniden dener. Elle bağlantıyı kesmek denemeleri durdurur. Sistem tünel kurtarması açık kalır.',
+    'Kill switch': 'Bağlantı koruması',
+    'System-managed': 'Sistem yönetir',
+    'Platform dependent': 'Platforma bağlı',
+    'System protection is armed.': 'Sistem koruması etkin.',
+    'System protection activates when you connect.':
+        'Sistem koruması bağlandığınızda etkinleşir.',
+    'Traffic protection stays enabled during tunnel recovery. Disconnecting manually ends the VPN session and its protection. Certain essential system traffic is exempted by macOS.':
+        'Tünel yeniden kurulurken koruma devam eder. Elle bağlantıyı kesmek VPN oturumunu ve korumasını sonlandırır. macOS bazı temel sistem trafiğini hariç tutar.',
+    'Traffic protection depends on your platform. System-level verification is required before this feature can be enabled.':
+        'Koruma platforma bağlıdır. Etkinleştirilmeden önce sistem düzeyinde doğrulanmalıdır.',
+    'TLS fragmentation': 'TLS parçalama',
+    'For compatible connections': 'Uyumlu bağlantılar için',
+    'Available for VLESS Reality over TCP.':
+        'TCP üzerinden VLESS Reality bağlantılarında kullanılabilir.',
+    'Fragmentation settings': 'Parçalama ayarları',
+    'Only the TLS hello is fragmented. Smaller fragments or longer delays may reduce speed.':
+        'Yalnızca TLS başlangıç mesajı parçalanır. Küçük parçalar veya uzun gecikmeler hızı azaltabilir.',
+    'Fragment length (bytes)': 'Parça boyutu (bayt)',
+    'Delay (milliseconds)': 'Gecikme (milisaniye)',
+    'Maximum splits': 'En fazla parça',
+    '1–16384, for example 100-200': '1–16384, örneğin 100-200',
+    '0–1000, for example 10-20': '0–1000, örneğin 10-20',
+    '1–32, for example 3-6': '1–32, örneğin 3-6',
+    'LOCAL NETWORK': 'YEREL AĞ',
+    'LAN proxy sharing': 'Yerel ağda VPN paylaşımı',
+    'Share VPN connection': 'VPN bağlantısını paylaş',
+    'HTTP and SOCKS5 proxy with password authentication.':
+        'Parola korumalı HTTP ve SOCKS5 proxy.',
+    'Local address': 'Yerel adres',
+    'Proxy port': 'Proxy bağlantı noktası',
+    'Username': 'Kullanıcı adı',
+    'New password': 'Yeni parola',
+    'Sharing is active.': 'Paylaşım etkin.',
+    'Sharing starts after the VPN connects. Reconnect after changes.':
+        'Paylaşım VPN bağlanınca başlar. Değişikliklerden sonra yeniden bağlanın.',
+    'Sharing is off.': 'Paylaşım kapalı.',
+    'Ready after reconnect': 'Yeniden bağlanınca hazır',
+    'LAN proxy sharing is currently available on macOS.':
+        'Yerel ağda proxy paylaşımı şu anda macOS üzerinde kullanılabilir.',
+    'Set this address and port as the proxy on your other device. Both devices must be on the same local network. TCP traffic only; this does not create a Wi-Fi hotspot.':
+        'Diğer cihazınızda bu adresi ve bağlantı noktasını proxy olarak ayarlayın. İki cihaz aynı yerel ağda olmalıdır. Yalnızca TCP trafiği desteklenir; Wi-Fi erişim noktası oluşturmaz.',
+    'When your computer starts': 'Bilgisayar açıldığında',
+    'Oculve will not start automatically.': 'Oculve otomatik başlamaz.',
+    'Open Oculve without connecting to the VPN.':
+        'Oculve açılır, VPN bağlantısı kurulmaz.',
+    'Open Oculve and connect to the VPN automatically.':
+        'Oculve açılır ve VPN’e otomatik bağlanır.',
+    'Could not update startup settings.': 'Başlangıç ayarı değiştirilemedi.',
+    'Could not load startup settings. Tap to retry.':
+        'Başlangıç ayarı yüklenemedi. Tekrar dene.',
+    'Could not connect at startup.': 'Başlangıçta VPN bağlantısı kurulamadı.',
+    'Off': 'Kapalı',
+    'Open': 'Aç',
+    'Connect': 'Bağlan',
+    'On': 'Açık',
+    'ACCOUNT USAGE': 'HESAP KULLANIMI',
+    'CURRENT SESSION': 'MEVCUT OTURUM',
+    '30 days': '30 gün',
+    '12 months': '12 ay',
+    'Daily data usage': 'Günlük veri kullanımı',
+    'Monthly data usage': 'Aylık veri kullanımı',
+    'Server usage': 'Sunucu kullanımı',
+    'View all servers': 'Tüm sunucuları göster',
+    'Show fewer servers': 'Daha az sunucu göster',
+    'No server usage yet.': 'Henüz sunucu kullanımı yok.',
+    'No usage recorded for this period.': 'Bu dönemde kayıtlı kullanım yok.',
+    'Startup': 'Başlangıç',
+    'STARTUP': 'BAŞLANGIÇ',
+    'Launch at login': 'Oturum açılınca başlat',
+    'Open Oculve in the menu bar when you sign in. This does not connect the VPN.':
+        'Oturum açtığınızda Oculve menü çubuğunda açılır. VPN otomatik bağlanmaz.',
+    'Approve Oculve in System Settings → General → Login Items.':
+        'Sistem Ayarları → Genel → Giriş Öğeleri bölümünde Oculve için izin verin.',
+    'Refresh status': 'Durumu yenile',
+    'Login startup is currently available on macOS.':
+        'Oturum açıldığında başlatma şu anda macOS üzerinde kullanılabilir.',
+    'Could not update login startup. Check System Settings.':
+        'Başlangıç ayarı güncellenemedi. Sistem Ayarlarını kontrol edin.',
+    'DIAGNOSTICS': 'TANILAMA',
+    'Errors': 'Hatalar',
+    'Warnings': 'Uyarılar',
+    'Detailed': 'Ayrıntılı',
+    'Troubleshooting report': 'Sorun giderme raporu',
+    'Export without account codes or credentials.':
+        'Hesap kodu ve parolalar dahil edilmeden dışa aktarılır.',
+    'Export troubleshooting report': 'Sorun giderme raporunu dışa aktar',
+    'Changes apply after reconnecting.':
+        'Değişiklikler yeniden bağlanınca uygulanır.',
+    'Restore defaults': 'Varsayılanlara dön',
+    'Restore connection defaults?': 'Bağlantı ayarları sıfırlansın mı?',
+    'This resets DNS, bypass websites, fragmentation, reconnect preferences and LAN sharing. Login startup stays unchanged.':
+        'DNS, VPN dışındaki siteler, parçalama, yeniden bağlanma ve yerel ağ paylaşımı sıfırlanır. Başlangıç ayarı korunur.',
+    'Save DNS': 'DNS kaydet',
+    'DNS saved. Reconnect to apply.':
+        'DNS kaydedildi. Uygulamak için yeniden bağlanın.',
+    'Could not load LAN sharing settings.':
+        'Yerel ağ paylaşımı ayarları yüklenemedi.',
+    'Could not save connection settings. Check your input and try again.':
+        'Bağlantı ayarları kaydedilemedi. Girdiğiniz değerleri kontrol edin.',
+    'Could not save the troubleshooting report.':
+        'Sorun giderme raporu kaydedilemedi.',
+    'Check your LAN address, port, username and password. Use at least 12 characters for the password.':
+        'Yerel adres, bağlantı noktası, kullanıcı adı ve parolayı kontrol edin. Parola en az 12 karakter olmalıdır.',
+    'LAN sharing saved. Reconnect to apply these settings.':
+        'Paylaşım kaydedildi. Uygulamak için yeniden bağlanın.',
+    'LAN sharing stopped.': 'Yerel ağ paylaşımı durduruldu.',
+    'LAN sharing stopped. Check your local network.':
+        'Paylaşım durduruldu. Yerel ağınızı kontrol edin.',
+    'Proxy address copied.': 'Proxy adresi kopyalandı.',
+    'Enter valid numeric ranges for fragment length, delay and splits.':
+        'Parça boyutu, gecikme ve parça sayısı için geçerli aralıklar girin.',
+    'Enter a valid HTTPS DNS URL without credentials or a fragment.':
+        'Kullanıcı bilgisi veya # içermeyen geçerli bir HTTPS DNS adresi girin.',
+    'macOS currently carries IPv4 only. IPv6 lookups are unavailable in this tunnel.':
+        'macOS tüneli şu anda yalnızca IPv4 taşır. Bu tünelde IPv6 sorguları kullanılamaz.',
+
+    'Created on': 'Oluşturulma tarihi',
+    'Two-factor authentication on': 'İki aşamalı doğrulama açık',
+    'Two-factor authentication off': 'İki aşamalı doğrulama kapalı',
+
+    'SUBSCRIPTION': 'ABONELİK',
+    'Expires on': 'Bitiş tarihi',
+    'Data usage': 'Veri kullanımı',
+    'Manage subscription': 'Aboneliği yönet',
+    'ACCOUNT SETTINGS': 'HESAP AYARLARI',
+    'Show access code': 'Erişim kodunu göster',
+    'Hide access code': 'Erişim kodunu gizle',
+    'Copy access code': 'Erişim kodunu kopyala',
+
+    'Statistics unavailable': 'İstatistikler kullanılamıyor',
+    'Could not reach the service securely. Check your connection.':
+        'Hizmete güvenli bağlantı kurulamadı. İnternet bağlantını kontrol et.',
+    'Could not generate an access code.': 'Erişim kodu oluşturulamadı.',
+    'Your access code or session is invalid. Please sign in again.':
+        'Erişim kodun veya oturumun geçersiz. Lütfen tekrar giriş yap.',
+    'Access denied. Check your account status.':
+        'Erişim reddedildi. Hesap durumunu kontrol et.',
+    'Subscription access was rejected. Your device limit may be reached.':
+        'Abonelik erişimi reddedildi. Cihaz sınırına ulaşmış olabilirsin.',
+    'Could not read your device identity. Please restart the app and try again.':
+        'Cihaz kimliği okunamadı. Uygulamayı yeniden başlatıp tekrar dene.',
+    'The service rejected this request. Check your details and try again.':
+        'İstek reddedildi. Girdiğin bilgileri kontrol edip tekrar dene.',
+    'Enter valid website domains, such as example.com.':
+        'example.com gibi geçerli web sitesi alan adları gir.',
+    'Choose a supported DNS provider.': 'Desteklenen bir DNS sağlayıcısı seç.',
+    'Add at most 32 bypass domains.':
+        'VPN dışında kalacak en fazla 32 alan adı ekle.',
+    'Choose at most 100 apps to bypass.':
+        'VPN dışında kalacak en fazla 100 uygulama seç.',
+    'Something went wrong. Please try again.':
+        'Bir şeyler ters gitti. Lütfen tekrar dene.',
+    'Too many attempts. Please wait and try again.':
+        'Çok fazla deneme yapıldı. Biraz bekleyip tekrar dene.',
+    'The service is temporarily unavailable. Please try again.':
+        'Hizmet şu anda kullanılamıyor. Lütfen biraz sonra tekrar dene.',
+    'Could not connect to the service. Check your internet connection and try again.':
+        'Hizmete bağlanılamadı. İnternet bağlantını kontrol edip tekrar dene.',
+    'The service returned an invalid response. Please try again.':
+        'Hizmet geçersiz bir yanıt verdi. Lütfen tekrar dene.',
+    'Unable to load your account': 'Hesabın yüklenemedi',
+    'Could not load app routing settings.':
+        'Uygulama yönlendirme ayarları yüklenemedi.',
+    'Statistics are currently unavailable. Try again shortly.':
+        'İstatistikler şu anda kullanılamıyor. Biraz sonra tekrar dene.',
+    'Your account was created, but server setup is still finishing. Sign in again shortly.':
+        'Hesabın oluşturuldu ancak sunucu kurulumu henüz tamamlanmadı. Biraz sonra tekrar giriş yap.',
+    'Could not create your sign-in key. Please try again.':
+        'Giriş anahtarın oluşturulamadı. Lütfen tekrar dene.',
+    'Could not load connection settings.': 'Bağlantı ayarları yüklenemedi.',
+    'The request could not be completed. Please try again.':
+        'İstek tamamlanamadı. Lütfen tekrar dene.',
+    'Could not establish the VPN. Please try again.':
+        'VPN bağlantısı kurulamadı. Lütfen tekrar dene.',
+    'SEE THE UNSEEN': 'Görünmeyeni gör',
+    'Your private connection starts here.': 'Özel bağlantın burada başlıyor.',
+    'Set up your access key, save it somewhere safe, then choose a location for your first private connection.':
+        'Erişim anahtarını oluştur, güvenli bir yere kaydet ve ilk özel bağlantın için bir konum seç.',
+    'Already have an account?': 'Zaten hesabın var mı?',
+    'Create your Oculve account in three quick steps.':
+        'Oculve hesabını üç kısa adımda oluştur.',
+    'No email or password required.': 'E-posta veya şifre gerekmez.',
+    'Your sign-in key': 'Giriş anahtarın',
+    'This is your access code. Tap it to copy; continuing saves it to your device.':
+        'Bu senin erişim kodun. Kopyalamak için dokun; devam ettiğinde cihazına kaydedilecek.',
+    'Ready to create your account?': 'Hesabını oluşturmaya hazır mısın?',
+    'Your access code is saved. Keep the file private; you’ll need it each time you sign in.':
+        'Erişim kodun kaydedildi. Dosyayı gizli tut; her girişinde bu kodu kullanacaksın.',
+    'Access code saved to this device': 'Erişim kodu bu cihaza kaydedildi',
+    'Choose a place to save your code before continuing.':
+        'Devam etmeden önce kodunu kaydedeceğin yeri seç.',
+    'Could not save your code. Choose a location and try again.':
+        'Kodun kaydedilemedi. Bir konum seçip tekrar dene.',
+    'Saving code…': 'Kod kaydediliyor…',
+    'oculve-access-code.txt': 'oculve-access-code.txt',
+    'Use this code every time you sign in to Oculve.':
+        'Oculve’e her girişinde bu kodu kullan.',
+    'YOUR ACCESS CODE': 'ERİŞİM KODUN',
+    'Copied': 'Kopyalandı',
+    'Saved to file': 'Dosyaya kaydedildi',
+    'Save code': 'Kodu kaydet',
+    'Oculve can’t recover a lost code.': 'Oculve kaybolan kodu kurtaramaz.',
+    'Keep your code safe': 'Kodunu güvenli yerde sakla',
+    'Your code is the only way to sign in. Oculve can’t restore it if it’s lost.':
+        'Giriş yapmanın tek yolu bu kod. Kaybolursa Oculve geri yükleyemez.',
+    'I’ve saved my access code somewhere safe.':
+        'Erişim kodumu güvenli bir yere kaydettim.',
+    'By continuing, you agree to the ': 'Devam ederek şunları kabul edersin: ',
+    'Terms of Service': 'Kullanım Koşulları',
+    'Get my access code': 'Erişim kodumu al',
+    'Continue setup': 'Kuruluma devam et',
+    'Try again to create your code.': 'Kodun oluşturulamadı. Tekrar dene.',
+    'One access code keeps your account yours.':
+        'Tek bir erişim kodu hesabının sana ait kalmasını sağlar.',
+    'No email or password needed.': 'E-posta veya şifre gerekmez.',
+    'One last step': 'Son bir adım',
+    'Keep your access code somewhere safe. You will use it whenever you sign in.':
+        'Erişim kodunu güvenli bir yerde sakla. Her giriş yaptığında bu kodu kullanacaksın.',
+    'Your code is the only way to access your account.':
+        'Hesabına erişmenin tek yolu bu koddur.',
+    'Create my account': 'Hesabımı oluştur',
+    'Saved': 'Kaydedildi',
+    'Welcome to Oculve': 'Oculve’e hoş geldin',
+    'Start your secure connection in a few simple steps.':
+        'Güvenli bağlantına birkaç adımda başla.',
+    'Already have an account? Sign in': 'Zaten hesabım var · Giriş yap',
+    'No email. No password. Just your access code.':
+        'E-posta yok. Şifre yok. Yalnızca giriş kodun.',
+    'This code is your sign-in key': 'Bu kod senin giriş anahtarın',
+    'Use this code to sign in to Oculve. No email or password needed.':
+        'Oculve’e giriş yapmak için bu kodu kullanacaksın. E-posta veya şifre gerekmiyor.',
+    'Copy code': 'Kodu kopyala',
+    'Save to file': 'Dosyaya kaydet',
+    'I have saved my access code somewhere safe.':
+        'Giriş kodumu güvenli bir yere kaydettim.',
+    'If you lose this code, you cannot recover your account.':
+        'Bu kodu kaybedersen hesabını kurtaramazsın.',
     '2FA active': '2FA açık',
     '2FA off': '2FA kapalı',
     '2FA / TOTP': '2FA / TOTP',
@@ -750,6 +1368,9 @@ class AppStrings {
     'Alphabetical': 'Alfabetik',
     'Allow invalid certificates': 'Geçersiz sertifikalara izin ver',
     'Appearance': 'Görünüm',
+    'Page animations': 'Sayfa animasyonları',
+    'Use smooth transitions between screens.':
+        'Ekranlar arasında akıcı geçişler kullan.',
     'Apps outside the VPN': 'VPN dışındaki uygulamalar',
     'Automatic selection': 'Otomatik seçim',
     'Back': 'Geri',
@@ -758,6 +1379,22 @@ class AppStrings {
     'Best ping': 'En düşük ping',
     'By proceeding, you agree to our ': 'Devam ederek şunları kabul edersin: ',
     'Cancel': 'İptal',
+    'Sign in with passkey': 'Geçiş anahtarıyla giriş yap',
+    'Verifying passkey…': 'Geçiş anahtarı doğrulanıyor…',
+    'Complete verification using your device.':
+        'Cihazınla doğrulamayı tamamla.',
+    'This device cannot use your passkey. Set up an authenticator code in your web account to sign in here.':
+        'Bu cihaz geçiş anahtarını kullanamıyor. Burada giriş yapmak için web hesabından doğrulayıcı kodu kur.',
+    'Passkey is unavailable on this device. Use your authenticator code.':
+        'Bu cihazda geçiş anahtarı kullanılamıyor. Doğrulayıcı kodunu kullan.',
+    'No matching passkey is available on this device. Use your authenticator code.':
+        'Bu cihazda eşleşen geçiş anahtarı bulunamadı. Doğrulayıcı kodunu kullan.',
+    'Passkey is not configured for this app yet. Use your authenticator code.':
+        'Bu uygulama için geçiş anahtarı henüz yapılandırılmadı. Doğrulayıcı kodunu kullan.',
+    'Passkey verification failed. Try again or use your authenticator code.':
+        'Geçiş anahtarı doğrulanamadı. Tekrar dene veya doğrulayıcı kodunu kullan.',
+    'Use your passkey to continue securely.':
+        'Güvenli şekilde devam etmek için geçiş anahtarını kullan.',
     'Certificate SHA-256 pin(s)': 'Sertifika SHA-256 sabitleme değerleri',
     'Certificate verification name': 'Sertifika doğrulama adı',
     'Change password': 'Parolayı değiştir',
@@ -787,7 +1424,7 @@ class AppStrings {
     'Connect VPN': 'VPN’e bağlan',
     'Disconnect VPN': 'VPN bağlantısını kes',
     'VPN connection in progress': 'VPN bağlantısı sürüyor',
-    'Tap to connect to the VPN': 'VPN’e bağlanmak için dokunun',
+    'Tap to connect': 'Bağlanmak için dokunun',
     'Tap to retry.': 'Yeniden denemek için dokunun.',
     'Dismiss': 'Kapat',
     'The VPN runtime failed. Check permissions and connection settings.':
@@ -819,8 +1456,8 @@ class AppStrings {
     'Secure connection': 'Güvenli bağlantı',
     'Keep the server defaults unless troubleshooting a connection.':
         'Bağlantı sorunlarını giderirken değiştirmediğin sürece sunucu varsayılanlarını kullan.',
-    'Optional connection details. The server defaults work for most people.':
-        'İsteğe bağlı bağlantı ayrıntıları. Sunucunun varsayılanları çoğu kullanıcı için uygundur.',
+    'Optional connection adjustments. Defaults work for most people.':
+        'Bağlantı ayarları isteğe bağlıdır. Varsayılanlar çoğu kişi için uygundur.',
     'Connection fingerprint': 'Bağlantı parmak izi',
     'Connection fragmentation': 'Bağlantı parçalama',
     'Connection optimization': 'Bağlantı iyileştirme',
@@ -847,7 +1484,7 @@ class AppStrings {
     'Delete rule': 'Kuralı sil',
     'Diagnostics': 'Tanılama',
     'Direct connection': 'Doğrudan bağlantı',
-    'DPI Bypass': 'DPI engelini aş',
+    'DPI Bypass': 'DPI Bypass',
     'Disconnect before changing location.':
         'Konumu değiştirmeden önce bağlantıyı kes.',
     'Devices': 'Cihazlar',
@@ -859,8 +1496,8 @@ class AppStrings {
     'Enable Mux': 'Mux’ı etkinleştir',
     'Enable sniffing': 'Trafik incelemeyi etkinleştir',
     'English': 'İngilizce',
-    'Enter your access code to access your secure network\ninfrastructure.':
-        'Güvenli ağınıza erişmek için erişim kodunuzu\ngirin.',
+    'Enter your access code to access your secure network infrastructure.':
+        'Güvenli ağınıza erişmek için erişim kodunuzu girin.',
     'Enter your authenticator or recovery code to continue securely.':
         'Güvenle devam etmek için doğrulama veya kurtarma kodunu gir.',
     'Expires': 'Bitiş tarihi',
@@ -938,7 +1575,7 @@ class AppStrings {
     'Traffic inspection': 'Trafik inceleme',
     'Traffic sniffing': 'Trafik inceleme',
     'Transport': 'Taşıma',
-    'Transport & TLS': 'Taşıma ve TLS',
+    'Connection options': 'Bağlantı seçenekleri',
     'Transport security': 'Taşıma güvenliği',
     'Try again': 'Tekrar dene',
     'DNS': 'DNS',
@@ -1070,6 +1707,20 @@ class AppStrings {
     'registered': 'kayıtlı',
     'GB left': 'GB kaldı',
     'Next billing': 'Sonraki fatura',
+    'DPI BYPASS': 'DPI BYPASS',
+    'Strategy': 'Strateji',
+    'Split': 'Parçalama',
+    'Split & reorder': 'Parçala ve sırala',
+    'Reorder': 'Yeniden sıralama',
+    'Reorder & split': 'Sırala ve parçala',
+    'Retry DPI Bypass': 'DPI Bypass’ı yeniden dene',
+    'Clears learned strategies. Reconnects if active.':
+        'Öğrenilen stratejileri temizler. Açıksa yeniden bağlanır.',
+    'Time left': 'Kalan süre',
+    'Are you sure?': 'Emin misin?',
+    'Deleting…': 'Siliniyor…',
+    '2FA enabled': '2FA açık',
+    'passkey': 'geçiş anahtarı',
     'Limited': 'Kısıtlı',
     'Expired': 'Süresi dolmuş',
     'On hold': 'Askıda',

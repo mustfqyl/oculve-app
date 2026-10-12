@@ -1,10 +1,13 @@
-import 'dart:async';
-
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'dart:io';
 import 'package:oculve/core/network/oculve_api.dart';
 import 'package:oculve/core/vpn/profile.dart';
 
-final apiProvider = Provider((ref) => OculveApi());
+final apiProvider = Provider((ref) {
+  final api = OculveApi();
+  ref.onDispose(api.close);
+  return api;
+});
 final sessionProvider =
     StateNotifierProvider<SessionController, AsyncValue<Account?>>(
       (ref) => SessionController(ref.watch(apiProvider)),
@@ -44,8 +47,18 @@ class Account {
 }
 
 class SecondFactorRequired implements Exception {
-  const SecondFactorRequired(this.challenge);
+  const SecondFactorRequired(
+    this.challenge, {
+    this.totp = true,
+    this.passkey = false,
+    this.passkeyOptions,
+    this.nativePasskeySupported = false,
+  });
   final String challenge;
+  final bool totp;
+  final bool passkey;
+  final Map<String, dynamic>? passkeyOptions;
+  final bool nativePasskeySupported;
 }
 
 class RegistrationCreatedButNotReady implements Exception {
@@ -60,6 +73,7 @@ class SessionController extends StateNotifier<AsyncValue<Account?>> {
   SessionController(this.api) : super(const AsyncValue.loading());
   final OculveApi api;
   int _sessionRevision = 0;
+  Future<void>? _refreshInFlight;
   Future<void> restore() async {
     final revision = ++_sessionRevision;
     try {
@@ -90,10 +104,35 @@ class SessionController extends StateNotifier<AsyncValue<Account?>> {
       body: challenge == null
           ? {'authCode': code.trim().toUpperCase()}
           : {'challengeToken': challenge, 'code': code.trim()},
+      headers: challenge == null
+          ? {'X-Oculve-Passkey-Platform': Platform.operatingSystem}
+          : null,
     );
     if (data['requiresTwoFactor'] == true) {
-      throw SecondFactorRequired(data['challengeToken'] as String);
+      final methods = data['methods'];
+      throw SecondFactorRequired(
+        data['challengeToken'] as String,
+        totp: methods is Map ? methods['totp'] == true : true,
+        passkey: methods is Map && methods['passkey'] == true,
+        passkeyOptions: data['passkeyOptions'] is Map<String, dynamic>
+            ? Map<String, dynamic>.from(data['passkeyOptions'] as Map)
+            : null,
+        nativePasskeySupported: data['nativePasskeySupported'] == true,
+      );
     }
+    if (revision != _sessionRevision || !mounted) return;
+    await refresh();
+  }
+
+  Future<void> loginWithPasskey(
+    String challenge,
+    Map<String, dynamic> response,
+  ) async {
+    final revision = ++_sessionRevision;
+    await api.request(
+      '/api/auth/login/passkey',
+      body: {'challengeToken': challenge, 'response': response},
+    );
     if (revision != _sessionRevision || !mounted) return;
     await refresh();
   }
@@ -133,7 +172,17 @@ class SessionController extends StateNotifier<AsyncValue<Account?>> {
     }
   }
 
-  Future<void> refresh() async {
+  Future<void> refresh() {
+    final inFlight = _refreshInFlight;
+    if (inFlight != null) return inFlight;
+    final refresh = _loadAccount();
+    _refreshInFlight = refresh;
+    return refresh.whenComplete(() {
+      if (identical(_refreshInFlight, refresh)) _refreshInFlight = null;
+    });
+  }
+
+  Future<void> _loadAccount() async {
     final revision = _sessionRevision;
     final data = await api.request('/api/user/me');
     final url = data['subscriptionUrl'] as String?;
@@ -149,6 +198,18 @@ class SessionController extends StateNotifier<AsyncValue<Account?>> {
           );
     if (revision != _sessionRevision || !mounted) return;
     state = AsyncValue.data(Account(data, profiles));
+  }
+
+  Future<void> _refreshAfterRegistration() async {
+    for (var attempt = 0; attempt < 5; attempt++) {
+      try {
+        await refresh();
+        return;
+      } on ApiFailure catch (error) {
+        if (error.status != 404 || attempt == 4) rethrow;
+        await Future<void>.delayed(const Duration(milliseconds: 700));
+      }
+    }
   }
 
   /// Update account/security details without re-registering the VPN device.

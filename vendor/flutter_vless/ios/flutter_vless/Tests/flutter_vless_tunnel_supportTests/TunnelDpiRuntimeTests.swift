@@ -3,6 +3,16 @@ import XCTest
 @testable import flutter_vless_tunnel_support
 
 final class TunnelDpiRuntimeTests: XCTestCase {
+    func testAutomaticAndPinnedProfilePolicy() throws {
+        XCTAssertEqual(TunnelDpiRuntime.selectedProfile(data: Data("{}".utf8)), 4)
+        for value in 0...4 {
+            XCTAssertEqual(TunnelDpiRuntime.selectedProfile(data: Data("{\"oculveDpiProfile\":\(value)}".utf8)), value)
+        }
+        for value in ["-1", "5", "true", "1.5", "\"automatic\""] {
+            XCTAssertNil(TunnelDpiRuntime.selectedProfile(data: Data("{\"oculveDpiProfile\":\(value)}".utf8)))
+        }
+    }
+
     func testCachedProfileRunsFirstAndFailureRestoresLightestFirstScan() {
         let interfaceName = "test-\(UUID().uuidString)"
         let key = "oculve.dpi.strategy.v1.\(interfaceName)"

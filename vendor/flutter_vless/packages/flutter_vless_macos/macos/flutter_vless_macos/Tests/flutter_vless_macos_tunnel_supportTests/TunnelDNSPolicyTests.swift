@@ -102,13 +102,32 @@ final class TunnelDNSPolicyTests: XCTestCase {
 
             let addresses = try XCTUnwrap(TunnelDNSPolicy.apply(to: &config, resolveIPv4: { _ in nil }))
             let dns = try XCTUnwrap(config["dns"] as? [String: Any])
-            XCTAssertEqual(dns["servers"] as? [String], ["tcp://\(address)"])
+            XCTAssertEqual(dns["servers"] as? [String], [server])
+            XCTAssertEqual((dns["hosts"] as? [String: String])?[URL(string: server)!.host!], address)
             let relay = try XCTUnwrap((config["outbounds"] as? [[String: Any]])?.first(where: {
                 ($0["tag"] as? String) == "flutter-vless-system-dns"
             }))
             XCTAssertEqual(((relay["streamSettings"] as? [String: Any])?["sockopt"] as? [String: String])?["dialerProxy"], "byedpi")
             XCTAssertEqual(addresses, ["127.0.0.1"])
         }
+    }
+
+    func testCustomDoHUsesProtectedDNSAndPinsBootstrapHost() throws {
+        var config: [String: Any] = [
+            "dns": ["servers": ["https://custom.example:8443/query"], "queryStrategy": "UseIP"],
+            "outbounds": [["tag": "proxy", "protocol": "socks", "settings": ["servers": [["address": "127.0.0.1", "port": 12345]]]]]
+        ]
+        XCTAssertNotNil(TunnelDNSPolicy.apply(to: &config, resolveIPv4: { $0 == "custom.example" ? "203.0.113.99" : nil }))
+        let dns = try XCTUnwrap(config["dns"] as? [String: Any])
+        XCTAssertEqual(dns["servers"] as? [String], ["https://custom.example:8443/query"])
+        XCTAssertEqual((dns["hosts"] as? [String: String])?["custom.example"], "203.0.113.99")
+        XCTAssertEqual(dns["queryStrategy"] as? String, "UseIPv4")
+        let relay = try XCTUnwrap((config["outbounds"] as? [[String: Any]])?.first { ($0["protocol"] as? String) == "dns" })
+        let rules = try XCTUnwrap((relay["settings"] as? [String: Any])?["rules"] as? [[String: Any]])
+        XCTAssertEqual(rules[1]["action"] as? String, "hijack")
+        XCTAssertFalse(rules.contains { ($0["action"] as? String) == "direct" })
+        let route = try XCTUnwrap((config["routing"] as? [String: Any])?["rules"] as? [[String: Any]])
+        XCTAssertEqual(route.first?["outboundTag"] as? String, "proxy")
     }
 
     func testPartialDNSSettingsUseProtectedDefaultResolver() throws {

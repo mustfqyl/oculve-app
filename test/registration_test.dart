@@ -49,29 +49,48 @@ void main() {
     session.dispose();
   });
 
-  testWidgets('account creation requires saved-code confirmation', (
+  testWidgets('account creation requires a successfully saved access code', (
     tester,
   ) async {
     final api = _RegistrationApi();
+    final savedCodes = <String>[];
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [apiProvider.overrideWithValue(api)],
+        overrides: [
+          apiProvider.overrideWithValue(api),
+          accessCodeSaverProvider.overrideWithValue((context, code) async {
+            savedCodes.add(code);
+            return true;
+          }),
+        ],
         child: const MaterialApp(home: SignUpScreen()),
       ),
     );
     await tester.pump(const Duration(milliseconds: 300));
     await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('ABCD-EFGH-IJKL'), findsNothing);
+    expect(api.calls, isEmpty);
+    await tester.drag(find.byType(PageView), const Offset(-600, 0));
+    await tester.pump(const Duration(milliseconds: 600));
     expect(find.text('ABCD-EFGH-IJKL'), findsOneWidget);
-    expect(
-      tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
-      isNull,
-    );
-    await tester.tap(find.byType(Checkbox));
-    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.text('Continue'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('Ready to create your account?'), findsOneWidget);
+    expect(savedCodes, ['ABCD-EFGH-IJKL']);
     expect(
       tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
       isNotNull,
     );
+    expect(find.byType(Checkbox), findsNothing);
     expect(api.calls, ['/api/auth/generate-code']);
+    await tester.tap(find.text('Create account'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(api.calls, [
+      '/api/auth/generate-code',
+      '/api/auth/register',
+      '/api/user/me',
+    ]);
   });
 }

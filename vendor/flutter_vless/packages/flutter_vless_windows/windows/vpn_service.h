@@ -113,7 +113,7 @@ class VpnService {
   UINT64 underlay_luid_ = 0;
   uint16_t socks_port_ = 0;
   bool dpi_bypass_ = false;
-  std::map<std::string, int> dpi_profile_cache_;
+  int dpi_selected_profile_ = 4;
   flutter_vless::TrafficProtection protection_;
   std::unique_ptr<flutter_vless::native::ProtectedRuntime> private_runtime_;
   std::unique_ptr<flutter_vless::PacketPathProbe> packet_probe_;

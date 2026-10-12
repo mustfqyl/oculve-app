@@ -56,7 +56,7 @@ static void report_ready(unsigned short port) {
 
 static void *run_engine(void *unused) {
     (void)unused;
-    char *argv[24];
+    char *argv[64];
     int argc = 0;
     static char executable[] = "byedpi-engine";
     static char listen_option[] = "--ip";
@@ -100,7 +100,29 @@ static void *run_engine(void *unused) {
         argv[argc++] = interface_option;
         argv[argc++] = interface_name;
     }
-    switch (active_profile) {
+    static char auto_option[] = "--auto";
+    static char triggers[] = "torst,ssl_err";
+    if (active_profile == 4) {
+        // First try the actual destination unchanged, then retry that connection
+        // with successive strategies on reset/timeout/TLS failure. ByeDPI's own
+        // destination cache records the working group, never a generic probe.
+        for (int preset = 0; preset < 4; ++preset) {
+            argv[argc++] = auto_option;
+            argv[argc++] = triggers;
+            if (preset == 0 || preset == 1) {
+                argv[argc++] = split_option;
+                argv[argc++] = split_first;
+            }
+            if (preset == 1 || preset == 2 || preset == 3) {
+                argv[argc++] = disorder_option;
+                argv[argc++] = preset == 1 ? disorder_later : disorder_first;
+            }
+            if (preset == 3) {
+                argv[argc++] = split_option;
+                argv[argc++] = split_later;
+            }
+        }
+    } else switch (active_profile) {
         case 0:
             argv[argc++] = split_option;
             argv[argc++] = split_first;
@@ -150,7 +172,7 @@ static void deadline_after_seconds(struct timespec *deadline, int seconds) {
 }
 
 int byedpi_engine_start(int profile, const char *protect, const char *iface) {
-    if (profile < 0 || profile > 3) return 0;
+    if (profile < 0 || profile > 4) return 0;
     pthread_mutex_lock(&engine_mutex);
     int reap = state == ENGINE_EXITED && thread_finished;
     pthread_mutex_unlock(&engine_mutex);

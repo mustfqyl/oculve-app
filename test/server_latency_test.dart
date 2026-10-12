@@ -18,6 +18,7 @@ import 'package:oculve/features/auth/data/auth_repository.dart';
 import 'package:oculve/features/home/presentation/home_screen.dart';
 import 'package:oculve/features/home/presentation/server_selection_screen.dart';
 import 'package:oculve/features/home/presentation/widgets/country_icon.dart';
+import 'package:oculve/features/home/presentation/widgets/dpi_bypass_logo.dart';
 import 'package:oculve/features/home/presentation/widgets/server_card.dart';
 
 import 'profile_test.dart' show testLink;
@@ -612,6 +613,7 @@ void main() {
     expect(find.byTooltip('180ms'), findsOneWidget);
     expect(find.text('Optimal'), findsOneWidget);
     expect(find.text('DPI Bypass'), findsOneWidget);
+    expect(find.byType(DpiBypassLogo), findsOneWidget);
     final optimalRect = tester.getRect(
       find.byKey(const ValueKey('optimal-server-card')),
     );
@@ -641,7 +643,7 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(
       find.byTooltip('Sorted by ping. Tap to sort alphabetically.'),
-      findsOneWidget,
+      findsNothing,
     );
     expect(
       find.descendant(
@@ -656,13 +658,49 @@ void main() {
     expect(find.byType(PopupMenuButton<ServerSort>), findsNothing);
     expect(
       find.byTooltip('Sorted alphabetically. Tap to sort by ping.'),
-      findsOneWidget,
+      findsNothing,
     );
     expect(find.byIcon(Icons.sort_by_alpha_rounded), findsOneWidget);
     expect(
       tester.getTopLeft(find.text('Amsterdam')).dy,
       lessThan(tester.getTopLeft(find.text('Zurich')).dy),
     );
+  });
+
+  testWidgets('home shows the resolved optimal server and DPI Bypass mode', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(360, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    Widget homeFor(String? selected) => ProviderScope(
+      key: ValueKey(selected),
+      overrides: [
+        sessionProvider.overrideWith((ref) => _SessionWithServers()),
+        serverLatencyProbeProvider.overrideWithValue(_FixedProbe()),
+        selectedServerProvider.overrideWith((ref) => selected),
+      ],
+      child: MaterialApp(
+        theme: AppTheme.darkTheme,
+        home: const Scaffold(body: ServerCard()),
+      ),
+    );
+
+    await tester.pumpWidget(homeFor(optimalServerId));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(find.text('Zurich'), findsOneWidget);
+    expect(find.text('Optimal'), findsNothing);
+
+    await tester.pumpWidget(homeFor(dpiBypassServerId));
+    await tester.pump();
+    expect(find.text('DPI Bypass'), findsOneWidget);
+    expect(find.byType(DpiBypassLogo), findsOneWidget);
+    expect(find.byIcon(Icons.shield_outlined), findsNothing);
+    expect(find.text('Zurich'), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('opening locations refreshes the subscription every time', (
@@ -751,10 +789,14 @@ void main() {
     );
     await tester.pump(const Duration(seconds: 1));
     final before = tester.getTopLeft(find.byType(ServerCard));
-    container.read(vpnErrorProvider.notifier).state = 'Could not connect';
+    container.read(vpnErrorProvider.notifier).state =
+        'Could not establish the VPN. Please try again.';
     await tester.pump();
     expect(tester.getTopLeft(find.byType(ServerCard)), before);
-    expect(find.text('Could not connect'), findsOneWidget);
+    expect(
+      find.text('Could not establish the VPN. Please try again.'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('ping refresh keeps rows in place until every probe settles', (

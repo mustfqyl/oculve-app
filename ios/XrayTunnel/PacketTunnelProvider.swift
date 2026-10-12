@@ -292,13 +292,15 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         guard let interfaceName = spec.physicalInterfaceName, !interfaceName.isEmpty else {
             throw tunnelError("Physical network interface is unavailable")
         }
-        for profile in TunnelDpiRuntime.profileCandidates(interfaceName: interfaceName) {
+        guard let selected = TunnelDpiRuntime.selectedProfile(data: spec.config) else {
+            throw tunnelError("Invalid DPI strategy")
+        }
+        for profile in [selected] {
             let localProxyPort = TunnelDpiRuntime.start(profile: profile, interfaceName: interfaceName)
             guard (1...65535).contains(localProxyPort),
                   let config = TunnelDpiRuntime.config(data: spec.config, localProxyPort: localProxyPort,
                     interfaceName: interfaceName) else {
                 _ = TunnelDpiRuntime.stop()
-                TunnelDpiRuntime.invalidate(profile: profile, interfaceName: interfaceName)
                 continue
             }
             do {
@@ -306,7 +308,6 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 try startSocks5Tunnel(serverPort: spec.port, credentials: spec.credentials)
                 if TunnelDpiRuntime.isRunning(),
                    LocalProxyDelayClient.checkConnectivity(port: spec.port, credentials: spec.credentials) {
-                    TunnelDpiRuntime.save(profile: profile, interfaceName: interfaceName)
                     rememberTunnelLog("Automatic DPI strategy passed authenticated HTTPS connectivity")
                     return
                 }
@@ -314,7 +315,6 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 // Profile details and probe destinations stay out of diagnostics.
             }
             _ = stopNativeRuntime()
-            TunnelDpiRuntime.invalidate(profile: profile, interfaceName: interfaceName)
         }
         throw tunnelError("DPI Bypass could not establish verified Internet connectivity")
     }

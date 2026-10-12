@@ -10,11 +10,6 @@ public enum TunnelDNSPolicy {
     private static let relayTag = "flutter-vless-system-dns"
     private static let upstreamTag = "flutter-vless-dns-upstream"
     private static let proxyTag = "flutter-vless-dns-proxy"
-    private static let supportedDoHResolvers: [String: String] = [
-        "https://cloudflare-dns.com/dns-query": "1.1.1.1",
-        "https://dns.google/dns-query": "8.8.8.8",
-        "https://dns.quad9.net/dns-query": "9.9.9.9"
-    ]
     private static let endpointProtocols: Set<String> = [
         "vless", "vmess", "trojan", "shadowsocks", "socks", "http", "hysteria", "wireguard"
     ]
@@ -24,6 +19,7 @@ public enum TunnelDNSPolicy {
         resolveIPv4: (String) -> String?
     ) -> [String]? {
         guard let resolver = configuredResolver(config) else { return nil }
+        let encrypted = resolver.hasPrefix("https://")
         guard var outbounds = config["outbounds"] as? [[String: Any]],
               let primary = outbounds.firstIndex(where: {
                   ($0["tag"] as? String) == "proxy" && endpointProtocols.contains(($0["protocol"] as? String ?? "").lowercased())
@@ -69,20 +65,34 @@ public enum TunnelDNSPolicy {
             guard prepareStream(&stream, hosts: &hosts, addresses: &addresses, resolveIPv4: resolveIPv4) else { return nil }
             outbounds[index]["streamSettings"] = stream
         }
+        if encrypted {
+            guard let host = URL(string: resolver)?.host else { return nil }
+            if !isLiteral(host) {
+                let known = ["cloudflare-dns.com": "1.1.1.1", "dns.google": "8.8.8.8", "dns.quad9.net": "9.9.9.9"]
+                guard let ip = hosts[hostKey(host)] ?? known[hostKey(host)] ?? resolveIPv4(host), isLiteral(ip) else { return nil }
+                hosts[hostKey(host)] = ip
+            }
+        }
+        // A/AAAA use Xray's protected DoH module. Other record types receive
+        // an empty response, never a plaintext or system-resolver fallback.
+        let queryRules: [[String: Any]] = encrypted ? [
+            ["action": "return", "qType": "28", "rCode": 0],
+            ["action": "hijack", "qType": "1"],
+            ["action": "return", "rCode": 0]
+        ] : [
+            ["action": "return", "qType": "28", "rCode": 0],
+            ["action": "direct"]
+        ]
         outbounds.append([
             "tag": relayTag,
             "protocol": "dns",
             "settings": [
-                "rewriteNetwork": "tcp", "rewriteAddress": resolver, "rewritePort": 53,
+                "rewriteNetwork": "tcp", "rewriteAddress": encrypted ? "127.0.0.1" : resolver, "rewritePort": 53,
                 // queryStrategy only affects Xray's own lookups, not raw DNS
                 // relay. Do not advertise IPv6 that TunnelIPv6Policy blocks:
                 // a local TCP handshake can succeed before Xray closes it,
                 // preventing clients from falling back to IPv4 during TLS.
-                "rules": [
-                    ["action": "return", "qType": "28", "rCode": 0],
-                    // Relay all other query types through the proxy dialer.
-                    ["action": "direct"]
-                ]
+                "rules": queryRules
             ],
             "streamSettings": ["sockopt": ["dialerProxy": selectedTag]]
         ])
@@ -90,7 +100,7 @@ public enum TunnelDNSPolicy {
         // The sample owns system DNS, as before. Never use tcp+local/local or
         // an OS-resolver fallback once the tunnel routes have been installed.
         config["dns"] = [
-            "hosts": hosts, "servers": ["tcp://\(resolver)"], "tag": upstreamTag,
+            "hosts": hosts, "servers": [encrypted ? resolver : "tcp://\(resolver)"], "tag": upstreamTag,
             "queryStrategy": "UseIPv4", "disableFallback": true
         ]
         var routing = config["routing"] as? [String: Any] ?? [:]
@@ -166,11 +176,18 @@ public enum TunnelDNSPolicy {
         guard let rawDNS = config["dns"] else { return "1.1.1.1" }
         guard let dns = rawDNS as? [String: Any] else { return nil }
         guard let rawServers = dns["servers"] else { return "1.1.1.1" }
-        guard let servers = rawServers as? [String], servers.count == 1,
-              let resolver = supportedDoHResolvers[servers[0]] ?? {
-                  guard servers[0].hasPrefix("tcp://") else { return nil }
-                  return String(servers[0].dropFirst("tcp://".count))
-              }() else { return nil }
+        guard let servers = rawServers as? [String], servers.count == 1 else { return nil }
+        let endpoint = servers[0]
+        if endpoint.hasPrefix("https://") {
+            guard endpoint.count <= 2048, let url = URL(string: endpoint),
+                  url.scheme == "https", let host = url.host, !host.isEmpty,
+                  url.user == nil, url.password == nil, url.fragment == nil,
+                  !url.path.isEmpty, (1...65535).contains(url.port ?? 443),
+                  !endpoint.contains(where: { $0.isWhitespace }) else { return nil }
+            return endpoint
+        }
+        guard endpoint.hasPrefix("tcp://") else { return nil }
+        let resolver = String(endpoint.dropFirst("tcp://".count))
         var parsed = in_addr()
         return resolver.withCString { inet_pton(AF_INET, $0, &parsed) } == 1 ? resolver : nil
     }

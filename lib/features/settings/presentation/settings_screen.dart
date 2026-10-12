@@ -6,6 +6,7 @@ import 'package:oculve/core/localization/app_strings.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:oculve/core/providers/theme_provider.dart';
+import 'package:oculve/core/providers/animation_provider.dart';
 import 'package:oculve/core/providers/locale_provider.dart';
 import 'package:oculve/core/theme/app_theme.dart';
 import 'package:oculve/core/widgets/app_page.dart';
@@ -49,6 +50,16 @@ class SettingsScreen extends ConsumerWidget {
                 ),
                 const SizedBox(height: 10),
                 const _LanguageSelector(),
+                const SizedBox(height: 10),
+                Divider(
+                  height: 1,
+                  thickness: 0.8,
+                  color: isDark
+                      ? Colors.white.withValues(alpha: 0.06)
+                      : Colors.black.withValues(alpha: 0.05),
+                ),
+                const SizedBox(height: 4),
+                const _PageAnimationsSetting(),
               ],
             ),
           ),
@@ -76,7 +87,7 @@ class SettingsScreen extends ConsumerWidget {
                   _RowDivider(isDark: isDark),
                   _GroupedSettingRow(
                     icon: Icons.desktop_windows_outlined,
-                    title: 'Tray & menu bar',
+                    title: 'Tray & window',
                     onTap: () => Navigator.push(
                       context,
                       appRoute(const TrayPreferencesScreen()),
@@ -152,6 +163,40 @@ class SettingsScreen extends ConsumerWidget {
           const SizedBox(height: 20),
         ],
       ),
+    );
+  }
+}
+
+class _PageAnimationsSetting extends ConsumerWidget {
+  const _PageAnimationsSetting();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final foreground = isDark ? AppTheme.foreground : AppTheme.lightForeground;
+    final muted = isDark
+        ? AppTheme.foregroundMuted
+        : AppTheme.lightForegroundMuted;
+    final enabled = ref.watch(pageAnimationsProvider);
+
+    return SwitchListTile.adaptive(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+      value: enabled,
+      onChanged: ref.read(pageAnimationsProvider.notifier).setEnabled,
+      secondary: Icon(Icons.animation_rounded, size: 18, color: muted),
+      title: Text(
+        context.tr('Page animations'),
+        style: TextStyle(
+          color: foreground,
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      subtitle: Text(
+        context.tr('Use smooth transitions between screens.'),
+        style: TextStyle(color: muted, fontSize: 11, height: 1.25),
+      ),
+      dense: true,
     );
   }
 }
@@ -313,10 +358,8 @@ class _ThemeSelector extends ConsumerWidget {
                   children: [
                     Icon(icon, size: 16, color: isSelected ? fg : fgMuted),
                     const SizedBox(height: 3),
-                    Text(
+                    CompactLabel(
                       label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: isSelected
@@ -368,10 +411,10 @@ class _LanguageSelector extends ConsumerWidget {
         ),
         const SizedBox(width: 10),
         Expanded(
-          child: Text(
+          child: CompactLabel(
             context.tr('Language'),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.start,
+            alignment: Alignment.centerLeft,
             style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w600,
@@ -430,37 +473,43 @@ class _LanguageOption extends StatelessWidget {
         ? AppTheme.foregroundMuted
         : AppTheme.lightForegroundMuted;
 
-    return Tooltip(
-      message: switch (code) {
-        'es' => 'Español',
-        'tr' => 'Türkçe',
-        _ => 'English',
-      },
-      child: InkWell(
-        borderRadius: BorderRadius.circular(6),
-        onTap: onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          constraints: const BoxConstraints(minWidth: 28, minHeight: 24),
-          alignment: Alignment.center,
-          padding: const EdgeInsets.symmetric(horizontal: 5),
-          decoration: BoxDecoration(
-            color: selected
-                ? AppTheme.successColor.withValues(alpha: .18)
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(6),
-            border: Border.all(
+    final languageName = switch (code) {
+      'es' => 'Español',
+      'tr' => 'Türkçe',
+      _ => 'English',
+    };
+    return Semantics(
+      label: languageName,
+      button: true,
+      selected: selected,
+      onTap: onTap,
+      child: ExcludeSemantics(
+        child: InkWell(
+          borderRadius: BorderRadius.circular(6),
+          onTap: onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 160),
+            constraints: const BoxConstraints(minWidth: 28, minHeight: 24),
+            alignment: Alignment.center,
+            padding: const EdgeInsets.symmetric(horizontal: 5),
+            decoration: BoxDecoration(
               color: selected
-                  ? AppTheme.successColor.withValues(alpha: .45)
+                  ? AppTheme.successColor.withValues(alpha: .18)
                   : Colors.transparent,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(
+                color: selected
+                    ? AppTheme.successColor.withValues(alpha: .45)
+                    : Colors.transparent,
+              ),
             ),
-          ),
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-              color: selected ? AppTheme.successColor : muted,
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+                color: selected ? AppTheme.successColor : muted,
+              ),
             ),
           ),
         ),

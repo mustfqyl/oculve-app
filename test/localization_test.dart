@@ -29,6 +29,10 @@ void main() {
     notifier.dispose();
   });
 
+  test('DPI Bypass keeps its product name in Turkish', () {
+    expect(AppStrings.translate('DPI Bypass', 'tr'), 'DPI Bypass');
+  });
+
   test(
     'every literal interface phrase has Spanish and Turkish translations',
     () {
@@ -63,7 +67,9 @@ void main() {
             }
             if (RegExp(r'^[0-9]+$').hasMatch(source) ||
                 source == 'XXXX-XXXX-XXXX' ||
-                source == 'example.com\nsubdomain.example.org') {
+                source == 'example.com\nsubdomain.example.org' ||
+                source.startsWith('https://') ||
+                source == 'example.com') {
               continue;
             }
             if (source.toLowerCase() == 'oculve') continue;
@@ -84,25 +90,27 @@ void main() {
     },
   );
 
-  test('connection setting categories are translated in every app language', () {
-    for (final language in ['es', 'tr']) {
-      for (final source in [
-        'DNS & network',
-        'Split tunneling',
-        'Transport & TLS',
-        'Diagnostics',
-        'Choose an encrypted DNS provider and lookup address family.',
-        'Optional connection details. The server defaults work for most people.',
-        'TLS identity',
-      ]) {
-        expect(
-          AppStrings.hasTranslation(source, language),
-          isTrue,
-          reason: '$language translation missing for "$source"',
-        );
+  test(
+    'connection setting categories are translated in every app language',
+    () {
+      for (final language in ['es', 'tr']) {
+        for (final source in [
+          'DNS & network',
+          'Split tunneling',
+          'Connection options',
+          'Diagnostics',
+          'Choose an encrypted DNS provider and lookup address family.',
+          'Optional connection adjustments. Defaults work for most people.',
+        ]) {
+          expect(
+            AppStrings.hasTranslation(source, language),
+            isTrue,
+            reason: '$language translation missing for "$source"',
+          );
+        }
       }
-    }
-  });
+    },
+  );
 
   testWidgets('reviewed interface labels render in Spanish and Turkish', (
     tester,
@@ -124,6 +132,47 @@ void main() {
     }
   });
 
+  testWidgets('compact translated labels stay legible inside narrow controls', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(120, 52);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    for (final (locale, expected) in [
+      (const Locale('en'), 'Connection settings'),
+      (const Locale('es'), 'Ajustes de conexión'),
+      (const Locale('tr'), 'Bağlantı ayarları'),
+    ]) {
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: locale,
+          supportedLocales: supportedAppLocales,
+          localizationsDelegates: GlobalMaterialLocalizations.delegates,
+          home: const Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: 96,
+                child: localized.CompactLabel(
+                  'Connection settings',
+                  style: TextStyle(fontSize: 16),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text(expected), findsOneWidget);
+      expect(tester.takeException(), isNull, reason: locale.languageCode);
+      expect(
+        tester.getSize(find.byType(FittedBox)).width,
+        lessThanOrEqualTo(96),
+      );
+    }
+  });
+
   testWidgets('home controls fit and translate in every supported locale', (
     tester,
   ) async {
@@ -132,10 +181,10 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    for (final (locale, connectLabel) in [
-      (const Locale('en'), 'CONNECT'),
-      (const Locale('es'), 'CONECTAR'),
-      (const Locale('tr'), 'BAĞLAN'),
+    for (final (locale, connectLabel, hintLabel) in [
+      (const Locale('en'), 'CONNECT', 'Tap to connect'),
+      (const Locale('es'), 'CONECTAR', 'Toca para conectar'),
+      (const Locale('tr'), 'BAĞLAN', 'Bağlanmak için dokunun'),
     ]) {
       await tester.pumpWidget(
         ProviderScope(
@@ -150,6 +199,7 @@ void main() {
       );
       await tester.pump(const Duration(milliseconds: 700));
       expect(find.text(connectLabel), findsOneWidget);
+      expect(find.text(hintLabel), findsOneWidget);
       expect(tester.takeException(), isNull, reason: locale.languageCode);
     }
   });
@@ -162,22 +212,17 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    for (final (locale, dns, split, transport, diagnostics) in [
+    for (final (locale, dns, split, connectionOptions, diagnostics) in [
       (
         const Locale('es'),
-        'DNS y red',
-        'Túnel dividido',
-        'Transporte y TLS',
-        'Diagnóstico',
+        'DNS',
+        'EXCLUSIONES DE LA VPN',
+        'CONEXIÓN',
+        'DIAGNÓSTICO',
       ),
-      (
-        const Locale('tr'),
-        'DNS ve ağ',
-        'Bölünmüş tünel',
-        'Taşıma ve TLS',
-        'Tanılama',
-      ),
+      (const Locale('tr'), 'DNS', 'VPN DIŞINDA', 'BAĞLANTI', 'TANILAMA'),
     ]) {
+      await tester.pumpWidget(const SizedBox.shrink());
       await tester.pumpWidget(
         ProviderScope(
           child: MaterialApp(
@@ -190,7 +235,12 @@ void main() {
         ),
       );
       await tester.pump(const Duration(milliseconds: 500));
-      for (final heading in [dns, split, transport, diagnostics]) {
+      for (final heading in [dns, split, connectionOptions, diagnostics]) {
+        await tester.scrollUntilVisible(
+          find.text(heading),
+          100,
+          scrollable: find.byType(Scrollable).first,
+        );
         expect(find.text(heading), findsOneWidget, reason: locale.languageCode);
       }
       expect(tester.takeException(), isNull, reason: locale.languageCode);
