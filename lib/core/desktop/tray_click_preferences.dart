@@ -60,17 +60,28 @@ class TrayClickPreferencesNotifier extends StateNotifier<TrayClickPreferences> {
     try {
       final p = await SharedPreferences.getInstance();
       if (!mounted) return;
+      final left = _parse(
+        p.getString(_leftKey),
+        TrayClickAction.values,
+        TrayClickAction.toggleWindow,
+      );
+      var right = _parse(
+        p.getString(_rightKey),
+        TrayClickAction.values,
+        TrayClickAction.showMenu,
+      );
+      if (left == right) {
+        // Older versions allowed the same action on both clicks. Keep the
+        // left-click choice and restore the right-click default, unless that
+        // is the conflicting action too.
+        right = left == TrayClickAction.showMenu
+            ? TrayClickAction.toggleWindow
+            : TrayClickAction.showMenu;
+        await p.setString(_rightKey, right.name);
+      }
       state = TrayClickPreferences(
-        left: _parse(
-          p.getString(_leftKey),
-          TrayClickAction.values,
-          TrayClickAction.toggleWindow,
-        ),
-        right: _parse(
-          p.getString(_rightKey),
-          TrayClickAction.values,
-          TrayClickAction.showMenu,
-        ),
+        left: left,
+        right: right,
         hideOnBlur: p.getBool(_blurKey) ?? true,
         closeAction: _parse(
           p.getString(_closeKey),
@@ -91,9 +102,13 @@ class TrayClickPreferencesNotifier extends StateNotifier<TrayClickPreferences> {
   Future<void> _save(
     String key,
     Object value,
-    TrayClickPreferences Function(TrayClickPreferences) update,
-  ) async {
+    TrayClickPreferences Function(TrayClickPreferences) update, {
+    bool Function(TrayClickPreferences)? isValid,
+  }) async {
     await _loaded;
+    if (isValid != null && !isValid(state)) {
+      throw StateError('Each tray click must have a different action.');
+    }
     final p = await SharedPreferences.getInstance();
     final saved = value is bool
         ? await p.setBool(key, value)
@@ -104,10 +119,18 @@ class TrayClickPreferencesNotifier extends StateNotifier<TrayClickPreferences> {
     if (mounted) state = update(state);
   }
 
-  Future<void> setLeft(TrayClickAction action) =>
-      _save(_leftKey, action.name, (p) => p.copyWith(left: action));
-  Future<void> setRight(TrayClickAction action) =>
-      _save(_rightKey, action.name, (p) => p.copyWith(right: action));
+  Future<void> setLeft(TrayClickAction action) => _save(
+    _leftKey,
+    action.name,
+    (p) => p.copyWith(left: action),
+    isValid: (p) => p.right != action,
+  );
+  Future<void> setRight(TrayClickAction action) => _save(
+    _rightKey,
+    action.name,
+    (p) => p.copyWith(right: action),
+    isValid: (p) => p.left != action,
+  );
   Future<void> setHideOnBlur(bool value) =>
       _save(_blurKey, value, (p) => p.copyWith(hideOnBlur: value));
   Future<void> setCloseAction(TrayCloseAction value) =>

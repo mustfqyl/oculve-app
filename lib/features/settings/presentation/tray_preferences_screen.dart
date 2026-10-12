@@ -45,7 +45,7 @@ class _TrayPreferencesScreenState extends ConsumerState<TrayPreferencesScreen> {
     final notifier = ref.read(trayClickPreferencesProvider.notifier);
     final linux = Theme.of(context).platform == TargetPlatform.linux;
     return AppPage(
-      title: 'Tray & window',
+      title: 'Tray & Window',
       headerHeight: 52,
       child: Column(
         children: [
@@ -68,7 +68,8 @@ class _TrayPreferencesScreenState extends ConsumerState<TrayPreferencesScreen> {
                       enabled: !_busy,
                       options: {
                         for (final action in TrayClickAction.values)
-                          if (!linux || action != TrayClickAction.showMenu)
+                          if (action != preferences.right &&
+                              (!linux || action != TrayClickAction.showMenu))
                             action: _actionLabel(action),
                       },
                       onChanged: (value) =>
@@ -82,7 +83,8 @@ class _TrayPreferencesScreenState extends ConsumerState<TrayPreferencesScreen> {
                       enabled: !_busy,
                       options: {
                         for (final action in TrayClickAction.values)
-                          action: _actionLabel(action),
+                          if (action != preferences.left)
+                            action: _actionLabel(action),
                       },
                       onChanged: (value) =>
                           _save(() => notifier.setRight(value)),

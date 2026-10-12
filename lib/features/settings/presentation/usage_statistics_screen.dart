@@ -56,7 +56,7 @@ class _UsageStatisticsScreenState extends ConsumerState<UsageStatisticsScreen> {
         future: _statistics,
         builder: (context, snapshot) {
           if (!snapshot.hasData && !snapshot.hasError) {
-            return const Center(child: CircularProgressIndicator());
+            return const _StatisticsLoadingState();
           }
           if (snapshot.hasError) {
             return AppErrorState(
@@ -213,6 +213,7 @@ class _UsageStatisticsScreenState extends ConsumerState<UsageStatisticsScreen> {
                       ),
                     ],
                   ),
+                  key: const ValueKey('statistics-card-account'),
                 ),
                 const SizedBox(height: 9),
                 _card(
@@ -262,6 +263,7 @@ class _UsageStatisticsScreenState extends ConsumerState<UsageStatisticsScreen> {
                       ),
                     ],
                   ),
+                  key: const ValueKey('statistics-card-history'),
                 ),
                 const SizedBox(height: 9),
                 _card(
@@ -376,6 +378,7 @@ class _UsageStatisticsScreenState extends ConsumerState<UsageStatisticsScreen> {
                       ],
                     ],
                   ),
+                  key: const ValueKey('statistics-card-servers'),
                 ),
               ],
             ),
@@ -385,7 +388,8 @@ class _UsageStatisticsScreenState extends ConsumerState<UsageStatisticsScreen> {
     );
   }
 
-  Widget _card(BuildContext context, Widget child) => FrostedCard(
+  Widget _card(BuildContext context, Widget child, {Key? key}) => FrostedCard(
+    key: key,
     padding: const EdgeInsets.all(11),
     borderRadius: 13,
     color: Theme.of(context).brightness == Brightness.dark
@@ -655,4 +659,195 @@ class _UsageStatisticsScreenState extends ConsumerState<UsageStatisticsScreen> {
       ],
     );
   }
+}
+
+class _StatisticsLoadingState extends StatefulWidget {
+  const _StatisticsLoadingState();
+
+  @override
+  State<_StatisticsLoadingState> createState() =>
+      _StatisticsLoadingStateState();
+}
+
+class _StatisticsLoadingStateState extends State<_StatisticsLoadingState>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pulse = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1100),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _pulse.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final foreground = Theme.of(context).brightness == Brightness.dark
+        ? AppTheme.foreground
+        : AppTheme.lightForeground;
+    return Semantics(
+      key: const ValueKey('statistics-loading-state'),
+      label: context.tr('Loading statistics'),
+      liveRegion: true,
+      child: ExcludeSemantics(
+        child: AnimatedBuilder(
+          animation: _pulse,
+          builder: (context, _) {
+            final color = foreground.withValues(
+              alpha: .055 + (_pulse.value * .045),
+            );
+            Widget bar(double width, {double height = 11}) => Container(
+              width: width,
+              height: height,
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(height / 2),
+              ),
+            );
+
+            return SingleChildScrollView(
+              key: const ValueKey('statistics-loading-skeleton'),
+              padding: const EdgeInsets.fromLTRB(12, 7, 12, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  FrostedCard(
+                    key: const ValueKey('statistics-card-account'),
+                    padding: const EdgeInsets.all(11),
+                    borderRadius: 13,
+                    color: Theme.of(context).brightness == Brightness.dark
+                        ? Colors.white.withValues(alpha: .055)
+                        : null,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        bar(104, height: 10),
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  bar(132, height: 25),
+                                  const SizedBox(height: 2),
+                                  bar(88, height: 11),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 18),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  bar(74, height: 25),
+                                  bar(66, height: 13),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          child: Divider(
+                            color: foreground.withValues(alpha: .08),
+                            height: 1,
+                          ),
+                        ),
+                        bar(112, height: 11),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(child: _transferPlaceholder(bar)),
+                            const SizedBox(width: 12),
+                            Expanded(child: _transferPlaceholder(bar)),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 9),
+                  FrostedCard(
+                    key: const ValueKey('statistics-card-history'),
+                    padding: const EdgeInsets.all(11),
+                    borderRadius: 13,
+                    color: Theme.of(context).brightness == Brightness.dark
+                        ? Colors.white.withValues(alpha: .055)
+                        : null,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [bar(98, height: 28), bar(126, height: 28)],
+                        ),
+                        const SizedBox(height: 5),
+                        bar(112, height: 12),
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          height: 66,
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              for (var i = 0; i < 3; i++)
+                                bar(double.infinity, height: 1),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            bar(36, height: 10),
+                            bar(36, height: 10),
+                            bar(36, height: 10),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 9),
+                  FrostedCard(
+                    key: const ValueKey('statistics-card-servers'),
+                    padding: const EdgeInsets.all(11),
+                    borderRadius: 13,
+                    color: Theme.of(context).brightness == Brightness.dark
+                        ? Colors.white.withValues(alpha: .055)
+                        : null,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        bar(94, height: 16),
+                        const SizedBox(height: 4),
+                        bar(188, height: 13),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _transferPlaceholder(Widget Function(double, {double height}) bar) =>
+      Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          bar(18, height: 18),
+          const SizedBox(width: 6),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              bar(82, height: 18),
+              const SizedBox(height: 1),
+              bar(62, height: 12),
+            ],
+          ),
+        ],
+      );
 }

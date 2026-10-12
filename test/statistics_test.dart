@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
@@ -46,6 +47,18 @@ class _StatisticsApi extends OculveApi {
   }
 }
 
+class _DeferredStatisticsApi extends _StatisticsApi {
+  final response = Completer<Map<String, dynamic>>();
+
+  @override
+  Future<Map<String, dynamic>> request(
+    String path, {
+    Map<String, dynamic>? body,
+    String? method,
+    Map<String, String>? headers,
+  }) => response.future;
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(() async {
@@ -57,6 +70,71 @@ void main() {
     await (FontLoader(
       'MaterialIcons',
     )..addFont(rootBundle.load('fonts/MaterialIcons-Regular.otf'))).load();
+  });
+  testWidgets('statistics loading uses themed skeleton instead of a spinner', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 568);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final api = _DeferredStatisticsApi();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [apiProvider.overrideWithValue(api)],
+        child: MaterialApp(
+          theme: AppTheme.darkTheme,
+          home: const UsageStatisticsScreen(),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('statistics-loading-state')),
+      findsOneWidget,
+    );
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    final cardKeys = [
+      'statistics-card-account',
+      'statistics-card-history',
+      'statistics-card-servers',
+    ];
+    final loadingHeights = {
+      for (final key in cardKeys)
+        key: tester.getSize(find.byKey(ValueKey(key))).height,
+    };
+
+    api.response.complete({
+      'summary': {'currentUsedBytes': 0, 'isUnlimited': true},
+      'usage': {
+        'activeDays': 0,
+        'daily30d': [
+          for (var day = 1; day <= 30; day++)
+            {
+              'date': '2026-10-${day.toString().padLeft(2, '0')}',
+              'usedBytes': 0,
+            },
+        ],
+        'monthly12m': [],
+      },
+      'nodes': [],
+    });
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(
+      find.byKey(const ValueKey('statistics-loading-state')),
+      findsNothing,
+    );
+    expect(find.text('ACCOUNT USAGE'), findsOneWidget);
+    for (final key in cardKeys) {
+      final loadedHeight = tester.getSize(find.byKey(ValueKey(key))).height;
+      expect(
+        loadedHeight,
+        closeTo(loadingHeights[key]!, 8),
+        reason: '$key should keep its height when loading finishes',
+      );
+    }
+    expect(tester.takeException(), isNull);
   });
   testWidgets(
     'account statistics show API usage, monthly history and devices',

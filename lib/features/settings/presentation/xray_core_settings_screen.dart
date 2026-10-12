@@ -46,7 +46,10 @@ class _XrayCoreSettingsScreenState
   ConnectionPreferences _options = const ConnectionPreferences();
   List<String> _domains = [];
   int _dpiResetEpoch = 0;
-  bool _fragment = false, _customMode = false, _busy = false;
+  bool _fragment = false,
+      _customMode = false,
+      _vpnOnlyDomains = false,
+      _busy = false;
   @override
   void initState() {
     super.initState();
@@ -74,6 +77,7 @@ class _XrayCoreSettingsScreenState
     try {
       final dns = await XrayPreferences.userDnsSettings();
       final domains = await XrayPreferences.bypassDomains();
+      final vpnOnlyDomains = await XrayPreferences.vpnOnlyDomainsEnabled();
       final log = await XrayPreferences.logLevel();
       final fragment = await XrayPreferences.tlsHelloFragmentationEnabled();
       final options = await ConnectionPreferences.read();
@@ -81,6 +85,7 @@ class _XrayCoreSettingsScreenState
       setState(() {
         _dns = dns;
         _domains = domains;
+        _vpnOnlyDomains = vpnOnlyDomains;
         _log =
             [
               XrayLogLevel.error,
@@ -274,6 +279,7 @@ class _XrayCoreSettingsScreenState
         ),
       );
       await XrayPreferences.setBypassDomains([]);
+      await XrayPreferences.setVpnOnlyDomainsEnabled(false);
       await XrayPreferences.setTlsHelloFragmentation(false);
       await XrayPreferences.setFragmentRanges(
         length: '100-200',
@@ -303,7 +309,7 @@ class _XrayCoreSettingsScreenState
         : profile?.supportsTlsHelloFragmentation ?? false;
     final service = ref.watch(lanProxyProvider);
     return AppPage(
-      title: 'Connection settings',
+      title: 'Connection Settings',
       child: _dns == null
           ? const Center(child: CircularProgressIndicator())
           : ListView(
@@ -397,19 +403,24 @@ class _XrayCoreSettingsScreenState
                       ),
                   ],
                 ),
-                const SettingsCaption('VPN BYPASS'),
+                const SettingsCaption('SPLIT TUNNELING'),
                 SettingsGroup(
                   children: [
                     SettingRow(
-                      key: const ValueKey('bypass-websites-row'),
-                      title: 'Websites outside VPN',
+                      key: const ValueKey('split-tunneling-domains-row'),
+                      title: 'Website routing',
+                      value: context.tr(
+                        _vpnOnlyDomains
+                            ? 'Only selected domains'
+                            : 'Except selected domains',
+                      ),
                       subtitle: _domains.isEmpty
-                          ? 'No websites added'
-                          : '${_domains.length} ${context.tr('websites')}',
+                          ? 'Choose which domains use the VPN.'
+                          : '${_domains.length} ${context.tr('domains')}',
                       onTap: () async {
                         await Navigator.push(
                           context,
-                          appRoute(const BypassWebsitesScreen()),
+                          appRoute(const SplitTunnelingScreen()),
                         );
                         await _load();
                       },
@@ -477,7 +488,7 @@ class _XrayCoreSettingsScreenState
                               }),
                       ),
                     ),
-                    if (supportsFragment)
+                    if (supportsFragment && _fragment)
                       SettingRow(
                         title: 'Fragmentation settings',
                         onTap: () => Navigator.push(
@@ -564,15 +575,16 @@ class _XrayCoreSettingsScreenState
   }
 }
 
-class BypassWebsitesScreen extends StatefulWidget {
-  const BypassWebsitesScreen({super.key});
+class SplitTunnelingScreen extends StatefulWidget {
+  const SplitTunnelingScreen({super.key});
   @override
-  State<BypassWebsitesScreen> createState() => _BypassWebsitesScreenState();
+  State<SplitTunnelingScreen> createState() => _SplitTunnelingScreenState();
 }
 
-class _BypassWebsitesScreenState extends State<BypassWebsitesScreen> {
+class _SplitTunnelingScreenState extends State<SplitTunnelingScreen> {
   final _input = TextEditingController();
   List<String> _domains = [];
+  bool _vpnOnlyDomains = false;
   bool _busy = false;
   @override
   void initState() {
@@ -582,7 +594,33 @@ class _BypassWebsitesScreenState extends State<BypassWebsitesScreen> {
 
   Future<void> _load() async {
     final domains = await XrayPreferences.bypassDomains();
-    if (mounted) setState(() => _domains = domains);
+    final vpnOnlyDomains = await XrayPreferences.vpnOnlyDomainsEnabled();
+    if (mounted) {
+      setState(() {
+        _domains = domains;
+        _vpnOnlyDomains = vpnOnlyDomains;
+      });
+    }
+  }
+
+  Future<void> _toggleMode() async {
+    if (_busy) return;
+    final next = !_vpnOnlyDomains;
+    setState(() => _busy = true);
+    try {
+      await XrayPreferences.setVpnOnlyDomainsEnabled(next);
+      if (mounted) setState(() => _vpnOnlyDomains = next);
+    } catch (error) {
+      if (mounted) {
+        AppFeedback.showError(
+          context,
+          error,
+          fallback: 'Could not save settings.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   Future<void> _save(List<String> domains) async {
@@ -613,13 +651,38 @@ class _BypassWebsitesScreenState extends State<BypassWebsitesScreen> {
 
   @override
   Widget build(BuildContext context) => AppPage(
-    title: 'Websites outside VPN',
+    title: 'Split tunneling',
     child: ListView(
       padding: const EdgeInsets.all(16),
       children: [
         Text(
-          'These websites bypass the VPN. Changes apply after reconnecting.',
+          context.tr(
+            _vpnOnlyDomains
+                ? (_domains.isEmpty
+                      ? 'Add at least one domain. Until then, all traffic stays on the VPN.'
+                      : 'Only selected domains use the VPN. All other traffic goes directly to the internet. Changes apply after reconnecting.')
+                : 'Selected domains bypass the VPN. All other traffic uses the VPN. Changes apply after reconnecting.',
+          ),
           style: TextStyle(color: settingsMuted(context), fontSize: 12),
+        ),
+        const SizedBox(height: 16),
+        SettingsGroup(
+          children: [
+            SettingsCycleRow(
+              key: const ValueKey('split-tunneling-mode-row'),
+              title: 'Route these domains',
+              label: context.tr(
+                _vpnOnlyDomains
+                    ? 'Only selected domains'
+                    : 'Except selected domains',
+              ),
+              options: const [
+                'Except selected domains',
+                'Only selected domains',
+              ],
+              onTap: _busy ? null : _toggleMode,
+            ),
+          ],
         ),
         const SizedBox(height: 16),
         TextField(
@@ -633,18 +696,8 @@ class _BypassWebsitesScreenState extends State<BypassWebsitesScreen> {
           ),
           onSubmitted: _busy ? null : (_) => _save([..._domains, _input.text]),
         ),
-        Align(
-          alignment: Alignment.centerRight,
-          child: TextButton(
-            key: const ValueKey('save-bypass-domains'),
-            onPressed: _busy ? null : () => _save([..._domains, _input.text]),
-            child: const Text('Add website'),
-          ),
-        ),
         const SizedBox(height: 12),
-        if (_domains.isEmpty)
-          const Text('No websites added')
-        else
+        if (_domains.isNotEmpty)
           SettingsGroup(
             children: [
               for (final domain in _domains)
@@ -684,7 +737,10 @@ class _FragmentationSettingsScreenState
   final _length = TextEditingController(),
       _delay = TextEditingController(),
       _splits = TextEditingController();
-  bool _busy = false;
+  Timer? _saveTimer;
+  int _saveRevision = 0;
+  String? _validationError;
+  Future<void> _writes = Future.value();
   @override
   void initState() {
     super.initState();
@@ -704,37 +760,55 @@ class _FragmentationSettingsScreenState
 
   @override
   void dispose() {
+    _saveTimer?.cancel();
+    unawaited(_writes.catchError((Object _) {}));
     _length.dispose();
     _delay.dispose();
     _splits.dispose();
     super.dispose();
   }
 
-  Future<void> _save() async {
-    setState(() => _busy = true);
+  void _queueSave() {
+    _saveTimer?.cancel();
+    final revision = ++_saveRevision;
+    _saveTimer = Timer(
+      const Duration(milliseconds: 450),
+      () => _save(revision),
+    );
+  }
+
+  void _saveNow() {
+    _saveTimer?.cancel();
+    _save(++_saveRevision);
+  }
+
+  Future<void> _save(int revision) async {
+    if (!mounted) return;
+    final length = _length.text.trim();
+    final delay = _delay.text.trim();
+    final splits = _splits.text.trim();
     try {
-      await XrayPreferences.setFragmentRanges(
-        length: _length.text.trim(),
-        delay: _delay.text.trim(),
-        splits: _splits.text.trim(),
-      );
-      if (mounted) {
-        AppFeedback.showMessage(
-          context,
-          'Fragmentation settings saved. Reconnect to apply.',
-        );
+      _writes = _writes
+          .catchError((Object _) {})
+          .then(
+            (_) => XrayPreferences.setFragmentRanges(
+              length: length,
+              delay: delay,
+              splits: splits,
+            ),
+          );
+      await _writes;
+      if (mounted && revision == _saveRevision) {
+        setState(() => _validationError = null);
       }
     } catch (error) {
-      if (mounted) {
-        AppFeedback.showError(
-          context,
-          error,
-          fallback:
-              'Enter valid numeric ranges for fragment length, delay and splits.',
+      if (mounted && revision == _saveRevision) {
+        setState(
+          () => _validationError = context.tr(
+            'Enter valid numeric ranges for fragment length, delay and splits.',
+          ),
         );
       }
-    } finally {
-      if (mounted) setState(() => _busy = false);
     }
   }
 
@@ -745,12 +819,15 @@ class _FragmentationSettingsScreenState
       padding: const EdgeInsets.all(16),
       children: [
         Text(
-          'Only the TLS hello is fragmented. Smaller fragments or longer delays may reduce speed.',
+          'Only the TLS hello is fragmented. Settings save automatically; reconnect to apply. Smaller fragments or longer delays may reduce speed.',
           style: TextStyle(color: settingsMuted(context), fontSize: 12),
         ),
         const SizedBox(height: 20),
         TextField(
+          key: const ValueKey('fragment-length-field'),
           controller: _length,
+          onChanged: (_) => _queueSave(),
+          onSubmitted: (_) => _saveNow(),
           decoration: InputDecoration(
             labelText: context.tr('Fragment length (bytes)'),
             helperText: context.tr('1–16384, for example 100-200'),
@@ -758,7 +835,10 @@ class _FragmentationSettingsScreenState
         ),
         const SizedBox(height: 16),
         TextField(
+          key: const ValueKey('fragment-delay-field'),
           controller: _delay,
+          onChanged: (_) => _queueSave(),
+          onSubmitted: (_) => _saveNow(),
           decoration: InputDecoration(
             labelText: context.tr('Delay (milliseconds)'),
             helperText: context.tr('0–1000, for example 10-20'),
@@ -766,17 +846,22 @@ class _FragmentationSettingsScreenState
         ),
         const SizedBox(height: 16),
         TextField(
+          key: const ValueKey('fragment-splits-field'),
           controller: _splits,
+          onChanged: (_) => _queueSave(),
+          onSubmitted: (_) => _saveNow(),
           decoration: InputDecoration(
             labelText: context.tr('Maximum splits'),
             helperText: context.tr('1–32, for example 3-6'),
           ),
         ),
-        const SizedBox(height: 20),
-        OutlinedButton(
-          onPressed: _busy ? null : _save,
-          child: const Text('Save'),
-        ),
+        if (_validationError != null) ...[
+          const SizedBox(height: 12),
+          Text(
+            _validationError!,
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          ),
+        ],
       ],
     ),
   );

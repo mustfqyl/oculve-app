@@ -141,9 +141,9 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
 
     for (final (locale, expected) in [
-      (const Locale('en'), 'Connection settings'),
-      (const Locale('es'), 'Ajustes de conexión'),
-      (const Locale('tr'), 'Bağlantı ayarları'),
+      (const Locale('en'), 'Connection Settings'),
+      (const Locale('es'), 'Ajustes de Conexión'),
+      (const Locale('tr'), 'Bağlantı Ayarları'),
     ]) {
       await tester.pumpWidget(
         MaterialApp(
@@ -155,7 +155,7 @@ void main() {
               child: SizedBox(
                 width: 96,
                 child: localized.CompactLabel(
-                  'Connection settings',
+                  'Connection Settings',
                   style: TextStyle(fontSize: 16),
                 ),
               ),
@@ -213,14 +213,8 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
 
     for (final (locale, dns, split, connectionOptions, diagnostics) in [
-      (
-        const Locale('es'),
-        'DNS',
-        'EXCLUSIONES DE LA VPN',
-        'CONEXIÓN',
-        'DIAGNÓSTICO',
-      ),
-      (const Locale('tr'), 'DNS', 'VPN DIŞINDA', 'BAĞLANTI', 'TANILAMA'),
+      (const Locale('es'), 'DNS', 'TÚNEL DIVIDIDO', 'CONEXIÓN', 'DIAGNÓSTICO'),
+      (const Locale('tr'), 'DNS', 'BÖLÜNMÜŞ TÜNELLEME', 'BAĞLANTI', 'TANILAMA'),
     ]) {
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pumpWidget(

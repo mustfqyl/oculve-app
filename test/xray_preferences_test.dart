@@ -540,6 +540,80 @@ void main() {
     );
   });
 
+  test('VPN-only domains route through proxy and all other traffic direct', () {
+    final original = VpnProfile.parseSubscription(testLink).single.config;
+    final configured =
+        jsonDecode(
+              XrayPreferences.configure(
+                original,
+                RealityFingerprint.serverDefault,
+                bypassDomains: ['secure.example.com'],
+                vpnOnlyDomains: true,
+              ),
+            )
+            as Map<String, dynamic>;
+    final rules = configured['routing']['rules'] as List;
+    expect(rules, hasLength(2));
+    expect(rules[0]['domain'], ['domain:secure.example.com']);
+    expect(rules[0]['outboundTag'], 'proxy');
+    expect(rules[1], {'type': 'field', 'outboundTag': 'direct'});
+    expect(
+      (configured['outbounds'] as List).any(
+        (outbound) =>
+            outbound['tag'] == 'direct' && outbound['protocol'] == 'freedom',
+      ),
+      isTrue,
+    );
+  });
+
+  test('empty VPN-only domain list keeps the default VPN route', () {
+    final original = VpnProfile.parseSubscription(testLink).single.config;
+    final configured =
+        jsonDecode(
+              XrayPreferences.configure(
+                original,
+                RealityFingerprint.serverDefault,
+                vpnOnlyDomains: true,
+                routingRules: const [
+                  XrayRoutingRule(
+                    action: XrayRoutingAction.direct,
+                    domains: ['domain:previously-routed.example'],
+                  ),
+                ],
+              ),
+            )
+            as Map<String, dynamic>;
+    expect(configured['routing']['rules'], isEmpty);
+    expect((configured['outbounds'] as List).single['tag'], 'proxy');
+  });
+
+  test('DPI Bypass honors VPN-only domains with a direct fallback', () {
+    final config = XrayPreferences.configureDpiBypass(
+      localProxyPort: 65535,
+      dnsSettings: const XrayDnsSettings(
+        servers: ['https://cloudflare-dns.com/dns-query'],
+      ),
+      bypassDomains: ['secure.example.com'],
+      vpnOnlyDomains: true,
+      routingRules: const [
+        XrayRoutingRule(
+          action: XrayRoutingAction.block,
+          domains: ['domain:blocked.example'],
+        ),
+      ],
+    );
+    final rules =
+        (jsonDecode(config) as Map<String, dynamic>)['routing']['rules']
+            as List;
+    expect(rules[2]['domain'], ['domain:secure.example.com']);
+    expect(rules[2]['outboundTag'], 'byedpi');
+    expect(rules[3], {'type': 'field', 'outboundTag': 'direct'});
+    expect(
+      rules.any((rule) => rule['domain'] == ['domain:blocked.example']),
+      isFalse,
+    );
+  });
+
   test('structured routing creates Xray proxy, direct and block rules', () {
     final original = VpnProfile.parseSubscription(testLink).single.config;
     final configured =

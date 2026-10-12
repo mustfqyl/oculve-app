@@ -2292,6 +2292,7 @@ class XrayPreferences {
   static const _finalMaskSettingsKey = 'xray.transport.finalmask.v1';
   static const _logLevelKey = 'xray.log.level.v1';
   static const _bypassDomainsKey = 'xray.routing.bypass_domains.v1';
+  static const _vpnOnlyDomainsKey = 'xray.routing.vpn_only_domains.v1';
   static const _routingRulesKey = 'xray.routing.rules.v1';
   static const _sniffingSettingsKey = 'xray.sniffing.settings.v1';
   static const _blockedAppsKey = 'xray.routing.android_blocked_apps.v1';
@@ -2825,6 +2826,16 @@ class XrayPreferences {
     await preferences.setStringList(_bypassDomainsKey, normalized);
   }
 
+  static Future<bool> vpnOnlyDomainsEnabled() async {
+    final preferences = await SharedPreferences.getInstance();
+    return preferences.getBool(_vpnOnlyDomainsKey) ?? false;
+  }
+
+  static Future<void> setVpnOnlyDomainsEnabled(bool enabled) async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setBool(_vpnOnlyDomainsKey, enabled);
+  }
+
   static Future<List<XrayRoutingRule>> routingRules() async {
     final preferences = await SharedPreferences.getInstance();
     final encoded = preferences.getString(_routingRulesKey);
@@ -2906,6 +2917,7 @@ class XrayPreferences {
     int dpiProfile = 4,
     required XrayDnsSettings dnsSettings,
     List<String> bypassDomains = const [],
+    bool vpnOnlyDomains = false,
     List<XrayRoutingRule> routingRules = const [],
   }) {
     dnsSettings.validate();
@@ -2952,15 +2964,26 @@ class XrayPreferences {
         'outboundTag': 'byedpi',
       },
     ];
-    for (final rule in routingRules) {
-      final outboundTag = switch (rule.action) {
-        XrayRoutingAction.proxy => 'byedpi',
-        XrayRoutingAction.direct => 'direct',
-        XrayRoutingAction.block => 'block',
-      };
-      rules.add(rule.toXrayJson(outboundTag));
+    if (vpnOnlyDomains) {
+      if (domains.isNotEmpty) {
+        rules.add({
+          'type': 'field',
+          'domain': domains.map((domain) => 'domain:$domain').toList(),
+          'outboundTag': 'byedpi',
+        });
+        rules.add({'type': 'field', 'outboundTag': 'direct'});
+      }
+    } else {
+      for (final rule in routingRules) {
+        final outboundTag = switch (rule.action) {
+          XrayRoutingAction.proxy => 'byedpi',
+          XrayRoutingAction.direct => 'direct',
+          XrayRoutingAction.block => 'block',
+        };
+        rules.add(rule.toXrayJson(outboundTag));
+      }
     }
-    if (domains.isNotEmpty) {
+    if (domains.isNotEmpty && !vpnOnlyDomains) {
       rules.add({
         'type': 'field',
         'domain': domains.map((domain) => 'domain:$domain').toList(),
@@ -3188,6 +3211,7 @@ class XrayPreferences {
     String source,
     RealityFingerprint fingerprint, {
     List<String> bypassDomains = const [],
+    bool vpnOnlyDomains = false,
     List<XrayRoutingRule> routingRules = const [],
     DnsResolver dnsResolver = DnsResolver.cloudflare,
     String? dnsServer,
@@ -3375,7 +3399,7 @@ class XrayPreferences {
       node['streamSettings'] = {'finalmask': finalMaskSettings!.toXrayJson()};
     }
     node['mux'] = muxSettings.toJson();
-    if (domains.isNotEmpty || routingRules.isNotEmpty) {
+    if (domains.isNotEmpty || routingRules.isNotEmpty || vpnOnlyDomains) {
       final routing = Map<String, dynamic>.from(
         config['routing'] as Map? ?? const {},
       );
@@ -3391,23 +3415,38 @@ class XrayPreferences {
         routing['domainStrategy'] = 'IPIfNonMatch';
       }
       final configuredRules = <Map<String, dynamic>>[];
-      for (final rule in routingRules) {
-        final outboundTag = switch (rule.action) {
-          XrayRoutingAction.proxy => 'proxy',
-          XrayRoutingAction.direct => _ensureDirectOutbound(outbounds),
-          XrayRoutingAction.block => _ensureBlockOutbound(outbounds),
-        };
-        configuredRules.add(rule.toXrayJson(outboundTag));
+      if (vpnOnlyDomains) {
+        if (domains.isNotEmpty) {
+          configuredRules.add({
+            'type': 'field',
+            'domain': domains.map((domain) => 'domain:$domain').toList(),
+            'outboundTag': node['tag'],
+          });
+          // Keep the VPN opt-in explicit: listed domains use the proxy, while
+          // every other destination leaves through the physical connection.
+          final directTag = _ensureDirectOutbound(outbounds);
+          configuredRules.add({'type': 'field', 'outboundTag': directTag});
+        }
+        routing['rules'] = configuredRules;
+      } else {
+        for (final rule in routingRules) {
+          final outboundTag = switch (rule.action) {
+            XrayRoutingAction.proxy => 'proxy',
+            XrayRoutingAction.direct => _ensureDirectOutbound(outbounds),
+            XrayRoutingAction.block => _ensureBlockOutbound(outbounds),
+          };
+          configuredRules.add(rule.toXrayJson(outboundTag));
+        }
+        if (domains.isNotEmpty) {
+          final directTag = _ensureDirectOutbound(outbounds);
+          configuredRules.add({
+            'type': 'field',
+            'domain': domains.map((domain) => 'domain:$domain').toList(),
+            'outboundTag': directTag,
+          });
+        }
+        routing['rules'] = [...configuredRules, ...preservedRules];
       }
-      if (domains.isNotEmpty) {
-        final directTag = _ensureDirectOutbound(outbounds);
-        configuredRules.add({
-          'type': 'field',
-          'domain': domains.map((domain) => 'domain:$domain').toList(),
-          'outboundTag': directTag,
-        });
-      }
-      routing['rules'] = [...configuredRules, ...preservedRules];
       config['routing'] = routing;
     }
     if (policySettings != null) {

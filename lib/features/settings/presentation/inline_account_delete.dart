@@ -144,6 +144,7 @@ class _InlineAccountDeleteState extends State<InlineAccountDelete>
                 autocorrect: false,
                 enableSuggestions: false,
                 textAlign: TextAlign.center,
+                textAlignVertical: TextAlignVertical.center,
                 style: const TextStyle(
                   fontFamily: 'Outfit',
                   color: red,
@@ -162,7 +163,10 @@ class _InlineAccountDeleteState extends State<InlineAccountDelete>
                   isDense: true,
                   contentPadding: const EdgeInsets.symmetric(
                     horizontal: 12,
-                    vertical: 10,
+                    // The outline should fill the same 40px slot as the idle
+                    // and countdown buttons; the smaller padding made the
+                    // focused field's painted border look vertically shorter.
+                    vertical: 14,
                   ),
                   filled: true,
                   fillColor: red.withValues(alpha: .035),

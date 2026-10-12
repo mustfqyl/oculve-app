@@ -177,6 +177,7 @@ class VpnNotifier extends StateNotifier<VpnState> {
       final logLevel = await XrayPreferences.logLevel();
       final dnsSettings = await XrayPreferences.userDnsSettings();
       final bypassDomains = await XrayPreferences.bypassDomains();
+      final vpnOnlyDomains = await XrayPreferences.vpnOnlyDomainsEnabled();
       final routingRules = await XrayPreferences.routingRules();
       final blockedApps = Platform.isAndroid
           ? await XrayPreferences.blockedApps()
@@ -188,12 +189,14 @@ class VpnNotifier extends StateNotifier<VpnState> {
               dpiProfile: dpiStrategy.engineProfile,
               dnsSettings: dnsSettings,
               bypassDomains: bypassDomains,
+              vpnOnlyDomains: vpnOnlyDomains,
               routingRules: routingRules,
             )
           : await _configureVpnProfile(
               profile!,
               dnsSettings,
               bypassDomains,
+              vpnOnlyDomains,
               logLevel,
             );
       final options = await ConnectionPreferences.read();
@@ -365,6 +368,7 @@ class VpnNotifier extends StateNotifier<VpnState> {
     VpnProfile profile,
     XrayDnsSettings dnsSettings,
     List<String> bypassDomains,
+    bool vpnOnlyDomains,
     XrayLogLevel logLevel,
   ) async => XrayPreferences.configure(
     profile.config,
@@ -373,6 +377,7 @@ class VpnNotifier extends StateNotifier<VpnState> {
         : RealityFingerprint.serverDefault,
     logLevel: logLevel,
     bypassDomains: bypassDomains,
+    vpnOnlyDomains: vpnOnlyDomains,
     dnsSettings: dnsSettings,
     finalMaskSettings: profile.supportsTlsHelloFragmentation
         ? await XrayPreferences.userFinalMaskSettings()

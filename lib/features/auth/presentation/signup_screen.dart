@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart' hide Text;
 import 'package:flutter/services.dart';
@@ -419,33 +420,35 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen>
                   ),
                 ),
                 child: Center(
-                  child: _code == null
-                      ? _loading
-                            ? const SizedBox(
-                                width: 19,
-                                height: 19,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : Text(
-                                'Try again to create your code.',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(color: muted, fontSize: 12),
-                              )
-                      : FittedBox(
-                          fit: BoxFit.scaleDown,
-                          child: Text(
-                            _copied ? 'Copied' : _code!,
-                            style: TextStyle(
-                              color: _copied ? AppTheme.successColor : fg,
-                              fontFamily: 'monospace',
-                              fontSize: 17,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: 1.2,
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 180),
+                    child: _code == null
+                        ? _loading
+                              ? _AccessCodeScramble(
+                                  key: ValueKey('signup-code-scramble'),
+                                  color: muted,
+                                )
+                              : Text(
+                                  'Try again to create your code.',
+                                  key: const ValueKey('signup-code-retry'),
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(color: muted, fontSize: 12),
+                                )
+                        : FittedBox(
+                            key: const ValueKey('signup-code-value'),
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                              _copied ? 'Copied' : _code!,
+                              style: TextStyle(
+                                color: _copied ? AppTheme.successColor : fg,
+                                fontFamily: 'monospace',
+                                fontSize: 17,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 1.2,
+                              ),
                             ),
                           ),
-                        ),
+                  ),
                 ),
               ),
             ),
@@ -587,7 +590,7 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen>
                 1 => _loading || _saving || _creating ? null : _next,
                 _ => _codeExported && !_creating && !_registered ? _next : null,
               },
-              icon: _loading || _saving || _creating
+              icon: _saving || _creating
                   ? const SizedBox(
                       width: 16,
                       height: 16,
@@ -602,7 +605,9 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen>
               label: CompactLabel(switch (_step) {
                 0 => 'Continue setup',
                 1 =>
-                  _code == null
+                  _loading
+                      ? 'Continue'
+                      : _code == null
                       ? 'Try again'
                       : _saving
                       ? 'Saving code…'
@@ -685,6 +690,74 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen>
           ],
         ),
       );
+}
+
+class _AccessCodeScramble extends StatefulWidget {
+  const _AccessCodeScramble({super.key, required this.color});
+
+  final Color color;
+
+  @override
+  State<_AccessCodeScramble> createState() => _AccessCodeScrambleState();
+}
+
+class _AccessCodeScrambleState extends State<_AccessCodeScramble> {
+  static const _alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  static const _tick = Duration(milliseconds: 55);
+
+  final _random = math.Random();
+  late String _value;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _value = _nextValue();
+    _timer = Timer.periodic(_tick, (_) {
+      if (mounted) setState(() => _value = _nextValue());
+    });
+  }
+
+  String _nextValue() {
+    final groups = List.generate(
+      3,
+      (_) => List.generate(
+        4,
+        (_) => _alphabet[_random.nextInt(_alphabet.length)],
+      ).join(),
+    );
+    return groups.join('-');
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final label = switch (Localizations.localeOf(context).languageCode) {
+      'tr' => 'Erişim kodun oluşturuluyor',
+      'es' => 'Generando tu código de acceso',
+      _ => 'Generating your access code',
+    };
+    return Semantics(
+      label: label,
+      child: ExcludeSemantics(
+        child: Text(
+          _value,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            fontFamily: 'monospace',
+            fontSize: 17,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 1.2,
+          ).copyWith(color: widget.color),
+        ),
+      ),
+    );
+  }
 }
 
 class _SignupPagePhysics extends PageScrollPhysics {

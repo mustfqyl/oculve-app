@@ -4,7 +4,7 @@ import 'package:flutter/widgets.dart';
 /// passed through unchanged unless they exactly match a product label.
 class AppStrings {
   static const _es = <String, String>{
-    'Tray & window': 'Bandeja y ventana',
+    'Tray & Window': 'Bandeja y Ventana',
     'CLICK ACTIONS': 'ACCIONES DE CLIC',
     'Left click': 'Clic izquierdo',
     'Right click': 'Clic derecho',
@@ -26,6 +26,7 @@ class AppStrings {
     'Could not save tray settings. Please try again.':
         'No se pudieron guardar los ajustes de la bandeja. Inténtalo de nuevo.',
     'Connection error': 'Error de conexión',
+    'Loading statistics': 'Cargando estadísticas',
 
     'macOS tunnel uses IPv4.': 'El túnel macOS utiliza IPv4.',
     'Retry interrupted sessions. Manual Disconnect cancels retries.':
@@ -43,10 +44,22 @@ class AppStrings {
     'Queries both IPv4 and IPv6 records.': 'Consulta registros IPv4 e IPv6.',
     'Queries IPv4 records only.': 'Consulta solo registros IPv4.',
     'Queries IPv6 records only.': 'Consulta solo registros IPv6.',
-    'VPN BYPASS': 'EXCLUSIONES DE LA VPN',
+    'SPLIT TUNNELING': 'TÚNEL DIVIDIDO',
+    'Website routing': 'Enrutamiento de sitios',
+    'Route these domains': 'Enrutar estos dominios',
+    'Except selected domains': 'Excepto los dominios seleccionados',
+    'Only selected domains': 'Solo los dominios seleccionados',
+    'Choose which domains use the VPN.': 'Elige qué dominios usan la VPN.',
+    'Selected domains bypass the VPN. All other traffic uses the VPN. Changes apply after reconnecting.':
+        'Los dominios seleccionados omiten la VPN. El resto del tráfico usa la VPN. Los cambios se aplican al reconectar.',
+    'Only selected domains use the VPN. All other traffic goes directly to the internet. Changes apply after reconnecting.':
+        'Solo los dominios seleccionados usan la VPN. El resto del tráfico va directamente a internet. Los cambios se aplican al reconectar.',
+    'Add at least one domain. Until then, all traffic stays on the VPN.':
+        'Añade al menos un dominio. Hasta entonces, todo el tráfico seguirá usando la VPN.',
     'Websites outside VPN': 'Sitios fuera de la VPN',
     'No websites added': 'No hay sitios añadidos',
     'websites': 'sitios',
+    'domains': 'dominios',
     'Website domain': 'Dominio del sitio',
     'Add website': 'Añadir sitio',
     'These websites bypass the VPN. Changes apply after reconnecting.':
@@ -72,6 +85,8 @@ class AppStrings {
     'Fragmentation settings': 'Ajustes de fragmentación',
     'Only the TLS hello is fragmented. Smaller fragments or longer delays may reduce speed.':
         'Solo se fragmenta el saludo TLS. Los fragmentos pequeños o retrasos largos pueden reducir la velocidad.',
+    'Only the TLS hello is fragmented. Settings save automatically; reconnect to apply. Smaller fragments or longer delays may reduce speed.':
+        'Solo se fragmenta el saludo TLS. Los ajustes se guardan automáticamente y se aplican al reconectar. Los fragmentos pequeños o retrasos largos pueden reducir la velocidad.',
     'Fragment length (bytes)': 'Tamaño del fragmento (bytes)',
     'Delay (milliseconds)': 'Retraso (milisegundos)',
     'Maximum splits': 'Máximo de divisiones',
@@ -243,6 +258,7 @@ class AppStrings {
         'Crea tu cuenta de Oculve en tres pasos sencillos.',
     'No email or password required.': 'No necesitas correo ni contraseña.',
     'Your sign-in key': 'Tu clave de acceso',
+    'Generating your access code': 'Generando tu código de acceso',
     'This is your access code. Tap it to copy; continuing saves it to your device.':
         'Este es tu código de acceso. Tócalo para copiarlo; al continuar, se guardará en tu dispositivo.',
     'Ready to create your account?': '¿Todo listo para crear tu cuenta?',
@@ -317,9 +333,6 @@ class AppStrings {
     'Alphabetical': 'Alfabético',
     'Allow invalid certificates': 'Permitir certificados no válidos',
     'Appearance': 'Apariencia',
-    'Page animations': 'Animaciones de página',
-    'Use smooth transitions between screens.':
-        'Usa transiciones suaves entre pantallas.',
     'Automatic selection': 'Selección automática',
     'Back': 'Volver',
     'Back to sign in': 'Volver al inicio de sesión',
@@ -394,7 +407,7 @@ class AppStrings {
     'Sorted alphabetically. Tap to sort by ping.':
         'Ordenado alfabéticamente. Toca para ordenar por latencia.',
     'Connection': 'Conexión',
-    'Connection settings': 'Ajustes de conexión',
+    'Connection Settings': 'Ajustes de Conexión',
     'Most users can leave these settings as they are.':
         'La mayoría puede dejar estos ajustes tal como están.',
     'DNS & network': 'DNS y red',
@@ -1062,7 +1075,7 @@ class AppStrings {
   };
 
   static const _tr = <String, String>{
-    'Tray & window': 'Tepsi ve pencere',
+    'Tray & Window': 'Tepsi ve Pencere',
     'CLICK ACTIONS': 'TIKLAMA İŞLEMLERİ',
     'Left click': 'Sol tıklama',
     'Right click': 'Sağ tıklama',
@@ -1085,6 +1098,7 @@ class AppStrings {
     'Could not save tray settings. Please try again.':
         'Tepsi ayarları kaydedilemedi. Yeniden deneyin.',
     'Connection error': 'Bağlantı hatası',
+    'Loading statistics': 'İstatistikler yükleniyor',
 
     'macOS tunnel uses IPv4.': 'macOS tüneli IPv4 kullanır.',
     'Retry interrupted sessions. Manual Disconnect cancels retries.':
@@ -1103,9 +1117,23 @@ class AppStrings {
     'Queries IPv4 records only.': 'Yalnızca IPv4 kayıtlarını sorgular.',
     'Queries IPv6 records only.': 'Yalnızca IPv6 kayıtlarını sorgular.',
     'VPN BYPASS': 'VPN DIŞINDA',
+    'SPLIT TUNNELING': 'BÖLÜNMÜŞ TÜNELLEME',
+    'Website routing': 'Site yönlendirme',
+    'Route these domains': 'Bu alan adlarını yönlendir',
+    'Except selected domains': 'Seçilenler hariç',
+    'Only selected domains': 'Yalnızca seçilenler',
+    'Choose which domains use the VPN.':
+        'Hangi alan adlarının VPN kullanacağını seçin.',
+    'Selected domains bypass the VPN. All other traffic uses the VPN. Changes apply after reconnecting.':
+        'Seçilen alan adları VPN dışında kalır. Diğer tüm trafik VPN’i kullanır. Değişiklikler yeniden bağlanınca uygulanır.',
+    'Only selected domains use the VPN. All other traffic goes directly to the internet. Changes apply after reconnecting.':
+        'Yalnızca seçilen alan adları VPN’i kullanır. Diğer tüm trafik doğrudan internete gider. Değişiklikler yeniden bağlanınca uygulanır.',
+    'Add at least one domain. Until then, all traffic stays on the VPN.':
+        'En az bir alan adı ekleyin. O zamana kadar tüm trafik VPN’de kalır.',
     'Websites outside VPN': 'VPN dışında kalan siteler',
     'No websites added': 'Henüz site eklenmedi',
     'websites': 'site',
+    'domains': 'alan adı',
     'Website domain': 'Site alan adı',
     'Add website': 'Site ekle',
     'These websites bypass the VPN. Changes apply after reconnecting.':
@@ -1131,6 +1159,8 @@ class AppStrings {
     'Fragmentation settings': 'Parçalama ayarları',
     'Only the TLS hello is fragmented. Smaller fragments or longer delays may reduce speed.':
         'Yalnızca TLS başlangıç mesajı parçalanır. Küçük parçalar veya uzun gecikmeler hızı azaltabilir.',
+    'Only the TLS hello is fragmented. Settings save automatically; reconnect to apply. Smaller fragments or longer delays may reduce speed.':
+        'Yalnızca TLS başlangıç mesajı parçalanır. Ayarlar otomatik kaydedilir ve yeniden bağlanınca uygulanır. Küçük parçalar veya uzun gecikmeler hızı azaltabilir.',
     'Fragment length (bytes)': 'Parça boyutu (bayt)',
     'Delay (milliseconds)': 'Gecikme (milisaniye)',
     'Maximum splits': 'En fazla parça',
@@ -1297,6 +1327,7 @@ class AppStrings {
         'Oculve hesabını üç kısa adımda oluştur.',
     'No email or password required.': 'E-posta veya şifre gerekmez.',
     'Your sign-in key': 'Giriş anahtarın',
+    'Generating your access code': 'Erişim kodun oluşturuluyor',
     'This is your access code. Tap it to copy; continuing saves it to your device.':
         'Bu senin erişim kodun. Kopyalamak için dokun; devam ettiğinde cihazına kaydedilecek.',
     'Ready to create your account?': 'Hesabını oluşturmaya hazır mısın?',
@@ -1368,9 +1399,6 @@ class AppStrings {
     'Alphabetical': 'Alfabetik',
     'Allow invalid certificates': 'Geçersiz sertifikalara izin ver',
     'Appearance': 'Görünüm',
-    'Page animations': 'Sayfa animasyonları',
-    'Use smooth transitions between screens.':
-        'Ekranlar arasında akıcı geçişler kullan.',
     'Apps outside the VPN': 'VPN dışındaki uygulamalar',
     'Automatic selection': 'Otomatik seçim',
     'Back': 'Geri',
@@ -1445,7 +1473,7 @@ class AppStrings {
     'Sorted alphabetically. Tap to sort by ping.':
         'Alfabetik sıralı. Ping değerine göre sıralamak için dokunun.',
     'Connection': 'Bağlantı',
-    'Connection settings': 'Bağlantı ayarları',
+    'Connection Settings': 'Bağlantı Ayarları',
     'Most users can leave these settings as they are.':
         'Çoğu kullanıcı bu ayarları olduğu gibi bırakabilir.',
     'DNS & network': 'DNS ve ağ',

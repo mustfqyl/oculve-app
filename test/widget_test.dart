@@ -117,6 +117,16 @@ class _OnboardingSession extends _SignupSession {
   }
 }
 
+class _DeferredSignupSession extends _OnboardingSession {
+  final pendingCode = Completer<String>();
+
+  @override
+  Future<String> generateRegistrationCode() {
+    codeRequests++;
+    return pendingCode.future;
+  }
+}
+
 class _LoginFlowSession extends _OnboardingSession {
   String? submittedCode;
 
@@ -224,6 +234,49 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
     expect(find.byType(SignUpScreen), findsOneWidget);
     expect(find.byType(HomeScreen), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('registration code scrambles while loading, then reveals code', (
+    tester,
+  ) async {
+    final session = _DeferredSignupSession();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sessionProvider.overrideWith((ref) => session),
+          accessCodeSaverProvider.overrideWithValue(
+            (context, code) async => true,
+          ),
+        ],
+        child: MaterialApp(
+          theme: AppTheme.darkTheme,
+          home: const SignUpScreen(),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.tap(find.text('Continue setup'));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(milliseconds: 800));
+
+    final scramble = find.byKey(const ValueKey('signup-code-scramble'));
+    expect(scramble, findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    String displayedCode() => tester
+        .widget<Text>(
+          find.descendant(of: scramble, matching: find.byType(Text)),
+        )
+        .data!;
+    final initial = displayedCode();
+    await tester.pump(const Duration(milliseconds: 110));
+    expect(displayedCode(), isNot(initial));
+
+    session.pendingCode.complete('ABCD-EFGH-IJKL');
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(find.text('ABCD-EFGH-IJKL'), findsOneWidget);
+    expect(find.byKey(const ValueKey('signup-code-scramble')), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -898,9 +951,9 @@ void main() {
     );
     await tester.pump(const Duration(seconds: 2));
 
-    expect(find.text('Connection settings'), findsOneWidget);
+    expect(find.text('Connection Settings'), findsOneWidget);
     expect(find.text('DNS'), findsOneWidget);
-    expect(find.text('VPN BYPASS'), findsOneWidget);
+    expect(find.text('SPLIT TUNNELING'), findsOneWidget);
     expect(find.text('Advanced'), findsNothing);
     await tester.tap(find.byKey(const ValueKey('dns-provider-row')));
     await tester.pump(const Duration(milliseconds: 350));
@@ -909,15 +962,21 @@ void main() {
       'https://dns.google/dns-query',
     ]);
     await tester.ensureVisible(
-      find.byKey(const ValueKey('bypass-websites-row')),
+      find.byKey(const ValueKey('split-tunneling-domains-row')),
     );
-    await tester.tap(find.byKey(const ValueKey('bypass-websites-row')));
+    await tester.tap(find.byKey(const ValueKey('split-tunneling-domains-row')));
     await tester.pump(const Duration(milliseconds: 350));
     await tester.pump(const Duration(milliseconds: 350));
+    expect(find.text('Split tunneling'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('split-tunneling-mode-row')));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(await XrayPreferences.vpnOnlyDomainsEnabled(), isTrue);
     final domains = find.byKey(const ValueKey('bypass-domains-field'));
+    expect(find.text('Add website'), findsNothing);
+    expect(find.text('No websites added'), findsNothing);
     for (final domain in ['example.com', 'news.example.org']) {
       await tester.enterText(domains, domain);
-      await tester.tap(find.byKey(const ValueKey('save-bypass-domains')));
+      await tester.testTextInput.receiveAction(TextInputAction.done);
       await tester.pump(const Duration(milliseconds: 350));
     }
     expect(await XrayPreferences.bypassDomains(), [
@@ -931,9 +990,21 @@ void main() {
     );
     await tester.ensureVisible(fragmentation);
     await tester.pump(const Duration(milliseconds: 350));
+    expect(find.text('Fragmentation settings'), findsNothing);
     await tester.tap(fragmentation);
     await tester.pump(const Duration(milliseconds: 250));
     expect(await XrayPreferences.tlsHelloFragmentationEnabled(), isTrue);
+    expect(find.text('Fragmentation settings'), findsOneWidget);
+    await tester.tap(find.text('Fragmentation settings'));
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(find.text('Save'), findsNothing);
+    await tester.enterText(
+      find.byKey(const ValueKey('fragment-length-field')),
+      '50-120',
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+    expect((await XrayPreferences.fragmentRanges())['length'], '50-120');
     final config = XrayPreferences.configure(
       profile.config,
       RealityFingerprint.serverDefault,

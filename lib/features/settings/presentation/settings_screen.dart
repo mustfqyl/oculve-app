@@ -6,7 +6,6 @@ import 'package:oculve/core/localization/app_strings.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:oculve/core/providers/theme_provider.dart';
-import 'package:oculve/core/providers/animation_provider.dart';
 import 'package:oculve/core/providers/locale_provider.dart';
 import 'package:oculve/core/theme/app_theme.dart';
 import 'package:oculve/core/widgets/app_page.dart';
@@ -50,16 +49,6 @@ class SettingsScreen extends ConsumerWidget {
                 ),
                 const SizedBox(height: 10),
                 const _LanguageSelector(),
-                const SizedBox(height: 10),
-                Divider(
-                  height: 1,
-                  thickness: 0.8,
-                  color: isDark
-                      ? Colors.white.withValues(alpha: 0.06)
-                      : Colors.black.withValues(alpha: 0.05),
-                ),
-                const SizedBox(height: 4),
-                const _PageAnimationsSetting(),
               ],
             ),
           ),
@@ -75,7 +64,7 @@ class SettingsScreen extends ConsumerWidget {
               children: [
                 _GroupedSettingRow(
                   icon: Icons.tune_rounded,
-                  title: 'Connection settings',
+                  title: 'Connection Settings',
                   onTap: () => Navigator.push(
                     context,
                     appRoute(const XrayCoreSettingsScreen()),
@@ -87,7 +76,7 @@ class SettingsScreen extends ConsumerWidget {
                   _RowDivider(isDark: isDark),
                   _GroupedSettingRow(
                     icon: Icons.desktop_windows_outlined,
-                    title: 'Tray & window',
+                    title: 'Tray & Window',
                     onTap: () => Navigator.push(
                       context,
                       appRoute(const TrayPreferencesScreen()),
@@ -163,40 +152,6 @@ class SettingsScreen extends ConsumerWidget {
           const SizedBox(height: 20),
         ],
       ),
-    );
-  }
-}
-
-class _PageAnimationsSetting extends ConsumerWidget {
-  const _PageAnimationsSetting();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final foreground = isDark ? AppTheme.foreground : AppTheme.lightForeground;
-    final muted = isDark
-        ? AppTheme.foregroundMuted
-        : AppTheme.lightForegroundMuted;
-    final enabled = ref.watch(pageAnimationsProvider);
-
-    return SwitchListTile.adaptive(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-      value: enabled,
-      onChanged: ref.read(pageAnimationsProvider.notifier).setEnabled,
-      secondary: Icon(Icons.animation_rounded, size: 18, color: muted),
-      title: Text(
-        context.tr('Page animations'),
-        style: TextStyle(
-          color: foreground,
-          fontSize: 13,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-      subtitle: Text(
-        context.tr('Use smooth transitions between screens.'),
-        style: TextStyle(color: muted, fontSize: 11, height: 1.25),
-      ),
-      dense: true,
     );
   }
 }

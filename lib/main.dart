@@ -8,7 +8,6 @@ import 'package:window_manager/window_manager.dart';
 
 import 'core/desktop/desktop_tray_controller.dart';
 import 'core/desktop/startup_service.dart';
-import 'core/providers/animation_provider.dart';
 import 'core/providers/vpn_provider.dart';
 import 'core/navigation/app_navigator.dart';
 import 'core/providers/locale_provider.dart';
@@ -99,11 +98,10 @@ class MyApp extends ConsumerWidget {
         final systemDisablesAnimations = MediaQuery.disableAnimationsOf(
           context,
         );
-        final animationsEnabled = ref.watch(pageAnimationsProvider);
         return MediaQuery(
-          data: MediaQuery.of(context).copyWith(
-            disableAnimations: systemDisablesAnimations || !animationsEnabled,
-          ),
+          data: MediaQuery.of(
+            context,
+          ).copyWith(disableAnimations: systemDisablesAnimations),
           child: child ?? const SizedBox.shrink(),
         );
       },
