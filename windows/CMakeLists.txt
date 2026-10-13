@@ -43,6 +43,12 @@ function(APPLY_STANDARD_SETTINGS TARGET)
   target_compile_options(${TARGET} PRIVATE /EHsc)
   target_compile_definitions(${TARGET} PRIVATE "_HAS_EXCEPTIONS=0")
   target_compile_definitions(${TARGET} PRIVATE "$<$<CONFIG:Debug>:_DEBUG>")
+  if("${TARGET}" MATCHES "^local_auth_windows")
+    # MSVC 14.51 makes the legacy coroutine header used by bundled C++/WinRT
+    # a hard error; this compatibility define is scoped to the auth plugin.
+    target_compile_definitions(${TARGET} PRIVATE
+      "_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS")
+  endif()
 endfunction()
 
 # Flutter library and tool build rules.
