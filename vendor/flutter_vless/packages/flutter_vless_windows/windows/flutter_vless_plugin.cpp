@@ -367,7 +367,10 @@ FlutterVlessPlugin::~FlutterVlessPlugin() {
 void FlutterVlessPlugin::HandleMethodCall(
     const flutter::MethodCall<flutter::EncodableValue> &method_call,
     std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
-  if (method_call.method_name().compare("requestPermission") == 0) {
+  if (method_call.method_name() == "getSecurityCapabilities") {
+    result->Success(flutter::EncodableValue(flutter::EncodableMap{
+        {flutter::EncodableValue("protectedServerSwitch"), flutter::EncodableValue(true)}}));
+  } else if (method_call.method_name().compare("requestPermission") == 0) {
     // VPN requires elevation for Wintun and mandatory WFP containment.
     result->Success(flutter::EncodableValue(flutter_vless::native::IsAdministrator()));
   } else if (method_call.method_name().compare("initializeVless") == 0) {
@@ -379,7 +382,7 @@ void FlutterVlessPlugin::HandleMethodCall(
     } else {
       result->Error("INVALID_ARGUMENTS", "Invalid arguments for initializeVless");
     }
-  } else if (method_call.method_name().compare("startVless") == 0) {
+  } else if ((method_call.method_name() == "startVless" || method_call.method_name() == "replaceVless")) {
     const auto *arguments = std::get_if<flutter::EncodableMap>(method_call.arguments());
     if (arguments) {
       auto remark_it = arguments->find(flutter::EncodableValue("remark"));
@@ -417,8 +420,13 @@ void FlutterVlessPlugin::HandleMethodCall(
         // Convert unique_ptr to shared_ptr to allow capturing in std::function (which requires CopyConstructible)
         std::shared_ptr<flutter::MethodResult<flutter::EncodableValue>> shared_result = std::move(result);
 
-        operations_.Submit([this, config, proxy_only, shared_result]() {
+        const bool replacing = method_call.method_name() == "replaceVless";
+        operations_.Submit([this, config, proxy_only, replacing, shared_result]() {
           std::lock_guard<std::mutex> lock(lifecycle_mutex_);
+          if (replacing && (proxy_only || !V2rayManager::GetInstance().IsProtecting())) {
+            RunOnUIThread([shared_result]() { shared_result->Error("PROTECTED_SWITCH_UNAVAILABLE", "An active protected VPN is required."); });
+            return;
+          }
           LogMessage("Starting Xray...");
           const bool ready = V2rayManager::GetInstance().Start(config, proxy_only);
           const bool protecting = V2rayManager::GetInstance().IsProtecting();

@@ -44,7 +44,7 @@ import java.util.concurrent.Executors
  * 3. Starting the [XrayVPNService] to run the VPN or Proxy.
  * 4. Sending status updates and traffic statistics back to Flutter via EventChannel.
  */
-class FlutterVlessPlugin : FlutterPlugin, ActivityAware, PluginRegistry.ActivityResultListener, MethodChannel.MethodCallHandler {
+class FlutterVlessPlugin : FlutterPlugin, ActivityAware, PluginRegistry.ActivityResultListener, PluginRegistry.RequestPermissionsResultListener, MethodChannel.MethodCallHandler {
 
     private val executor = Executors.newSingleThreadExecutor()
     private lateinit var vpnControlMethod: MethodChannel
@@ -52,7 +52,19 @@ class FlutterVlessPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activity
     private var vpnStatusSink: EventChannel.EventSink? = null
     private var activity: Activity? = null
     private var xrayReceiver: BroadcastReceiver? = null
-    private var pendingResult: MethodChannel.Result? = null
+    private var activityBinding: ActivityPluginBinding? = null
+    private val permissionRequests = PermissionRequestCoordinator(
+        launchNotifications = {
+            ActivityCompat.requestPermissions(requireNotNull(activity),
+                arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQUEST_CODE_POST_NOTIFICATIONS)
+        },
+        launchVpn = {
+            val current = requireNotNull(activity)
+            val request = VpnService.prepare(current)
+            if (request != null) current.startActivityForResult(request, REQUEST_CODE_VPN_PERMISSION)
+            request == null
+        }
+    )
     private lateinit var context: Context
 
     companion object {
@@ -83,8 +95,8 @@ class FlutterVlessPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activity
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
-            "getSecurityCapabilities" -> result.success(mapOf("androidProxyDns" to true, "iosKeychainReference" to false))
-            "startVless" -> {
+            "getSecurityCapabilities" -> result.success(mapOf("protectedServerSwitch" to true, "androidProxyDns" to true, "iosKeychainReference" to false))
+            "startVless", "replaceVless" -> {
                 // 1. Parse configuration from Flutter
                 val config = XrayConfig()
                 config.REMARK = call.argument("remark") ?: ""
@@ -150,17 +162,23 @@ class FlutterVlessPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activity
                 intent.putExtra("COMMAND", AppConfigs.V2RAY_SERVICE_COMMANDS.START_SERVICE)
                 intent.putExtra("V2RAY_CONFIG", config)
                 intent.putExtra("PROXY_ONLY", config.PROXY_ONLY)
+                intent.putExtra("PRESERVE_TUNNEL", call.method == "replaceVless")
                 intent.putExtra("start_receiver", object : ResultReceiver(Handler(Looper.getMainLooper())) {
                     override fun onReceiveResult(resultCode: Int, resultData: Bundle?) {
                         if (resultCode == 0) result.success(null)
-                        else result.error("INVALID_CONFIG", "VPN configuration was rejected; the active session was preserved", null)
+                        else {
+                            val code = resultData?.getString("error_code")
+                            val safeCode = if (code in setOf("ENDPOINT_RESOLUTION_FAILED", "NATIVE_VALIDATION_FAILED", "PROFILE_SAVE_FAILED")) code!! else "INVALID_CONFIG"
+                            result.error(safeCode, "VPN startup preflight failed; see the content-free client diagnostics", null)
+                        }
                     }
                 })
 
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    context.startForegroundService(intent)
-                } else {
-                    context.startService(intent)
+                try {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent)
+                    else context.startService(intent)
+                } catch (_: Exception) {
+                    result.error("SERVICE_START_FAILED", "Android could not start the VPN service", null)
                 }
             }
             "stopVless" -> {
@@ -250,18 +268,15 @@ class FlutterVlessPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activity
                 result.success(XrayCoreManager.getProviderDebugSnapshot(context))
             }
             "requestPermission" -> {
-                // Requests VPN permission from the OS
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    if (ActivityCompat.checkSelfPermission(activity!!, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                        ActivityCompat.requestPermissions(activity!!, arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQUEST_CODE_POST_NOTIFICATIONS)
-                    }
+                val current = activity
+                if (current == null) {
+                    result.error("NO_ACTIVITY", "Open the app before requesting VPN permission", null)
+                    return
                 }
-                val request = VpnService.prepare(activity)
-                if (request != null) {
-                    pendingResult = result
-                    activity!!.startActivityForResult(request, REQUEST_CODE_VPN_PERMISSION)
-                } else {
-                    result.success(true)
+                val notificationsRequired = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    ActivityCompat.checkSelfPermission(current, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                if (!permissionRequests.request(notificationsRequired) { result.success(it) }) {
+                    result.error("PERMISSION_REQUEST_IN_PROGRESS", "A VPN permission request is already pending", null)
                 }
             }
             else -> result.notImplemented()
@@ -323,6 +338,8 @@ class FlutterVlessPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activity
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+        permissionRequests.cancel()
+        unregisterReceiver()
         vpnControlMethod.setMethodCallHandler(null)
         vpnStatusEvent.setStreamHandler(null)
         executor.shutdown()
@@ -330,37 +347,42 @@ class FlutterVlessPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activity
 
     override fun onAttachedToActivity(binding: ActivityPluginBinding) {
         activity = binding.activity
+        activityBinding = binding
         binding.addActivityResultListener(this)
+        binding.addRequestPermissionsResultListener(this)
         if (vpnStatusSink != null) {
             registerReceiver()
         }
     }
 
-    override fun onDetachedFromActivityForConfigChanges() {}
+    private fun detachActivity() {
+        unregisterReceiver()
+        activityBinding?.removeActivityResultListener(this)
+        activityBinding?.removeRequestPermissionsResultListener(this)
+        activityBinding = null
+        activity = null
+    }
+
+    override fun onDetachedFromActivityForConfigChanges() { detachActivity() }
 
     override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
-        activity = binding.activity
-        binding.addActivityResultListener(this)
-        if (vpnStatusSink != null) {
-            registerReceiver()
-        }
+        onAttachedToActivity(binding)
     }
 
     override fun onDetachedFromActivity() {
-        unregisterReceiver()
-        activity = null
+        detachActivity()
+        permissionRequests.cancel()
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?): Boolean {
         if (requestCode == REQUEST_CODE_VPN_PERMISSION) {
-            if (resultCode == Activity.RESULT_OK) {
-                pendingResult?.success(true)
-            } else {
-                pendingResult?.success(false)
-            }
-            pendingResult = null
-            return true
+            return permissionRequests.vpnCompleted(resultCode == Activity.RESULT_OK)
         }
         return false
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray): Boolean {
+        // Notifications are optional for VPN operation, including when denied or dismissed.
+        return requestCode == REQUEST_CODE_POST_NOTIFICATIONS && permissionRequests.notificationsCompleted()
     }
 }

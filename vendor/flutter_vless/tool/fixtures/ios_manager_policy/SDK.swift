@@ -37,6 +37,7 @@ class NEVPNConnection {
 }
 class NETunnelProviderSession: NEVPNConnection {
     func sendProviderMessage(_ data: Data, responseHandler: ((Data?) -> Void)?) throws {
+        SDK.providerMessages.append(data)
         responseHandler?(SDK.providerResponse)
     }
 }
@@ -47,6 +48,7 @@ class NEOnDemandRuleConnect: NEOnDemandRule {
 }
 enum SDKError: Error { case unavailable }
 enum SDK {
+    static var providerMessages: [Data] = []
     static var profile: NETunnelProviderManager?
     static var failAllLoads = false
     static var failAfterNextSave = false

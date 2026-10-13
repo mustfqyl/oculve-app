@@ -43,6 +43,83 @@ internal object AuthenticatedSocksClient {
         } catch (error: Exception) { socket.close(); throw error }
     }
 
+    /** Resolve a replacement endpoint through the old proxy and verified HTTPS.
+     * Never ask a physical Network's resolver while a protected session exists. */
+    fun resolveIpv4(port: Int, credentials: LocalProxyCredentials, hostname: String): List<String> {
+        require(hostname.length in 1..253 && !hostname.contains('\r') && !hostname.contains('\n'))
+        connect(port, credentials, "1.1.1.1", 443).use { raw ->
+            val tls = (SSLSocketFactory.getDefault() as SSLSocketFactory)
+                .createSocket(raw, "cloudflare-dns.com", 443, true) as SSLSocket
+            tls.use { socket ->
+                socket.soTimeout = 5000
+                socket.sslParameters = socket.sslParameters.apply { endpointIdentificationAlgorithm = "HTTPS" }
+                socket.startHandshake()
+                val query = java.net.URLEncoder.encode(hostname, "UTF-8")
+                socket.getOutputStream().write(("GET /dns-query?name=$query&type=A HTTP/1.1\r\n" +
+                    "Host: cloudflare-dns.com\r\nAccept: application/dns-json\r\nConnection: close\r\n\r\n").toByteArray(Charsets.US_ASCII))
+                val input = DataInputStream(socket.getInputStream())
+                var headerBytes = 0
+                fun line(): String {
+                    val text = StringBuilder()
+                    while (text.length < 4096 && headerBytes++ < 16384) {
+                        val value = input.readUnsignedByte()
+                        if (value == 10) return text.toString().trimEnd('\r')
+                        text.append(value.toChar())
+                    }
+                    throw IOException("DNS response header too large")
+                }
+                require(line().matches(Regex("HTTP/1\\.[01] 200(?: .*)?")))
+                val headers = mutableMapOf<String, String>()
+                while (true) {
+                    val line = line(); if (line.isEmpty()) break
+                    val split = line.indexOf(':'); require(split > 0)
+                    headers[line.substring(0, split).lowercase()] = line.substring(split + 1).trim()
+                }
+                require(headers["content-type"]?.substringBefore(';')?.trim() == "application/dns-json")
+                val bytes = java.io.ByteArrayOutputStream()
+                if (headers["transfer-encoding"]?.lowercase() == "chunked") {
+                    while (true) {
+                        val size = line().substringBefore(';').toInt(16)
+                        require(size >= 0 && bytes.size() + size <= 65536)
+                        if (size == 0) break
+                        val chunk = ByteArray(size); input.readFully(chunk); bytes.write(chunk)
+                        require(input.readUnsignedByte() == 13 && input.readUnsignedByte() == 10)
+                    }
+                } else {
+                    val size = headers["content-length"]?.toInt() ?: throw IOException("Bounded DNS response required")
+                    require(size in 1..65536)
+                    val body = ByteArray(size); input.readFully(body); bytes.write(body)
+                }
+                return parseDnsJson(bytes.toString("UTF-8"), hostname)
+            }
+        }
+    }
+
+    fun parseDnsJson(body: String, hostname: String): List<String> {
+        require(body.length <= 65536)
+        val json = org.json.JSONObject(body)
+        require(json.getInt("Status") == 0 && !json.optBoolean("TC"))
+        val questions = json.getJSONArray("Question")
+        fun canonical(value: String) = value.trimEnd('.').lowercase()
+        require(questions.length() == 1 && questions.getJSONObject(0).getInt("type") == 1 &&
+            canonical(questions.getJSONObject(0).getString("name")) == canonical(hostname))
+        val answers = json.optJSONArray("Answer") ?: return emptyList()
+        require(answers.length() <= 256)
+        var owner = canonical(hostname)
+        val seen = mutableSetOf<String>()
+        repeat(16) {
+            require(seen.add(owner))
+            val matching = (0 until answers.length()).map { answers.getJSONObject(it) }
+                .filter { canonical(it.getString("name")) == owner }
+            val addresses = matching.filter { it.getInt("type") == 1 }.map { it.getString("data") }
+                .filter { address -> val parts = address.split('.'); parts.size == 4 && parts.all { it.toIntOrNull() in 0..255 && it.matches(Regex("[0-9]{1,3}")) } }
+            if (addresses.isNotEmpty()) return addresses.distinct()
+            val alias = matching.firstOrNull { it.getInt("type") == 5 } ?: return emptyList()
+            owner = canonical(alias.getString("data"))
+        }
+        throw IOException("Invalid DNS alias chain")
+    }
+
     /** An HTTP response proves authenticated, bidirectional application bytes, not only CONNECT. */
     fun measure(port: Int, credentials: LocalProxyCredentials?, url: String): Long {
         val started = System.nanoTime()

@@ -69,6 +69,23 @@ abstract class VlessPlatform extends PlatformInterface {
     throw UnimplementedError('startVless() has not been implemented.');
   }
 
+  /// Replaces forwarding while retaining the existing OS traffic protection.
+  Future<void> replaceVless({
+    required String remark,
+    required String config,
+    required String notificationDisconnectButtonName,
+    List<String>? blockedApps,
+    List<String>? bypassSubnets,
+    bool dpiBypass = false,
+    int dpiProfile = 0,
+    bool proxyOnly = false,
+    String? geoAssetsDirectory,
+    AndroidDnsPolicy androidDnsPolicy = AndroidDnsPolicy.config,
+    String? androidDnsProxyOutboundTag,
+  }) {
+    throw UnsupportedError('Protected server switching is unavailable.');
+  }
+
   /// Stops the active proxy or VPN/tunnel session.
   Future<void> stopVless() {
     throw UnimplementedError('stopVless() has not been implemented.');

@@ -48,6 +48,10 @@ class _ClientLogsScreenState extends ConsumerState<ClientLogsScreen> {
           .getCoreVersion()
           .timeout(const Duration(seconds: 3))
           .catchError((_) => 'Unavailable');
+      final nativeDiagnostics = await VlessPlatform.instance
+          .getProviderDebugSnapshot()
+          .timeout(const Duration(seconds: 3))
+          .catchError((_) => '');
       if (!mounted) return;
       final report = diagnosticReport(
         state: ref.read(vpnProvider).name,
@@ -56,6 +60,7 @@ class _ClientLogsScreenState extends ConsumerState<ClientLogsScreen> {
         sharing: options.shareLan,
         reconnect: options.reconnect,
         coreVersion: version,
+        nativeDiagnostics: nativeDiagnostics,
       );
       await exportPrivateText(
         context,

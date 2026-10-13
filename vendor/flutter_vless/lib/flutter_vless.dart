@@ -157,6 +157,37 @@ class FlutterVless {
     );
   }
 
+  /// Changes server without releasing the active tunnel or DNS protection.
+  Future<void> replaceVless({
+    required String remark,
+    required String config,
+    List<String>? blockedApps,
+    List<String>? bypassSubnets,
+    bool dpiBypass = false,
+    int dpiProfile = 0,
+    bool proxyOnly = false,
+    String? geoAssetsDirectory,
+    AndroidDnsPolicy androidDnsPolicy = AndroidDnsPolicy.config,
+    String? androidDnsProxyOutboundTag,
+    String notificationDisconnectButtonName = "DISCONNECT",
+  }) async {
+    final normalizedConfig = _normalizeConfigString(config);
+
+    await VlessPlatform.instance.replaceVless(
+      remark: remark,
+      config: normalizedConfig,
+      blockedApps: blockedApps,
+      proxyOnly: proxyOnly,
+      dpiBypass: dpiBypass,
+      dpiProfile: dpiProfile,
+      bypassSubnets: bypassSubnets,
+      geoAssetsDirectory: geoAssetsDirectory,
+      androidDnsPolicy: androidDnsPolicy,
+      androidDnsProxyOutboundTag: androidDnsProxyOutboundTag,
+      notificationDisconnectButtonName: notificationDisconnectButtonName,
+    );
+  }
+
   /// Stops the active proxy or VPN/tunnel session.
   ///
   /// Platform implementations also use this call to clean up foreground

@@ -11,9 +11,11 @@ python3 - "$ROOT_DIR" "$PROBE_DIR" <<'PYTHON'
 from pathlib import Path
 import sys
 root,out=map(Path,sys.argv[1:])
-s=(root/'example/ios/XrayTunnel/PacketTunnelProvider.swift').read_text()
+provider=root.parent.parent/'ios/XrayTunnel/PacketTunnelProvider.swift'
+if not provider.is_file(): provider=root/'example/ios/XrayTunnel/PacketTunnelProvider.swift'
+s=provider.read_text()
 a=s.index('    override func startTunnel(options:')
-b=s.index('        TunnelDebugStore.shared.configure',a)
+b=s.index('        let dpiBypass =',a)
 entry=s[a:b].replace('override func','func').replace('configuration.providerBundleIdentifier ?? ""', 'configuration.providerBundleIdentifier ?? "", client: keychain')
 (out/'Provider.swift').write_text('import Foundation\nfinal class ProviderEntryProbe {\n var protocolConfiguration: NEVPNProtocol?\n var keychain = FixtureKeychain()\n var reachedBootstrap = false\n func tunnelError(_ message: String) -> NSError { NSError(domain: "fixture.provider", code: 1) }\n'+entry+'        reachedBootstrap = true\n    }\n}\n')
 s=(root/'ios/flutter_vless/Sources/flutter_vless/FlutterVlessPlugin.swift').read_text()

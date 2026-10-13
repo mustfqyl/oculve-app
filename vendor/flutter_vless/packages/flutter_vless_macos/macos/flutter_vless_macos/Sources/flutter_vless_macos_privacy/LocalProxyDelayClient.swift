@@ -5,6 +5,28 @@ import Darwin
 /// Uses an explicitly authenticated socket: CFNetwork's SOCKS dictionary offers
 /// noauth even with credentials. There is no origin connection or auth fallback.
 public enum LocalProxyDelayClient {
+    public static func resolveIPv4(host: String, port: Int, credentials: LocalProxyCredentials) throws -> String? {
+        let query = try ProtectedDNSQuery(host: host)
+        let fd = try LocalSOCKS5Client.openConnection(proxyPort: port, credentials: credentials,
+            host: "1.1.1.1", port: 853, timeout: 5)
+        defer { close(fd) }
+        let connection = LocalProxyTLSConnection(fd: fd,
+            deadline: DispatchTime.now().uptimeNanoseconds + 8_000_000_000)
+        guard connection.startTLS(host: "cloudflare-dns.com"), connection.write(query.framed) else { return nil }
+        func readExactly(_ count: Int) -> [UInt8]? {
+            var bytes: [UInt8] = []
+            while bytes.count < count {
+                guard let next = connection.read(maxCount: count - bytes.count), !next.isEmpty else { return nil }
+                bytes += next
+            }
+            return bytes
+        }
+        guard let length = readExactly(2) else { return nil }
+        let size = Int(length[0]) * 256 + Int(length[1])
+        guard (12...16384).contains(size), let response = readExactly(size) else { return nil }
+        return query.address(in: response)
+    }
+
     /// Verifies the full local-proxy-to-Internet path with certificate-checked
     /// HTTPS and a small, strict 204 response from either independent probe.
     public static func checkConnectivity(port: Int, credentials: LocalProxyCredentials?) -> Bool {
@@ -151,5 +173,73 @@ private final class LocalProxyTLSConnection {
         size.pointee = max(0, count)
         if count > 0 { return count == requested ? errSecSuccess : errSSLWouldBlock }
         return errno == EINTR ? errSSLWouldBlock : errSSLClosedAbort
+    }
+}
+
+/// Bounded DNS-over-TLS framing; rejects mismatched questions and responses.
+struct ProtectedDNSQuery {
+    let host: String
+    let id: UInt16
+    let bytes: [UInt8]
+    init(host: String, id: UInt16 = UInt16.random(in: 0...65535)) throws {
+        let host = host.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        let labels = host.split(separator: ".", omittingEmptySubsequences: false)
+        guard !labels.isEmpty, host.utf8.count <= 253,
+              labels.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 63 && $0.utf8.allSatisfy({ $0 > 32 && $0 < 127 }) }) else {
+            throw LocalSOCKS5Client.Failure.invalidDestination
+        }
+        self.host = host; self.id = id
+        var bytes: [UInt8] = [UInt8(id >> 8), UInt8(id & 255), 1, 0, 0, 1, 0, 0, 0, 0, 0, 0]
+        for label in labels { bytes.append(UInt8(label.utf8.count)); bytes += label.utf8 }
+        bytes += [0, 0, 1, 0, 1]
+        self.bytes = bytes
+    }
+    var framed: [UInt8] { [UInt8(bytes.count >> 8), UInt8(bytes.count & 255)] + bytes }
+    func address(in data: [UInt8]) -> String? {
+        guard data.count >= 12, data.count <= 16384 else { return nil }
+        func word(_ at: Int) -> Int { Int(data[at]) * 256 + Int(data[at + 1]) }
+        guard word(0) == Int(id), data[2] & 0x82 == 0x80, data[3] & 15 == 0, word(4) == 1 else { return nil }
+        func name(_ offset: inout Int) -> String? {
+            var cursor = offset, next: Int?, labels: [String] = [], seen = Set<Int>()
+            for _ in 0..<128 {
+                guard cursor < data.count, seen.insert(cursor).inserted else { return nil }
+                let size = Int(data[cursor]); cursor += 1
+                if size == 0 { offset = next ?? cursor; return labels.joined(separator: ".").lowercased() }
+                if size & 0xc0 == 0xc0 {
+                    guard cursor < data.count else { return nil }
+                    if next == nil { next = cursor + 1 }
+                    cursor = ((size & 63) << 8) | Int(data[cursor]); continue
+                }
+                guard size <= 63, cursor + size <= data.count else { return nil }
+                labels.append(String(decoding: data[cursor..<cursor+size], as: UTF8.self)); cursor += size
+            }
+            return nil
+        }
+        var cursor = 12
+        guard name(&cursor) == host, cursor + 4 <= data.count,
+              word(cursor) == 1, word(cursor + 2) == 1 else { return nil }
+        cursor += 4
+        var addresses: [String: String] = [:], aliases: [String: String] = [:]
+        guard word(6) <= 256 else { return nil }
+        for _ in 0..<word(6) {
+            guard let owner = name(&cursor), cursor + 10 <= data.count else { return nil }
+            let type = word(cursor), klass = word(cursor + 2), size = word(cursor + 8)
+            cursor += 10
+            guard cursor + size <= data.count else { return nil }
+            if klass == 1 && type == 1 && size == 4 {
+                addresses[owner] = data[cursor..<cursor+4].map(String.init).joined(separator: ".")
+            } else if klass == 1 && type == 5 {
+                var target = cursor
+                if let alias = name(&target), target <= cursor + size { aliases[owner] = alias }
+            }
+            cursor += size
+        }
+        var owner = host, seen = Set<String>()
+        for _ in 0..<16 {
+            guard seen.insert(owner).inserted else { return nil }
+            if let address = addresses[owner] { return address }
+            guard let alias = aliases[owner] else { return nil }; owner = alias
+        }
+        return nil
     }
 }

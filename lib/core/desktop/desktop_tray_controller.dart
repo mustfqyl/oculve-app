@@ -503,18 +503,7 @@ class DesktopTrayController with TrayListener, WindowListener {
   }
 
   Future<void> _selectServer(String id) async {
-    final state = container.read(vpnProvider);
-    final reconnect =
-        state == VpnState.connected ||
-        state == VpnState.connecting ||
-        container.read(vpnTunnelMayBeActiveProvider);
-    if (state == VpnState.connected ||
-        state == VpnState.connecting ||
-        container.read(vpnTunnelMayBeActiveProvider)) {
-      await container.read(vpnProvider.notifier).disconnect();
-    }
-    container.read(selectedServerProvider.notifier).state = id;
-    if (reconnect) await container.read(vpnProvider.notifier).connect();
+    await container.read(vpnProvider.notifier).selectServer(id);
     await _setContextMenu(container.read(localeProvider).languageCode);
   }
 

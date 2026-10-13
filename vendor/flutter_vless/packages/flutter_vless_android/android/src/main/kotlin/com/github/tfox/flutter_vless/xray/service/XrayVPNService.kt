@@ -40,6 +40,7 @@ class XrayVPNService : VpnService() {
     private var config: XrayConfig? = null
     private var sourceConfig: XrayConfig? = null
     private var prepared: JSONObject? = null
+    private val bootstrapCache = mutableMapOf<String, List<String>>()
     private var dnsServers = listOf("8.8.8.8", "1.1.1.1")
     private var credentials: LocalProxyCredentials? = null
     private var tunConfigFile: File? = null
@@ -111,16 +112,23 @@ class XrayVPNService : VpnService() {
             else runCatching { profiles.load() }.getOrNull()
             if (incoming == null) {
                 event(Event.PROFILE_UNAVAILABLE)
-                receiver?.send(1, Bundle())
+                receiver?.send(1, Bundle().apply { putString("error_code", Event.PROFILE_UNAVAILABLE.name) })
                 if (request == requests.get() && tun == null && !recovery.authorized) {
                     XrayCoreManager.publishState(this, AppConfigs.V2RAY_STATES.V2RAY_DISCONNECTED)
                     stopForeground(STOP_FOREGROUND_REMOVE); stopSelfResult(startId)
                 }
                 return@execute
             }
-            val accepted = runCatching { acceptSession(incoming, command == AppConfigs.V2RAY_SERVICE_COMMANDS.START_SERVICE, request) }
+            if (intent?.getBooleanExtra("PRESERVE_TUNNEL", false) == true &&
+                (tun == null || !recovery.authorized || incoming.PROXY_ONLY ||
+                    interfaceSignature != interfaceSignature(incoming))) {
+                receiver?.send(1, Bundle().apply { putString("error_code", "PROTECTED_SWITCH_UNAVAILABLE") })
+                return@execute
+            }
+            var rejection = Event.CONFIG_REJECTED.name
+            val accepted = runCatching { acceptSession(incoming, command == AppConfigs.V2RAY_SERVICE_COMMANDS.START_SERVICE, request) { rejection = it } }
                 .getOrElse { event(Event.CONFIG_REJECTED); false }
-            receiver?.send(if (accepted) 0 else 1, Bundle())
+            receiver?.send(if (accepted) 0 else 1, Bundle().apply { if (!accepted) putString("error_code", rejection) })
             if (!accepted && request == requests.get() && tun == null && !recovery.authorized) {
                 stopForeground(STOP_FOREGROUND_REMOVE); stopSelfResult(startId)
             }
@@ -128,25 +136,37 @@ class XrayVPNService : VpnService() {
         return START_STICKY
     }
 
-    private fun acceptSession(incoming: XrayConfig, explicit: Boolean, request: Long): Boolean {
+    private fun acceptSession(incoming: XrayConfig, explicit: Boolean, request: Long, rejected: (String) -> Unit): Boolean {
         if (request != requests.get()) return false
         val candidate = incoming.copy(BLOCKED_APPS = ArrayList(incoming.BLOCKED_APPS), BYPASS_SUBNETS = ArrayList(incoming.BYPASS_SUBNETS))
         val secret = LocalProxyCredentials.generate()
+        val candidateBootstrap = bootstrapCache.toMutableMap()
         var candidateDnsServers = dnsServers
+        var failureStage = Event.CONFIG_REJECTED
         val json = try {
             XrayCoreManager.validateConfiguration(candidate)
+            failureStage = Event.ENDPOINT_RESOLUTION_FAILED
             val dns = AndroidTunnelDnsPolicy.prepare(candidate.V2RAY_FULL_JSON_CONFIG, candidate.ANDROID_DNS_POLICY,
                 candidate.ANDROID_DNS_PROXY_OUTBOUND_TAG, candidate.BYPASS_SUBNETS) {
-                XraySocketProtector.resolveBootstrapHostname(this, it)
+                candidateBootstrap[it] ?: (if (tun != null) {
+                    val current = requireNotNull(config)
+                    AuthenticatedSocksClient.resolveIpv4(current.LOCAL_SOCKS5_PORT, requireNotNull(credentials), it)
+                } else XraySocketProtector.resolveBootstrapHostname(this, it)).also { addresses ->
+                    candidateBootstrap[it] = addresses
+                }
             }
             candidate.V2RAY_FULL_JSON_CONFIG = dns.configJson
             candidateDnsServers = dns.systemDnsServers
+            failureStage = Event.CONFIG_REJECTED
             val runtime = XrayCoreManager.buildRuntimeConfigJson(candidate, noBackupFilesDir, secret)
+            failureStage = Event.NATIVE_VALIDATION_FAILED
             require(XrayCoreManager.validateNative(this, runtime)) { "Native configuration rejected" }
+            failureStage = Event.CONFIG_REJECTED
             if (!candidate.PROXY_ONLY && !candidate.DPI_BYPASS) SessionReadinessProbe.selectHost(runtime)
             runtime
         } catch (_: Exception) {
-            event(Event.CONFIG_REJECTED)
+            event(failureStage)
+            rejected(failureStage.name)
             return false
         }
         val candidateCredentials = try {
@@ -155,7 +175,7 @@ class XrayVPNService : VpnService() {
         if (request != requests.get()) return false
         // This transaction precedes every mutation of the active workers and their profile.
         try { if (explicit) { if (candidate.PROXY_ONLY) profiles.disarm() else profiles.save(incoming) } }
-        catch (_: Exception) { event(Event.PROFILE_SAVE_FAILED); return false }
+        catch (_: Exception) { event(Event.PROFILE_SAVE_FAILED); rejected(Event.PROFILE_SAVE_FAILED.name); return false }
         // Mode changes intentionally deactivate VPN protection; VPN-to-VPN replacements retain it.
         if (candidate.PROXY_ONLY && tun != null) { deactivateSession() }
         val owner = recovery.activate()
@@ -164,10 +184,12 @@ class XrayVPNService : VpnService() {
         diagnosticsGeneration = XrayDiagnosticsStore.reset(filesDir)
         // Delete only known legacy config names after the preceding native writers have exited.
         listOf("config.json", "temp_delay_config.json").forEach { File(filesDir, it).delete() }
+        bootstrapCache.clear(); bootstrapCache.putAll(candidateBootstrap)
         sourceConfig = incoming.copy()
         config = candidate; credentials = candidateCredentials
         prepared = json; dnsServers = candidateDnsServers
         event(Event.SESSION_START)
+        if (tun != null) event(Event.TUN_RETAINED)
         worker.execute { restartWorkers(owner) }
         return true
     }
@@ -183,7 +205,9 @@ class XrayVPNService : VpnService() {
                 val source = requireNotNull(sourceConfig)
                 val dns = AndroidTunnelDnsPolicy.prepare(source.V2RAY_FULL_JSON_CONFIG, source.ANDROID_DNS_POLICY,
                     source.ANDROID_DNS_PROXY_OUTBOUND_TAG, source.BYPASS_SUBNETS) {
-                    XraySocketProtector.resolveBootstrapHostname(this, it)
+                    // Retry only previously prepared transport addresses. Never
+                    // reopen physical DNS while this TUN remains installed.
+                    bootstrapCache[it] ?: emptyList()
                 }
                 current.V2RAY_FULL_JSON_CONFIG = dns.configJson
                 prepared = XrayCoreManager.buildRuntimeConfigJson(current, noBackupFilesDir, credentials)
@@ -418,6 +442,7 @@ class XrayVPNService : VpnService() {
         stopWorkers()
         runCatching { tun?.close() }; tun = null
         config = null; sourceConfig = null; prepared = null; credentials = null
+        bootstrapCache.clear()
         event(Event.SESSION_STOP)
         XrayCoreManager.publishState(this, AppConfigs.V2RAY_STATES.V2RAY_DISCONNECTED)
         stopForeground(STOP_FOREGROUND_REMOVE)

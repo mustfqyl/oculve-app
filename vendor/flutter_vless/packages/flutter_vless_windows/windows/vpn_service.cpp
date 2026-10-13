@@ -109,10 +109,12 @@ bool VpnService::Start(const std::string& config) {
     auto found = cache.find(key);
     if (found != cache.end()) return found->second;
     // Once protected, never create an underlay DNS exception to restart.
-    if (protection_.Active()) {
-      Event("Endpoint is not cached while traffic protection is active; explicitly stop before bootstrapping a new endpoint");
+    if (protection_.Active() && !ready_.load()) {
+      Event("Endpoint bootstrap requires an already forwarding protected tunnel");
       return std::string();
     }
+    // With WFP active, physical DNS is blocked. System resolution can only
+    // traverse the old tunnel; never remove filters for a new endpoint.
     auto address = Bootstrap(name);
     if (!address.empty()) cache[key] = address;
     return address;

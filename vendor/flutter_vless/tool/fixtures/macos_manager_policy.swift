@@ -32,10 +32,22 @@ import Security
         manager.xrayConfig = Data(#"{"secret":"replacement"}"#.utf8)
         do { try await manager.start(); fatalError("Live configuration replacement must be explicit") } catch {}
         precondition(SDK.saves == saved && SDK.stopCalls == 0 && manager.isRecoveryEnabled)
+        SDK.providerResponse = Data("accepted".utf8)
+        try await manager.replace()
+        precondition(SDK.stopCalls == 0 && manager.isRecoveryEnabled && !manager.forwardingReady)
+        let message = SDK.providerMessages.last!
+        precondition(message.starts(with: Data("oculve_replace:".utf8)))
+        let switched = try PropertyListSerialization.propertyList(from: Data(message.dropFirst(15)), options: [], format: nil) as! [String: Any]
+        precondition(switched["xrayConfig"] == nil && switched["xrayConfigReference"] is Data)
+        let switchedConfig = try TunnelSecretProfile.load(switched, providerBundleIdentifier: "fixture.XrayTunnel", client: keychain)
+        precondition(switchedConfig == manager.xrayConfig)
+        SDK.providerResponse = Data("rejected".utf8)
+        do { try await manager.replace(); fatalError("Rejected switch must fail") } catch {}
+        precondition(SDK.stopCalls == 0 && manager.isRecoveryEnabled)
         manager.xrayConfig = original
         manager.bypassSubnets = ["::/0"]
         do { try await manager.start(); fatalError("IPv6 bypass must be rejected") } catch {}
-        precondition(SDK.saves == saved && manager.isRecoveryEnabled)
+        precondition(SDK.stopCalls == 0 && manager.isRecoveryEnabled)
         manager.bypassSubnets = []
         SDK.providerResponse = Data("recovering".utf8)
         await manager.refreshForwardingState()

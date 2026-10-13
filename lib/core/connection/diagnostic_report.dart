@@ -11,14 +11,58 @@ String diagnosticReport({
   required bool sharing,
   required bool reconnect,
   String coreVersion = 'Unavailable',
+  String nativeDiagnostics = '',
   DateTime? now,
 }) {
-  final version =
-      RegExp(
-        r'^(?:Xray )?v?\d{1,4}\.\d{1,4}\.\d{1,4}(?:[-+][a-zA-Z0-9.]{1,20})?$',
-      ).hasMatch(coreVersion)
+  final exactVersion = RegExp(
+    r'^(?:Xray )?v?\d{1,4}\.\d{1,4}\.\d{1,4}(?:[-+][a-zA-Z0-9.]{1,20})?$',
+  );
+  // Android's CLI returns a verbose banner. Export only its version token.
+  final bannerVersion = RegExp(
+    r'^Xray (\d{1,4}\.\d{1,4}\.\d{1,4})(?:\s|$)',
+  ).firstMatch(coreVersion);
+  final version = exactVersion.hasMatch(coreVersion)
       ? coreVersion
-      : 'Unavailable';
+      : bannerVersion == null
+      ? 'Unavailable'
+      : 'Xray ${bannerVersion.group(1)}';
+  const nativeEvents = {
+    'SESSION_START',
+    'SESSION_STOP',
+    'CONFIG_REJECTED',
+    'PROFILE_UNAVAILABLE',
+    'PROFILE_SAVE_FAILED',
+    'WORKERS_START',
+    'WORKERS_STOP',
+    'WORKER_EXIT',
+    'WORKER_START_FAILED',
+    'PROTECT_FAILED',
+    'TUN_ESTABLISHED',
+    'TUN_RETAINED',
+    'TUN_FAILED',
+    'FD_SENT',
+    'FD_FAILED',
+    'AUTH_PROBE_FAILED',
+    'PATH_PROBE_FAILED',
+    'CONNECTED',
+    'RECOVERING',
+    'XRAY_DEBUG',
+    'XRAY_INFO',
+    'XRAY_WARNING',
+    'XRAY_ERROR',
+    'OUTPUT_DISCARDED',
+    'IO_FAILED',
+    'NATIVE_VALIDATION_FAILED',
+    'ENDPOINT_RESOLUTION_FAILED',
+  };
+  final eventPattern = RegExp(
+    '^(?:${nativeEvents.join('|')})(?: value=-?[0-9]{1,6})?\$',
+  );
+  final safeNative = nativeDiagnostics
+      .split('\n')
+      .where(eventPattern.hasMatch)
+      .take(300)
+      .join('\n');
   const states = {
     'connected',
     'connecting',
@@ -52,5 +96,6 @@ String diagnosticReport({
       'Automatic reconnect: $reconnect\nLAN sharing configured: $sharing\n'
       'Ping checks recorded: $pingChecks\n\n'
       'Account codes, credentials, configuration, IP addresses and browsing destinations are excluded.\n\n'
-      'CONNECTION EVENTS\n${safeEvents.isEmpty ? 'No events recorded.' : safeEvents.join('\n')}\n';
+      'CONNECTION EVENTS\n${safeEvents.isEmpty ? 'No events recorded.' : safeEvents.join('\n')}\n\n'
+      'NATIVE VPN EVENTS\n${safeNative.isEmpty ? 'No native events recorded.' : safeNative}\n';
 }

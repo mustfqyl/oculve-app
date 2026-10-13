@@ -91,9 +91,54 @@ class AndroidTunnelDnsPolicyTest {
         assertEquals("tcp://9.9.9.9", output.getJSONObject("dns").getJSONArray("servers").getString(0))
         assertEquals("9.9.9.9", output.getJSONArray("outbounds").getJSONObject(2)
             .getJSONObject("settings").getString("rewriteAddress"))
-        for (invalid in listOf("https://dns.example/query", "tcp://2001:4860:4860::8888", "tcp://127.0.0.1/8")) {
+        for (invalid in listOf("https+local://dns.example/query", "tcp://2001:4860:4860::8888", "tcp://127.0.0.1/8")) {
             rejected { prepare(input.put("dns", JSONObject().put("servers", JSONArray().put(invalid)))) }
         }
+    }
+
+    @Test fun httpsDnsUsesInternalXrayResolverThroughTheSelectedProxyWithoutRawFallback() {
+        for (endpoint in listOf("https://cloudflare-dns.com/dns-query", "https://dns.google/dns-query", "https://custom.example/dns-query")) {
+            val input = config(outbound()).put("dns", JSONObject().put("servers", JSONArray().put(endpoint)))
+            val output = JSONObject(prepare(input).configJson)
+            assertEquals(endpoint, output.getJSONObject("dns").getJSONArray("servers").getString(0))
+            assertEquals("UseIPv4", output.getJSONObject("dns").getString("queryStrategy"))
+            assertTrue(output.getJSONObject("dns").getBoolean("disableFallback"))
+            val rule = output.getJSONObject("routing").getJSONArray("rules").getJSONObject(0)
+            assertEquals(AndroidTunnelDnsPolicy.UPSTREAM_TAG, rule.getJSONArray("inboundTag").getString(0))
+            assertEquals("proxy", rule.getString("outboundTag"))
+            val relay = output.getJSONArray("outbounds").getJSONObject(2)
+            assertFalse(relay.has("streamSettings"))
+            val settings = relay.getJSONObject("settings")
+            assertFalse(settings.has("rewriteAddress"))
+            val rules = settings.getJSONArray("rules")
+            assertEquals("28", rules.getJSONObject(0).getString("qType"))
+            assertEquals("return", rules.getJSONObject(0).getString("action"))
+            assertEquals("1", rules.getJSONObject(1).getString("qType"))
+            assertEquals("hijack", rules.getJSONObject(1).getString("action"))
+            assertEquals("return", rules.getJSONObject(2).getString("action"))
+        }
+        for (invalid in listOf("http://dns.example/query", "https://user:secret@dns.example/query", "https://dns.example/query#fragment", "https://dns.example", "https://198.18.0.2/query")) {
+            rejected { prepare(config(outbound()).put("dns", JSONObject().put("servers", JSONArray().put(invalid)))) }
+        }
+    }
+
+    @Test fun dpiSocksPinsTheHttpsResolverBeforeItCanReenterItsOwnDns() {
+        val dpi = outbound("socks", "byedpi", "127.0.0.1").put("targetStrategy", "UseIP")
+        val input = config(dpi).put("dns", JSONObject().put("servers", JSONArray().put("https://resolver.test/dns-query")))
+        val lookups = mutableListOf<String>()
+        val result = AndroidTunnelDnsPolicy.prepare(input.toString(), "proxy", "byedpi") { hostname ->
+            lookups += hostname
+            listOf("192.0.2.53")
+        }
+        assertEquals(listOf("resolver.test"), lookups)
+        val json = JSONObject(result.configJson)
+        assertEquals("192.0.2.53", json.getJSONObject("dns").getJSONObject("hosts").getJSONArray("resolver.test").getString(0))
+        assertEquals("https://resolver.test/dns-query", json.getJSONObject("dns").getJSONArray("servers").getString(0))
+        assertEquals(AndroidTunnelDnsPolicy.DOH_BOOTSTRAP_TAG,
+            json.getJSONObject("routing").getJSONArray("rules").getJSONObject(0).getString("outboundTag"))
+        val bootstrap = json.getJSONArray("outbounds").getJSONObject(2)
+        assertEquals("192.0.2.53:443", bootstrap.getJSONObject("settings").getString("redirect"))
+        assertEquals("byedpi", bootstrap.getJSONObject("streamSettings").getJSONObject("sockopt").getString("dialerProxy"))
     }
 
     @Test fun untaggedSingleProxyGetsReservedTagAndAmbiguousProxiesRequireSelection() {
@@ -111,7 +156,7 @@ class AndroidTunnelDnsPolicyTest {
 
     @Test fun reservedTagsAndVirtualEndpointRoutingConflictsRejectBeforeResolution() {
         val invalid = mutableListOf<JSONObject>()
-        for (tag in listOf(AndroidTunnelDnsPolicy.PROXY_TAG, AndroidTunnelDnsPolicy.RELAY_TAG, AndroidTunnelDnsPolicy.UPSTREAM_TAG)) {
+        for (tag in listOf(AndroidTunnelDnsPolicy.PROXY_TAG, AndroidTunnelDnsPolicy.RELAY_TAG, AndroidTunnelDnsPolicy.UPSTREAM_TAG, AndroidTunnelDnsPolicy.DOH_BOOTSTRAP_TAG)) {
             invalid.add(config(outbound(tag = tag)))
             invalid.add(config(outbound()).also { it.getJSONArray("inbounds").getJSONObject(0).put("tag", tag) })
         }

@@ -942,7 +942,9 @@ public class FlutterVlessPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
             requestPermission(result: result)
         case "initializeVless":
             initializeVless(call: call, result: result)
-        case "startVless":
+        case "getSecurityCapabilities":
+            result(["protectedServerSwitch": true, "iosKeychainReference": true])
+        case "startVless", "replaceVless":
             startVless(call: call, result: result)
         case "stopVless":
             stopVless(result: result)
@@ -1118,7 +1120,8 @@ public class FlutterVlessPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
                 manager.bypassSubnets = bypassSubnets ?? []
                 manager.proxyOnly = false
                 manager.geoAssetsDirectory = geoAssetsDirectory
-                try await manager.start()
+                if call.method == "replaceVless" { try await manager.replace() }
+                else { try await manager.start() }
             }
         }
         Task {
@@ -1525,6 +1528,29 @@ final class PacketTunnelManager: ObservableObject {
         }.value
     }
 
+    /// Save a durable Keychain revision, then ask the running provider to
+    /// replace only its workers. OS capture and on-demand stay armed throughout.
+    func replace() async throws {
+        try await preferenceOperations.submit {
+            guard let active = try await self.loadTunnelProviderManager(),
+                  [.connecting, .connected, .reasserting].contains(active.connection.status),
+                  !self.proxyOnly else { throw TunnelSecretError.invalidProfile }
+            self.manager = active
+            try await self.saveConfiguration(activate: true)
+            guard let manager = self.manager,
+                  [.connecting, .connected, .reasserting].contains(manager.connection.status),
+                  let metadata = (manager.protocolConfiguration as? NETunnelProviderProtocol)?.providerConfiguration else {
+                throw TunnelSecretError.invalidProfile
+            }
+            let message = try PropertyListSerialization.data(fromPropertyList: metadata, format: .binary, options: 0)
+            var command = Data("oculve_replace:".utf8)
+            command.append(message)
+            self.forwardingReady = false
+            let response = try await self.sendProviderMessage(data: command, timeout: 35)
+            guard response == Data("accepted".utf8) else { throw TunnelSecretError.invalidProfile }
+        }.value
+    }
+
     func stop(waitForDisconnect: Bool = false) async throws {
         try await preferenceOperations.submit {
             guard let manager = try await self.loadTunnelProviderManager() else {
@@ -1576,7 +1602,7 @@ final class PacketTunnelManager: ObservableObject {
     }
 
     @discardableResult
-    func sendProviderMessage(data: Data) async throws -> Data? {
+    func sendProviderMessage(data: Data, timeout: TimeInterval = 3) async throws -> Data? {
         guard let manager = manager else {
             pluginLog.warning("sendProviderMessage skipped: manager is nil")
             return nil
@@ -1593,7 +1619,7 @@ final class PacketTunnelManager: ObservableObject {
 
         return try await withCheckedThrowingContinuation { continuation in
             let reply = NativeReplyGate<Data?> { continuation.resume(with: $0) }
-            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 3) {
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + timeout) {
                 reply.resolve(.failure(NSError(domain: "VPN", code: 3,
                     userInfo: [NSLocalizedDescriptionKey: "Provider reply timed out"])))
             }

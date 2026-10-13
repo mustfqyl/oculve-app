@@ -78,5 +78,26 @@ int main() {
   Check(dpi_config["inbounds"][0]["settings"]["auth"] == "password", "DPI TUN listener is not session authenticated");
   Check(dpi_config["outbounds"][1]["streamSettings"]["sockopt"]["interface"] == "Ethernet", "DPI direct path is not bound to underlay");
   Check(!SetDpiProxyPort(dpi, 0), "invalid runtime DPI port accepted");
+  auto https_dns_source = Parse(dpi);
+  https_dns_source["dns"] = {{"servers", Json::array({"https://cloudflare-dns.com/dns-query"})}};
+  auto https_prepared = PrepareProtectedVpn(https_dns_source.dump(), "user", "password", "Ethernet",
+      [](const std::string&) { return std::string("192.0.2.20"); });
+  Check(https_prepared.has_value(), "default HTTPS DNS must be supported");
+  auto https_config = Parse(*https_prepared);
+  Check(https_config["dns"]["servers"][0] == "https://cloudflare-dns.com/dns-query", "HTTPS DNS was downgraded");
+  bool doh_found = false, relay_found = false;
+  for (const auto& out : https_config["outbounds"]) {
+    if (out.value("tag", "") == "flutter-vless-doh-bootstrap") {
+      doh_found = true;
+      Check(out["settings"]["redirect"] == "1.1.1.1:443", "DoH must dial an IP");
+      Check(out["streamSettings"]["sockopt"]["dialerProxy"] == "byedpi", "DoH must stay on selected proxy");
+    }
+    if (out.value("tag", "") == kDnsRelay) {
+      relay_found = true;
+      Check(out["settings"]["rules"][1]["action"] == "hijack", "DoH must use the internal DNS client");
+      Check(!out.contains("streamSettings"), "DoH must not relay raw DNS outside its internal client");
+    }
+  }
+  Check(doh_found && relay_found, "protected DoH components missing");
   std::cout << "Windows Xray configuration regression tests passed\n";
 }

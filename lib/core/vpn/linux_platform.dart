@@ -67,6 +67,66 @@ class LinuxXrayPlatform extends VlessPlatform {
     String? androidDnsProxyOutboundTag,
   }) async {
     if (_process != null) throw StateError('A tunnel is already running.');
+    final request = _request(config, dpiBypass, dpiProfile, proxyOnly);
+    final process = await Process.start('/usr/bin/pkexec', [
+      '--action-id',
+      'com.oculve.client.tunnel',
+      '/usr/lib/oculve/oculve-tunnel',
+    ]);
+    _process = process;
+    process.stdout
+        .transform(utf8.decoder)
+        .transform(const LineSplitter())
+        .listen((line) {
+          try {
+            final state = jsonDecode(line)['state'] as String;
+            _record(state);
+            _status?.call(VlessStatus(state: state));
+          } catch (_) {}
+        });
+    process.stderr.drain<void>();
+    process.stdin.writeln(jsonEncode(request));
+    await process.stdin.flush();
+    unawaited(
+      process.exitCode.then((code) {
+        if (_process == process) {
+          _process = null;
+          _record(code == 0 ? 'DISCONNECTED' : 'ERROR');
+          _status?.call(
+            VlessStatus(state: code == 0 ? 'DISCONNECTED' : 'ERROR'),
+          );
+        }
+      }),
+    );
+  }
+
+  @override
+  Future<void> replaceVless({
+    required String remark,
+    required String config,
+    required String notificationDisconnectButtonName,
+    List<String>? blockedApps,
+    List<String>? bypassSubnets,
+    bool dpiBypass = false,
+    int dpiProfile = 0,
+    bool proxyOnly = false,
+    String? geoAssetsDirectory,
+    AndroidDnsPolicy androidDnsPolicy = AndroidDnsPolicy.config,
+    String? androidDnsProxyOutboundTag,
+  }) async {
+    final process = _process;
+    if (process == null) throw StateError('A protected tunnel is required.');
+    final request = _request(config, dpiBypass, dpiProfile, proxyOnly);
+    process.stdin.writeln(jsonEncode(request));
+    await process.stdin.flush();
+  }
+
+  Map<String, Object?> _request(
+    String config,
+    bool dpiBypass,
+    int dpiProfile,
+    bool proxyOnly,
+  ) {
     if (proxyOnly) throw UnsupportedError('Linux supports tunnel mode only.');
     final parsed = jsonDecode(config) as Map<String, dynamic>;
     final outbounds = (parsed['outbounds'] as List)
@@ -100,63 +160,44 @@ class LinuxXrayPlatform extends VlessPlatform {
     if (dnsServers == null ||
         dnsServers.length != 1 ||
         dnsServers.first is! String ||
-        !(dnsServers.first as String).startsWith('tcp://')) {
+        !((dnsServers.first as String).startsWith('tcp://') ||
+            (dnsServers.first as String).startsWith('https://'))) {
       throw const FormatException('A supported VPN DNS resolver is required.');
     }
-    final dnsServer = (dnsServers.first as String).substring('tcp://'.length);
-    if (InternetAddress.tryParse(dnsServer)?.type != InternetAddressType.IPv4) {
-      throw const FormatException('VPN DNS must be an IPv4 address.');
-    }
-    final process = await Process.start('/usr/bin/pkexec', [
-      '--action-id',
-      'com.oculve.client.tunnel',
-      '/usr/lib/oculve/oculve-tunnel',
-    ]);
-    _process = process;
-    process.stdout
-        .transform(utf8.decoder)
-        .transform(const LineSplitter())
-        .listen((line) {
-          try {
-            final state = jsonDecode(line)['state'] as String;
-            _record(state);
-            _status?.call(VlessStatus(state: state));
-          } catch (_) {
-            /* Ignore non-protocol polkit output. */
-          }
-        });
-    process.stderr.drain<void>();
-    process.stdin.writeln(
-      jsonEncode({
-        if (!dpiBypass) 'outbound': node!,
-        'dpiBypass': dpiBypass,
-        if (dpiBypass) 'dpiProfile': dpiProfile,
-        'routingRules': routingRules,
-        'bypassDomains': const <String>[],
-        'dnsServer': dnsServer,
-        'logLevel': logLevel,
-        'version': parsed['version'],
-      }),
-    );
-    await process.stdin.flush();
-    unawaited(
-      process.exitCode.then((_) {
-        if (_process == process) {
-          _process = null;
-          _record('DISCONNECTED');
-          _status?.call(VlessStatus());
-        }
-      }),
-    );
+    final dnsServer = dnsServers.first as String;
+    return {
+      if (!dpiBypass) 'outbound': node!,
+      'dpiBypass': dpiBypass,
+      if (dpiBypass) 'dpiProfile': dpiProfile,
+      'routingRules': routingRules,
+      'bypassDomains': const <String>[],
+      'dnsServer': dnsServer,
+      'logLevel': logLevel,
+      'version': parsed['version'],
+    };
   }
 
   @override
   Future<void> stopVless() async {
     final process = _process;
-    if (process == null) return;
+    if (process == null) {
+      if (File('/usr/lib/oculve/oculve-tunnel').existsSync()) {
+        final result = await Process.run('/usr/bin/pkexec', [
+          '--action-id',
+          'com.oculve.client.tunnel',
+          '/usr/lib/oculve/oculve-tunnel',
+          '--disarm',
+        ]);
+        if (result.exitCode != 0) {
+          throw StateError('Could not release Linux protection.');
+        }
+      }
+      return;
+    }
     process.stdin.writeln('stop');
     await process.stdin.close();
-    await process.exitCode.timeout(const Duration(seconds: 20));
+    final code = await process.exitCode.timeout(const Duration(seconds: 20));
+    if (code != 0) throw StateError('Could not release Linux protection.');
     _process = null;
   }
 }

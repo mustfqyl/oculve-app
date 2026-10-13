@@ -4,6 +4,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.IDN
 import java.net.InetAddress
+import java.net.URI
 import java.util.Locale
 
 /** Explicit system-DNS policy. This helper never performs an OS DNS lookup. */
@@ -12,7 +13,8 @@ internal object AndroidTunnelDnsPolicy {
     const val RELAY_TAG = "flutter-vless-system-dns"
     const val UPSTREAM_TAG = "flutter-vless-dns-upstream"
     const val PROXY_TAG = "flutter-vless-dns-proxy"
-    private val reservedTags = setOf(RELAY_TAG, UPSTREAM_TAG, PROXY_TAG)
+    const val DOH_BOOTSTRAP_TAG = "flutter-vless-doh-bootstrap"
+    private val reservedTags = setOf(RELAY_TAG, UPSTREAM_TAG, PROXY_TAG, DOH_BOOTSTRAP_TAG)
     private val endpointProtocols = setOf("http", "socks", "vless", "vmess", "trojan", "shadowsocks", "hysteria", "wireguard")
 
     data class Prepared(
@@ -43,14 +45,14 @@ internal object AndroidTunnelDnsPolicy {
         if (policy == "config") {
             val config = JSONObject(configJson)
             canonicalize(config, "dns")
-            val resolver = objectValue(config, "dns")?.let(::configuredResolver) ?: "1.1.1.1"
-            return Prepared(configJson, listOf(resolver))
+            val resolver = configuredResolver(objectValue(config, "dns"))
+            return Prepared(configJson, listOf(requireNotNull(resolver.tcpAddress)))
         }
         require(allowsRouteExclusions(excludedRoutes)) { "Excluded route conflicts with virtual system DNS" }
 
         val config = JSONObject(configJson)
         canonicalize(config, "outbounds", "inbounds", "routing", "dns")
-        val resolver = configuredResolver(objectValue(config, "dns"))
+        val resolver = configuredResolver(objectValue(config, "dns"), allowHttps = true)
         val outbounds = objects(config, "outbounds", required = true)
         val inbounds = objects(config, "inbounds")
         outbounds.forEach { canonicalize(it, "tag", "protocol", "settings", "streamSettings", "proxySettings") }
@@ -99,6 +101,18 @@ internal object AndroidTunnelDnsPolicy {
             hosts.put(name, JSONArray(pinned))
         }
 
+        // ByeDPI deliberately refuses domain-name SOCKS requests: Xray resolves
+        // them first. Resolving the DoH server through that same DoH server
+        // would recurse forever, so bootstrap only this infrastructure name
+        // on the scoped physical network before installing the TUN.
+        canonicalize(selected, "targetStrategy")
+        val targetStrategy = optionalString(selected, "targetStrategy")?.lowercase(Locale.ROOT)
+        val bootstrapDoh = resolver.tcpAddress == null && protocol(selected) == "socks" &&
+            targetStrategy != null && targetStrategy !in setOf("", "asis")
+        if (bootstrapDoh) {
+            pinEndpoint(URI(resolver.endpoint).host)
+        }
+
         outbounds.filter { protocol(it) in endpointProtocols }.forEach { outbound ->
             val settings = objectValue(outbound, "settings", required = true)!!
             canonicalize(settings, "address", "endpoint", "vnext", "servers", "peers", "port", "id", "encryption", "flow", "level")
@@ -144,39 +158,74 @@ internal object AndroidTunnelDnsPolicy {
                 }
             }
         }
+        var dnsOutboundTag = selectedTag
+        val managedOutbounds = JSONArray(outbounds)
+        if (bootstrapDoh && resolveEndpoint != null) {
+            val uri = URI(resolver.endpoint)
+            val literal = literalAddress(uri.host)
+            val candidates = literal?.let { listOf(it.hostAddress!!) }
+                ?: hosts.optJSONArray(canonicalHostname(uri.host))?.let { values -> (0 until values.length()).map { values.getString(it) } }
+                ?: throw IllegalArgumentException("DPI HTTPS DNS bootstrap address is unavailable")
+            val address = candidates.firstOrNull { literalAddress(it)?.address?.size == 4 }
+                ?: throw IllegalArgumentException("DPI HTTPS DNS bootstrap requires an IPv4 address")
+            // Xray's DoH requests explicitly skip generic targetStrategy DNS
+            // resolution. Redirect at the transport layer instead, retaining
+            // the original URL/SNI and certificate verification in the DoH client.
+            managedOutbounds.put(JSONObject().put("tag", DOH_BOOTSTRAP_TAG).put("protocol", "freedom")
+                .put("settings", JSONObject().put("redirect", "$address:${if (uri.port == -1) 443 else uri.port}"))
+                .put("streamSettings", JSONObject().put("sockopt", JSONObject().put("dialerProxy", selectedTag))))
+            dnsOutboundTag = DOH_BOOTSTRAP_TAG
+        }
         val serviceRules = JSONArray()
-            .put(JSONObject().put("type", "field").put("inboundTag", JSONArray().put(UPSTREAM_TAG)).put("outboundTag", selectedTag))
+            .put(JSONObject().put("type", "field").put("inboundTag", JSONArray().put(UPSTREAM_TAG)).put("outboundTag", dnsOutboundTag))
             .put(JSONObject().put("type", "field").put("ip", JSONArray().put("$VIRTUAL_SERVER/32"))
                 .put("port", "53").put("network", "tcp,udp").put("outboundTag", RELAY_TAG))
         userRules.forEach(serviceRules::put)
         routing.put("rules", serviceRules)
         config.put("routing", routing)
-        val relay = JSONObject().put("tag", RELAY_TAG).put("protocol", "dns")
-            .put("settings", JSONObject().put("rewriteNetwork", "tcp").put("rewriteAddress", resolver)
-                // The VPN service blocks IPv6. Raw DNS relay bypasses the
-                // internal queryStrategy, so answer AAAA with NOERROR/NODATA.
-                .put("rewritePort", 53).put("rules", JSONArray()
-                    .put(JSONObject().put("action", "return").put("qType", "28").put("rCode", 0))
-                    .put(JSONObject().put("action", "direct"))))
-            .put("streamSettings", JSONObject().put("sockopt", JSONObject().put("dialerProxy", selectedTag)))
-        config.put("outbounds", JSONArray(outbounds).put(relay))
+        // The service blocks IPv6, so answer AAAA with NOERROR/NODATA.
+        val relayRules = JSONArray().put(JSONObject().put("action", "return").put("qType", "28").put("rCode", 0))
+        val relaySettings = JSONObject().put("rules", relayRules)
+        val relay = JSONObject().put("tag", RELAY_TAG).put("protocol", "dns").put("settings", relaySettings)
+        if (resolver.tcpAddress != null) {
+            relaySettings.put("rewriteNetwork", "tcp").put("rewriteAddress", resolver.tcpAddress).put("rewritePort", 53)
+            relayRules.put(JSONObject().put("action", "direct"))
+            relay.put("streamSettings", JSONObject().put("sockopt", JSONObject().put("dialerProxy", selectedTag)))
+        } else {
+            // DoH must use Xray's internal DNS client, not send raw port-53 bytes
+            // to the HTTPS endpoint. Its UPSTREAM_TAG is routed through the
+            // selected proxy before all user direct rules; no OS fallback exists.
+            relayRules.put(JSONObject().put("action", "hijack").put("qType", "1"))
+                .put(JSONObject().put("action", "return").put("rCode", 0))
+        }
+        config.put("outbounds", managedOutbounds.put(relay))
         // Explicit proxy policy owns system DNS. No local/+local/OS fallback is retained.
-        config.put("dns", JSONObject().put("hosts", hosts).put("servers", JSONArray().put("tcp://$resolver"))
-            .put("tag", UPSTREAM_TAG).put("queryStrategy", "UseIP").put("disableFallback", true))
+        config.put("dns", JSONObject().put("hosts", hosts).put("servers", JSONArray().put(resolver.endpoint))
+            .put("tag", UPSTREAM_TAG).put("queryStrategy", if (resolver.tcpAddress == null) "UseIPv4" else "UseIP")
+            .put("disableFallback", true))
         return Prepared(config.toString(), listOf(VIRTUAL_SERVER), names, addresses)
     }
 
-    private fun configuredResolver(dns: JSONObject?): String {
-        if (dns == null) return "1.1.1.1"
+    private data class Resolver(val endpoint: String, val tcpAddress: String? = null)
+
+    private fun configuredResolver(dns: JSONObject?, allowHttps: Boolean = false): Resolver {
+        if (dns == null) return Resolver("tcp://1.1.1.1", "1.1.1.1")
         canonicalize(dns, "servers")
         val servers = dns.optJSONArray("servers")
             ?: throw IllegalArgumentException("VPN DNS resolver is missing")
         require(servers.length() == 1) { "Only one VPN DNS resolver is supported" }
         val value = servers.optString(0)
-        require(value.startsWith("tcp://")) { "VPN DNS resolver must use TCP" }
-        val address = value.removePrefix("tcp://")
-        require(literalAddress(address)?.address?.size == 4) { "VPN DNS resolver must be an IPv4 address" }
-        return address
+        if (value.startsWith("tcp://")) {
+            val address = value.removePrefix("tcp://")
+            require(literalAddress(address)?.address?.size == 4) { "VPN DNS resolver must be an IPv4 address" }
+            return Resolver(value, address)
+        }
+        require(allowHttps && value.length <= 2048 && !value.any(Char::isWhitespace)) { "VPN DNS resolver must use TCP or protected HTTPS" }
+        val uri = URI(value)
+        require(uri.scheme == "https" && !uri.host.isNullOrBlank() && uri.rawUserInfo == null && uri.rawFragment == null &&
+            !uri.rawPath.isNullOrEmpty() && (uri.port == -1 || uri.port in 1..65535)) { "Invalid protected HTTPS DNS endpoint" }
+        require(literalAddress(uri.host)?.let(::isVirtualAddress) != true) { "HTTPS DNS endpoint conflicts with virtual system DNS" }
+        return Resolver(value)
     }
 
     private fun prepareStream(stream: JSONObject, pinEndpoint: (String) -> Unit) {

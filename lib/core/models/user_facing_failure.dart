@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/services.dart';
+
 import '../network/oculve_api.dart';
 
 /// Only reviewed messages can cross from exceptions into the interface.
@@ -26,6 +28,11 @@ class UserFacingFailure {
     'Your subscription is not active.',
     'No compatible servers are available.',
     'VPN permission was not granted.',
+    'The VPN profile is incompatible. Refresh your server list or try another location.',
+    'Could not resolve the VPN server. Check your internet connection and try again.',
+    'Could not securely save the VPN profile. Restart the app and try again.',
+    'Android could not start the VPN. Keep the app open and try again.',
+    'Complete the Android permission prompt before trying again.',
     'The VPN runtime failed. Check permissions and connection settings.',
     'VPN disconnected. Reconnect to protect your traffic.',
     'The VPN could not be stopped. Check the system VPN settings.',
@@ -43,6 +50,22 @@ class UserFacingFailure {
 
   static String message(Object error, {String? fallback}) {
     final safeFallback = fallback ?? 'Something went wrong. Please try again.';
+    if (error is PlatformException) {
+      // Only fixed native codes are rendered, never configuration or server data.
+      return switch (error.code) {
+        'INVALID_CONFIG' || 'NATIVE_VALIDATION_FAILED' =>
+          'The VPN profile is incompatible. Refresh your server list or try another location.',
+        'ENDPOINT_RESOLUTION_FAILED' =>
+          'Could not resolve the VPN server. Check your internet connection and try again.',
+        'PROFILE_SAVE_FAILED' =>
+          'Could not securely save the VPN profile. Restart the app and try again.',
+        'SERVICE_START_FAILED' || 'NO_ACTIVITY' =>
+          'Android could not start the VPN. Keep the app open and try again.',
+        'PERMISSION_REQUEST_IN_PROGRESS' =>
+          'Complete the Android permission prompt before trying again.',
+        _ => safeFallback,
+      };
+    }
     if (error is SocketException || error is TimeoutException) {
       return 'Could not connect to the service. Check your internet connection and try again.';
     }

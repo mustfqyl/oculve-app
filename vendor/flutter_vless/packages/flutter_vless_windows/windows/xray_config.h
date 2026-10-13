@@ -346,16 +346,24 @@ inline std::optional<std::string> PrepareProtectedVpn(const std::string& text,
   auto config = Parse(text);
   if (username.empty() || password.empty() || username.size() > 255 || password.size() > 255 || interface_name.empty()
       || !Normalize(config) || config.contains("fakeDns") || config.contains("fakedns")) return std::nullopt;
-  std::string dns_resolver = "1.1.1.1";
+  std::string dns_resolver = "1.1.1.1", dns_endpoint = "tcp://1.1.1.1", doh_host;
   if (config.contains("dns") && !config["dns"].is_null()) {
     auto& dns = config["dns"];
     if (!Fields(dns, {"servers"})) return std::nullopt;
     if (dns.contains("servers")) {
       if (!dns["servers"].is_array() || dns["servers"].size() != 1 || !dns["servers"][0].is_string()) return std::nullopt;
       const auto server = dns["servers"][0].get<std::string>();
-      if (server.rfind("tcp://", 0) != 0) return std::nullopt;
-      dns_resolver = server.substr(6);
-      if (!Literal4(dns_resolver)) return std::nullopt;
+      dns_endpoint = server;
+      if (server.rfind("tcp://", 0) == 0) {
+        dns_resolver = server.substr(6);
+        if (!Literal4(dns_resolver)) return std::nullopt;
+      } else if (server == "https://cloudflare-dns.com/dns-query") {
+        doh_host = "cloudflare-dns.com"; dns_resolver = "1.1.1.1";
+      } else if (server == "https://dns.google/dns-query") {
+        doh_host = "dns.google"; dns_resolver = "8.8.8.8";
+      } else if (server == "https://dns.quad9.net/dns-query") {
+        doh_host = "dns.quad9.net"; dns_resolver = "9.9.9.9";
+      } else return std::nullopt;
     }
   }
   auto& inbounds = config["inbounds"];
@@ -375,7 +383,7 @@ inline std::optional<std::string> PrepareProtectedVpn(const std::string& text,
     if (!entry.contains("tag")) continue;
     if (!entry["tag"].is_string()) return std::nullopt;
     auto tag = entry["tag"].get<std::string>();
-    if (!tags.insert(tag).second || tag == kDnsRelay || tag == kDnsUpstream || tag == kIpv6Block
+    if (!tags.insert(tag).second || tag == kDnsRelay || tag == kDnsUpstream || tag == "flutter-vless-doh-bootstrap" || tag == kIpv6Block
         || tag == "flutter-vless-packet-probe") return std::nullopt;
   }
   std::string proxy;
@@ -431,8 +439,22 @@ inline std::optional<std::string> PrepareProtectedVpn(const std::string& text,
           // do not choose IPv6 destinations blocked by the VPN policy.
           {"rules", Json::array({{{"action", "return"}, {"qType", "28"}, {"rCode", 0}},
                                 {{"action", "direct"}}})}}}, {"streamSettings", {{"sockopt", {{"dialerProxy", proxy}}}}}});
+  std::string dns_proxy = proxy;
+  if (!doh_host.empty()) {
+    hosts[doh_host] = dns_resolver;
+    dns_proxy = "flutter-vless-doh-bootstrap";
+    config["outbounds"].push_back({{"tag", dns_proxy}, {"protocol", "freedom"},
+        {"settings", {{"redirect", dns_resolver + ":443"}}},
+        {"streamSettings", {{"sockopt", {{"dialerProxy", proxy}}}}}});
+    for (auto& outbound : config["outbounds"]) if (outbound.value("tag", "") == kDnsRelay) {
+      outbound.erase("streamSettings");
+      outbound["settings"] = {{"rules", Json::array({
+          {{"action", "return"}, {"qType", "28"}, {"rCode", 0}},
+          {{"action", "hijack"}, {"qType", "1"}}, {{"action", "return"}, {"rCode", 0}}})}};
+    }
+  }
   config["outbounds"].push_back({{"tag", kIpv6Block}, {"protocol", "blackhole"}});
-  config["dns"] = {{"hosts", hosts}, {"servers", Json::array({"tcp://" + dns_resolver})}, {"tag", kDnsUpstream},
+  config["dns"] = {{"hosts", hosts}, {"servers", Json::array({dns_endpoint})}, {"tag", kDnsUpstream},
       {"queryStrategy", "UseIPv4"}, {"disableFallback", true}};
   if (!Object(config, "routing") || !Fields(config["routing"], {"rules", "domainStrategy"})) return std::nullopt;
   auto& routing = config["routing"];
@@ -440,7 +462,7 @@ inline std::optional<std::string> PrepareProtectedVpn(const std::string& text,
   if (!routing["rules"].is_array()) return std::nullopt;
   Json rules = Json::array({
       {{"type", "field"}, {"ip", Json::array({"::/0"})}, {"outboundTag", kIpv6Block}},
-      {{"type", "field"}, {"inboundTag", Json::array({kDnsUpstream})}, {"outboundTag", proxy}},
+      {{"type", "field"}, {"inboundTag", Json::array({kDnsUpstream})}, {"outboundTag", dns_proxy}},
       {{"type", "field"}, {"ip", Json::array({std::string(kVirtualDns) + "/32"})}, {"port", "53"}, {"network", "tcp,udp"}, {"outboundTag", kDnsRelay}}
   });
   for (const auto& rule : routing["rules"]) rules.push_back(rule);

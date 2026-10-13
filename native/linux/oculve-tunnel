@@ -26,6 +26,10 @@ dpi_process = None
 routes = []
 stopping = False
 owns_tun = False
+next_request = None
+guard_active = False
+worker_group = None
+explicit_stop = False
 
 DOMAIN_PATTERN = re.compile(r'^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$')
 VERSION_PATTERN = re.compile(r'^\d+\.\d+\.\d+$')
@@ -289,6 +293,42 @@ def validate_version_guard(value):
             raise ValueError('Invalid Xray version range')
     return result
 
+DOH_RESOLVERS = {
+    'https://cloudflare-dns.com/dns-query': ('cloudflare-dns.com', '1.1.1.1'),
+    'https://dns.google/dns-query': ('dns.google', '8.8.8.8'),
+    'https://dns.quad9.net/dns-query': ('dns.quad9.net', '9.9.9.9'),
+}
+
+def dns_endpoint(server):
+    if server in DOH_RESOLVERS: return server
+    return 'tcp://' + str(ipaddress.IPv4Address(server.removeprefix('tcp://')))
+
+def apply_protected_dns(cfg, server, proxy_tag):
+    endpoint = dns_endpoint(server)
+    cfg['dns']['tag'] = 'oculve-dns'
+    upstream = proxy_tag
+    if endpoint in DOH_RESOLVERS:
+        host, address = DOH_RESOLVERS[endpoint]
+        cfg['dns']['hosts'] = {host: address}
+        upstream = 'oculve-doh-bootstrap'
+        cfg['outbounds'].append({'tag': upstream, 'protocol': 'freedom',
+            'settings': {'redirect': address + ':443'},
+            'streamSettings': {'sockopt': {'dialerProxy': proxy_tag}}})
+    relay = {'tag': 'oculve-system-dns', 'protocol': 'dns', 'settings': {'rules': [
+        {'action': 'return', 'qType': '28', 'rCode': 0}]}}
+    if endpoint in DOH_RESOLVERS:
+        relay['settings']['rules'] += [{'action': 'hijack', 'qType': '1'}, {'action': 'return', 'rCode': 0}]
+    else:
+        relay['settings'].update({'rewriteNetwork': 'tcp', 'rewriteAddress': endpoint[6:], 'rewritePort': 53})
+        relay['settings']['rules'].append({'action': 'direct'})
+        relay['streamSettings'] = {'sockopt': {'dialerProxy': proxy_tag}}
+    cfg['outbounds'].append(relay)
+    cfg['routing']['rules'].insert(0, {'type': 'field', 'ip': ['198.18.0.2/32'],
+        'port': '53', 'network': 'tcp,udp', 'outboundTag': 'oculve-system-dns'})
+    if endpoint in DOH_RESOLVERS:
+        cfg['routing']['rules'].insert(0, {'type': 'field', 'inboundTag': ['oculve-dns'], 'outboundTag': upstream})
+    return cfg
+
 def build_config(outbound, dev, bypass_domains, dns_server, log_level='warning', version=None,
                  routing_rules=None):
     log_level = validate_log_level(log_level)
@@ -303,16 +343,18 @@ def build_config(outbound, dev, bypass_domains, dns_server, log_level='warning',
     if bypass_domains:
         rules.append({'type': 'field', 'domain': ['domain:' + domain for domain in bypass_domains],
                       'outboundTag': 'direct'})
-    return {**({'version': version} if version is not None else {}),
+    cfg = {**({'version': version} if version is not None else {}),
             'log': {'loglevel': log_level, 'access': 'none', 'error': 'none', 'dnsLog': False},
             'inbounds': [{'protocol': 'tun', 'tag': 'tun',
                           'settings': {'name': TUN, 'MTU': 1500},
                           'sniffing': {'enabled': True, 'destOverride': ['http', 'tls', 'quic'],
                                        'routeOnly': True}}],
             'outbounds': outbounds,
-            'dns': {'servers': ['tcp://' + dns_server], 'queryStrategy': 'UseIPv4',
+            'dns': {'servers': [dns_endpoint(dns_server)], 'queryStrategy': 'UseIPv4',
                     'disableFallback': True},
             'routing': {'domainStrategy': 'AsIs', 'rules': rules}}
+
+    return apply_protected_dns(cfg, dns_server, 'proxy')
 
 def build_dpi_config(dev, bypass_domains, dns_server, endpoint_port, routing_rules=None,
                      log_level='warning', version=None):
@@ -332,7 +374,7 @@ def build_dpi_config(dev, bypass_domains, dns_server, endpoint_port, routing_rul
     if domains:
         rules.append({'type': 'field', 'domain': ['domain:' + domain for domain in domains], 'outboundTag': 'direct'})
     domain_strategy = 'IPIfNonMatch' if any('ip' in rule for rule in configured_rules) else 'AsIs'
-    return {**({'version': version} if version is not None else {}),
+    cfg = {**({'version': version} if version is not None else {}),
             'log': {'loglevel': log_level, 'access': 'none', 'error': 'none', 'dnsLog': False},
             'inbounds': [{'protocol': 'tun', 'tag': 'tun',
                           'settings': {'name': TUN, 'MTU': 1500},
@@ -344,8 +386,10 @@ def build_dpi_config(dev, bypass_domains, dns_server, endpoint_port, routing_rul
                 {'tag': 'direct', 'protocol': 'freedom', 'streamSettings': {'sockopt': {'interface': dev}}},
                 {'tag': 'block', 'protocol': 'blackhole'},
             ],
-            'dns': {'servers': ['tcp://' + dns_server], 'queryStrategy': 'UseIPv4', 'disableFallback': True},
+            'dns': {'servers': [dns_endpoint(dns_server)], 'queryStrategy': 'UseIPv4', 'disableFallback': True},
             'routing': {'domainStrategy': domain_strategy, 'rules': rules}}
+
+    return apply_protected_dns(cfg, dns_server, 'byedpi')
 
 def command(*args):
     return subprocess.run(args, check=True, capture_output=True, text=True, timeout=12).stdout
@@ -374,8 +418,80 @@ def set_parent_death_signal():
     libc = ctypes.CDLL(None, use_errno=True)
     if libc.prctl(1, signal.SIGTERM, 0, 0, 0) != 0:
         raise OSError(ctypes.get_errno(), 'Unable to arm worker cleanup')
+    if worker_group is not None:
+        (worker_group / 'cgroup.procs').write_text(str(os.getpid()))
     if os.getppid() == 1:
         os.kill(os.getpid(), signal.SIGTERM)
+
+def ensure_worker_group():
+    global worker_group
+    if worker_group is None:
+        from pathlib import Path
+        root = Path('/sys/fs/cgroup')
+        if not (root / 'cgroup.controllers').is_file():
+            raise RuntimeError('Protected switching requires cgroup v2')
+        worker_group = root / ('oculve-' + str(os.getpid()))
+        worker_group.mkdir(mode=0o755)
+    return worker_group
+
+def switch_filter(group):
+    # Dedicated table; never flush or modify another application's rules.
+    name = group.name
+    if not re.fullmatch(r'oculve-[0-9]+', name):
+        raise ValueError('Invalid worker group')
+    return '\n'.join([
+        'add table inet oculve_switch',
+        'add chain inet oculve_switch output { type filter hook output priority -10; policy drop; }',
+        'flush chain inet oculve_switch output',
+        'add rule inet oculve_switch output oifname "lo" accept',
+        'add rule inet oculve_switch output oifname "oculve0" accept',
+        'add rule inet oculve_switch output udp sport 68 udp dport 67 accept',
+        'add rule inet oculve_switch output meta l4proto ipv6-icmp icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert, nd-router-solicit, nd-router-advert } accept',
+        'add rule inet oculve_switch output meta nfproto ipv6 drop',
+        'add rule inet oculve_switch output udp dport { 53, 853 } drop',
+        'add rule inet oculve_switch output tcp dport { 53, 853 } drop',
+        'add rule inet oculve_switch output socket cgroupv2 level 1 "' + name + '" accept',
+    ]) + '\n'
+
+def arm_switch_guard():
+    global guard_active
+    rules = switch_filter(ensure_worker_group())
+    subprocess.run(['/usr/sbin/nft', '-f', '-'], input=rules, text=True,
+                   check=True, capture_output=True, timeout=12)
+    guard_active = True
+
+def receive_command():
+    global next_request, stopping, explicit_stop
+    raw = sys.stdin.buffer.readline(65537)
+    if raw.strip() == b'stop':
+        explicit_stop = True; stopping = True; return 'stop'
+    if not raw:
+        # A crashed UI must not turn a guarded switch into an unprotected link.
+        stopping = True; return 'stop'
+    try:
+        if len(raw) > 65536: raise ValueError('Profile too large')
+        request = json.loads(raw)
+        if not isinstance(request, dict): raise ValueError('Invalid request')
+        if request.get('dpiBypass') is False:
+            import socket
+            node = request['outbound']
+            server = node['settings']['vnext'][0]
+            host = server['address']
+            address = socket.getaddrinfo(host, server['port'], socket.AF_INET, socket.SOCK_STREAM)[0][4][0]
+            ipaddress.IPv4Address(address)
+            if host != address:
+                stream = node.setdefault('streamSettings', {})
+                security = stream.get('security', 'none')
+                if security in ('tls', 'reality'):
+                    stream.setdefault(security + 'Settings', {}).setdefault('serverName', host)
+                server['address'] = address
+        # Prepare the barrier BEFORE any workers/routes/DNS are retired.
+        arm_switch_guard()
+        next_request = request
+        return 'switch'
+    except Exception:
+        event('ERROR')
+        return 'rejected'
 
 def cleanup_dpi_attempt():
     global process, dpi_process, owns_tun, routes
@@ -522,7 +638,7 @@ def start_dpi_session(request, bypass_domains, dns_server, log_level, version,
             for cidr in ['::/1', '8000::/1']:
                 command('/usr/sbin/ip', '-6', 'route', 'add', cidr, 'dev', TUN)
                 routes.append(['-6', 'route', 'del', cidr, 'dev', TUN])
-            command('/usr/bin/resolvectl', 'dns', TUN, dns_server)
+            command('/usr/bin/resolvectl', 'dns', TUN, '198.18.0.2')
             command('/usr/bin/resolvectl', 'domain', TUN, '~.')
             command('/usr/bin/resolvectl', 'default-route', TUN, 'yes')
             if not probe_tunnel_connectivity():
@@ -560,8 +676,8 @@ def run_dpi_request(request, bypass_domains, dns_server, log_level, version):
                         reason = 'worker-exit'
                         break
                     if selector.select(1):
-                        reason = 'stop'
-                        break
+                        reason = receive_command()
+                        if reason != 'rejected': break
                     if time.monotonic() - last_probe >= 30:
                         last_probe = time.monotonic()
                         if not probe_tunnel_connectivity():
@@ -575,7 +691,7 @@ def run_dpi_request(request, bypass_domains, dns_server, log_level, version):
                 selector.close()
             cleanup_dpi_attempt()
             routes = []
-            if stopping or reason == 'stop':
+            if stopping or reason in ('stop', 'switch'):
                 break
             if reason == 'network-change':
                 preferred_profile = None
@@ -595,14 +711,19 @@ def run_dpi_request(request, bypass_domains, dns_server, log_level, version):
             preferred_profile = None
             excluded_profile = None
 
-def main():
+def main(request=None):
     global process, dpi_process, owns_tun
     if os.geteuid() != 0:
         raise RuntimeError('Administrator authorization is required.')
-    raw = sys.stdin.buffer.readline(65537)
-    if len(raw) > 65536:
-        raise ValueError('Profile too large')
-    request = json.loads(raw)
+    if request is None:
+        raw = sys.stdin.buffer.readline(65537)
+        if len(raw) > 65536: raise ValueError('Profile too large')
+        request = json.loads(raw)
+    # Join only native workers, never the helper/resolved, to this scope.
+    try: ensure_worker_group()
+    except Exception: pass
+    if os.path.isfile('/usr/sbin/nft') and subprocess.run(['/usr/sbin/nft', 'list', 'table', 'inet', 'oculve_switch'], capture_output=True).returncode == 0:
+        arm_switch_guard()
     base = {'dpiBypass', 'routingRules', 'bypassDomains', 'dnsServer', 'logLevel', 'version'}
     if not isinstance(request, dict) or not isinstance(request.get('dpiBypass'), bool):
         raise ValueError('Invalid tunnel request')
@@ -612,7 +733,7 @@ def main():
     bypass_domains = validate_bypass_domains(request['bypassDomains'])
     if not isinstance(request['dnsServer'], str):
         raise ValueError('Invalid DNS resolver')
-    dns_server = str(ipaddress.IPv4Address(request['dnsServer']))
+    dns_server = dns_endpoint(request['dnsServer'])
     log_level = validate_log_level(request['logLevel'])
     version = validate_version_guard(request['version'])
     if request['dpiBypass']:
@@ -664,7 +785,7 @@ def main():
     if flow not in ('', 'xtls-rprx-vision', 'xtls-rprx-vision-udp443'):
         raise ValueError('Unsupported flow')
     mux = validate_mux(node.get('mux'), flow)
-    default = json.loads(command('/usr/sbin/ip', '-j', 'route', 'get', endpoint))[0]
+    default = physical_default_route() if guard_active else json.loads(command('/usr/sbin/ip', '-j', 'route', 'get', endpoint))[0]
     dev, gateway = default['dev'], default.get('gateway')
     if dev == TUN:
         raise RuntimeError('A previous tunnel is still active.')
@@ -702,7 +823,7 @@ def main():
     for cidr in ['::/1', '8000::/1']:
         command('/usr/sbin/ip', '-6', 'route', 'add', cidr, 'dev', TUN)
         routes.append(['-6', 'route', 'del', cidr, 'dev', TUN])
-    command('/usr/bin/resolvectl', 'dns', TUN, dns_server)
+    command('/usr/bin/resolvectl', 'dns', TUN, '198.18.0.2')
     command('/usr/bin/resolvectl', 'domain', TUN, '~.')
     command('/usr/bin/resolvectl', 'default-route', TUN, 'yes')
     # Bind a certificate-verified HTTPS request to TUN before reporting success.
@@ -711,26 +832,52 @@ def main():
     event('CONNECTED')
     selector = selectors.DefaultSelector(); selector.register(sys.stdin, selectors.EVENT_READ)
     while not stopping and process.poll() is None:
-        if selector.select(1):
-            break  # stop command or app exit/EOF
+        if selector.select(1) and receive_command() != 'rejected':
+            break
+    selector.close()
     if process.poll() is not None and not stopping:
         raise RuntimeError('Xray stopped unexpectedly.')
 
+def supervise():
+    global next_request
+    request = None
+    while not stopping:
+        try:
+            main(request)
+        except Exception:
+            event('ERROR')
+            if not guard_active:
+                break
+            # Failed replacements retain the kernel barrier until retry or Stop.
+            selector = selectors.DefaultSelector(); selector.register(sys.stdin, selectors.EVENT_READ)
+            while not stopping:
+                if selector.select(1) and receive_command() != 'rejected': break
+            selector.close()
+        cleanup_dpi_attempt()
+        if stopping or next_request is None: break
+        request, next_request = next_request, None
+
 if __name__ == '__main__':
+    # One supervisor owns the dedicated interface/filter. A recovery Stop can
+    # disarm a barrier left by a crashed supervisor, but never a live session.
+    import fcntl
+    if os.geteuid() != 0: raise RuntimeError('Administrator authorization is required')
+    lock_fd = os.open('/run/oculve-tunnel.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    if sys.argv[1:] == ['--disarm']:
+        if os.path.isfile('/usr/sbin/nft') and subprocess.run(['/usr/sbin/nft', 'list', 'table', 'inet', 'oculve_switch'], capture_output=True).returncode == 0:
+            command('/usr/sbin/nft', 'delete', 'table', 'inet', 'oculve_switch')
+        sys.exit(0)
+    if sys.argv[1:]: raise ValueError('Unsupported arguments')
     for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
         signal.signal(sig, stop)
     try:
-        main()
-    except Exception:
-        # Never emit config, URLs, credentials, or raw subprocess output.
-        event('ERROR')
+        supervise()
     finally:
-        if owns_tun:
-            subprocess.run(['/usr/bin/resolvectl', 'revert', TUN], capture_output=True)
-        for route in reversed(routes):
-            subprocess.run(['/usr/sbin/ip', *route], capture_output=True)
-        if process is not None:
-            terminate_worker(process)
-        if dpi_process is not None:
-            terminate_worker(dpi_process)
+        cleanup_dpi_attempt()
+        if guard_active and explicit_stop:
+            subprocess.run(['/usr/sbin/nft', 'delete', 'table', 'inet', 'oculve_switch'], check=True, capture_output=True)
+        if worker_group is not None:
+            try: worker_group.rmdir()
+            except OSError: pass
         event('DISCONNECTED')

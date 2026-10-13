@@ -110,6 +110,53 @@ class VlessMethodChannelAdapter extends VlessPlatform {
     await methodChannel.invokeMethod('startVless', arguments);
   }
 
+  @override
+  Future<void> replaceVless({
+    required String remark,
+    required String config,
+    required String notificationDisconnectButtonName,
+    List<String>? blockedApps,
+    List<String>? bypassSubnets,
+    bool dpiBypass = false,
+    int dpiProfile = 0,
+    bool proxyOnly = false,
+    String? geoAssetsDirectory,
+    AndroidDnsPolicy androidDnsPolicy = AndroidDnsPolicy.config,
+    String? androidDnsProxyOutboundTag,
+  }) async {
+    await _requireSecurityCapability('protectedServerSwitch');
+    if (androidDnsProxyOutboundTag != null &&
+        (androidDnsPolicy != AndroidDnsPolicy.proxy ||
+            androidDnsProxyOutboundTag.trim().isEmpty)) {
+      throw ArgumentError('A non-empty DNS outbound tag requires proxy DNS.');
+    }
+    if (androidDnsPolicy == AndroidDnsPolicy.proxy) {
+      if (proxyOnly) {
+        throw ArgumentError(
+            'System DNS policy requires an Android VPN session.');
+      }
+      await _requireSecurityCapability('androidProxyDns');
+    }
+    final arguments = <String, Object?>{
+      'remark': remark,
+      'config': config,
+      'blocked_apps': blockedApps,
+      'bypass_subnets': bypassSubnets,
+      'dpi_bypass': dpiBypass,
+      'dpi_profile': dpiProfile,
+      'proxy_only': proxyOnly,
+      'notificationDisconnectButtonName': notificationDisconnectButtonName,
+      if (androidDnsPolicy != AndroidDnsPolicy.config)
+        'android_dns_policy': androidDnsPolicy.name,
+      if (androidDnsProxyOutboundTag != null)
+        'android_dns_proxy_outbound_tag': androidDnsProxyOutboundTag,
+    };
+    if (geoAssetsDirectory != null) {
+      arguments['geo_assets_directory'] = geoAssetsDirectory;
+    }
+    await methodChannel.invokeMethod('replaceVless', arguments);
+  }
+
   Future<void> _requireSecurityCapability(String capability) async {
     try {
       final capabilities = await methodChannel

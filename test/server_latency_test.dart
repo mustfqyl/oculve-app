@@ -55,6 +55,12 @@ class _GatedProbe extends ServerLatencyProbe {
   Future<int?> measure(VpnProfile profile) => gates[profile.id]!.future;
 }
 
+class _ConnectedVpnNotifier extends VpnNotifier {
+  _ConnectedVpnNotifier(super.ref) {
+    state = VpnState.connected;
+  }
+}
+
 class _ErrorVpnNotifier extends VpnNotifier {
   _ErrorVpnNotifier(super.ref) {
     state = VpnState.error;
@@ -583,6 +589,33 @@ void main() {
         const MaterialApp(home: Scaffold(body: CountryIcon(flag: null))),
       );
       expect(find.byIcon(Icons.public), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'connected locations are selectable without the disconnect warning',
+    (tester) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            sessionProvider.overrideWith((ref) => _SessionWithServers()),
+            vpnProvider.overrideWith((ref) => _ConnectedVpnNotifier(ref)),
+            vpnTunnelMayBeActiveProvider.overrideWith((ref) => true),
+          ],
+          child: MaterialApp(
+            theme: AppTheme.darkTheme,
+            home: const ServerSelectionScreen(),
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(find.text('Disconnect before changing location.'), findsNothing);
+      final location = tester.widget<ListTile>(
+        find.ancestor(of: find.text('Zurich'), matching: find.byType(ListTile)),
+      );
+      expect(location.enabled, isTrue);
+      expect(location.onTap, isNotNull);
+      expect(tester.takeException(), isNull);
     },
   );
 

@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -46,6 +47,8 @@ class TestPlatform extends VlessPlatform {
   Completer<void>? startGate;
   int starts = 0;
   int stops = 0;
+  int replacements = 0;
+  bool rejectReplacement = false;
   String? lastConfig;
   String? lastRemark;
   bool lastDpiBypass = false;
@@ -81,13 +84,38 @@ class TestPlatform extends VlessPlatform {
     String? androidDnsProxyOutboundTag,
   }) async {
     expectSync(proxyOnly, false);
-    expectSync(androidDnsPolicy, AndroidDnsPolicy.proxy);
+    expectSync(
+      androidDnsPolicy,
+      Platform.isAndroid ? AndroidDnsPolicy.proxy : AndroidDnsPolicy.config,
+    );
     starts++;
     lastRemark = remark;
     lastConfig = config;
     lastDpiBypass = dpiBypass;
     lastDpiProfile = dpiProfile;
     lastAndroidDnsProxyOutboundTag = androidDnsProxyOutboundTag;
+    await startGate?.future;
+  }
+
+  @override
+  Future<void> replaceVless({
+    required String remark,
+    required String config,
+    required String notificationDisconnectButtonName,
+    List<String>? blockedApps,
+    List<String>? bypassSubnets,
+    bool dpiBypass = false,
+    int dpiProfile = 0,
+    bool proxyOnly = false,
+    String? geoAssetsDirectory,
+    AndroidDnsPolicy androidDnsPolicy = AndroidDnsPolicy.config,
+    String? androidDnsProxyOutboundTag,
+  }) async {
+    replacements++;
+    if (rejectReplacement) throw StateError('Replacement rejected');
+    lastRemark = remark;
+    lastConfig = config;
+    lastDpiBypass = dpiBypass;
     await startGate?.future;
   }
 
@@ -129,6 +157,85 @@ void main() {
     await container.read(sessionProvider.notifier).refresh();
   });
   tearDown(() => container.dispose());
+  test(
+    'connected selection uses replacement without releasing protection',
+    () async {
+      final controller = container.read(vpnProvider.notifier);
+      await controller.connect();
+      platform.emit(VlessStatus(state: 'CONNECTED'));
+      await controller.selectServer(dpiBypassServerId);
+      expect(platform.replacements, 1);
+      expect(platform.stops, 0);
+      expect(container.read(vpnTunnelMayBeActiveProvider), isTrue);
+      expect(container.read(vpnProvider), VpnState.connecting);
+      platform.emit(VlessStatus(state: 'CONNECTED'));
+      expect(container.read(vpnProvider), VpnState.connected);
+    },
+  );
+
+  testWidgets('rejected replacement and timeout never release the tunnel', (
+    tester,
+  ) async {
+    final controller = container.read(vpnProvider.notifier);
+    await controller.connect();
+    platform.emit(VlessStatus(state: 'CONNECTED'));
+    platform.rejectReplacement = true;
+    await controller.selectServer(dpiBypassServerId);
+    expect(platform.stops, 0);
+    expect(container.read(vpnTunnelMayBeActiveProvider), isTrue);
+    await tester.pump(const Duration(seconds: 12));
+    expect(container.read(vpnTunnelMayBeActiveProvider), isTrue);
+    platform.rejectReplacement = false;
+    await controller.connect();
+    expect(platform.replacements, 2);
+    await tester.pump(const Duration(seconds: 91));
+    expect(platform.stops, 0);
+    expect(container.read(vpnTunnelMayBeActiveProvider), isTrue);
+    await controller.disconnect();
+    expect(platform.stops, 1);
+    expect(container.read(vpnTunnelMayBeActiveProvider), isFalse);
+    controller.dismissError();
+  });
+
+  test('same server selection and concurrent switches are ignored', () async {
+    final controller = container.read(vpnProvider.notifier);
+    await controller.selectServer(dpiBypassServerId);
+    await controller.connect();
+    platform.emit(VlessStatus(state: 'CONNECTED'));
+    await controller.selectServer(dpiBypassServerId);
+    expect(platform.replacements, 0);
+    platform.startGate = Completer<void>();
+    final pending = controller.selectServer(optimalServerId);
+    while (platform.replacements == 0) {
+      await Future<void>.delayed(const Duration(milliseconds: 1));
+    }
+    platform.emit(VlessStatus(state: 'CONNECTED')); // old session heartbeat
+    expect(container.read(vpnProvider), VpnState.connecting);
+    await controller.selectServer(dpiBypassServerId);
+    expect(platform.replacements, 1);
+    platform.startGate!.complete();
+    await pending;
+    expect(platform.stops, 0);
+  });
+
+  test(
+    'optimal switch avoids direct probes and runtime failure retains protection',
+    () async {
+      final controller = container.read(vpnProvider.notifier);
+      await controller.connect();
+      platform.emit(VlessStatus(state: 'CONNECTED'));
+      await controller.selectServer(optimalServerId);
+      expect(probe.checkedNames, isEmpty);
+      expect(platform.replacements, 1);
+      platform.emit(VlessStatus(state: 'CONNECTED'));
+      platform.emit(VlessStatus(state: 'ERROR'));
+      await Future<void>.delayed(Duration.zero);
+      expect(platform.stops, 0);
+      expect(container.read(vpnTunnelMayBeActiveProvider), isTrue);
+      await controller.disconnect();
+    },
+  );
+
   test('cancel while awaiting permission never starts a tunnel', () async {
     platform.permissionGate = Completer<bool>();
     final controller = container.read(vpnProvider.notifier);
@@ -424,7 +531,10 @@ void main() {
       expect(platform.lastRemark, 'DPI Bypass');
       expect(platform.lastDpiBypass, isTrue);
       expect(platform.lastDpiProfile, 4);
-      expect(platform.lastAndroidDnsProxyOutboundTag, 'byedpi');
+      expect(
+        platform.lastAndroidDnsProxyOutboundTag,
+        Platform.isAndroid ? 'byedpi' : null,
+      );
       final config = jsonDecode(platform.lastConfig!) as Map<String, dynamic>;
       final inbounds = config['inbounds'] as List;
       expect(inbounds, hasLength(1));

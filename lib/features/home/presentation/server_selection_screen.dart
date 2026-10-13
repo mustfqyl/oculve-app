@@ -61,10 +61,7 @@ class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
     final profiles = ref.watch(sessionProvider).valueOrNull?.profiles ?? [];
     final selected = ref.watch(selectedServerProvider);
     final vpn = ref.watch(vpnProvider);
-    final tunnelMayBeActive = ref.watch(vpnTunnelMayBeActiveProvider);
-    final enabled =
-        !tunnelMayBeActive &&
-        (vpn == VpnState.disconnected || vpn == VpnState.error);
+    final enabled = vpn != VpnState.connecting && vpn != VpnState.disconnecting;
     final dark = Theme.of(context).brightness == Brightness.dark;
     final sortForeground = dark
         ? AppTheme.foreground
@@ -158,8 +155,9 @@ class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
                 trailing: LatencyLabel(latency: latencies[profile.id]!),
                 enabled: enabled,
                 onTap: () {
-                  ref.read(optimalServerProfileProvider.notifier).state = null;
-                  ref.read(selectedServerProvider.notifier).state = profile.id;
+                  unawaited(
+                    ref.read(vpnProvider.notifier).selectServer(profile.id),
+                  );
                   Navigator.pop(context);
                 },
               ),
@@ -201,11 +199,6 @@ class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
       child: ListView(
         padding: const EdgeInsets.all(24),
         children: [
-          if (!enabled)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 16),
-              child: Text(context.tr('Disconnect before changing location.')),
-            ),
           if (profiles.isEmpty)
             Text(context.tr('No servers available. Check your subscription.')),
           Padding(
@@ -225,10 +218,11 @@ class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
                       color: AppTheme.successColor,
                     ),
                     onTap: () {
-                      ref.read(optimalServerProfileProvider.notifier).state =
-                          null;
-                      ref.read(selectedServerProvider.notifier).state =
-                          optimalServerId;
+                      unawaited(
+                        ref
+                            .read(vpnProvider.notifier)
+                            .selectServer(optimalServerId),
+                      );
                       Navigator.pop(context);
                     },
                   ),
@@ -243,10 +237,11 @@ class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
                     accentColor: Colors.blueAccent,
                     icon: const DpiBypassLogo(),
                     onTap: () {
-                      ref.read(optimalServerProfileProvider.notifier).state =
-                          null;
-                      ref.read(selectedServerProvider.notifier).state =
-                          dpiBypassServerId;
+                      unawaited(
+                        ref
+                            .read(vpnProvider.notifier)
+                            .selectServer(dpiBypassServerId),
+                      );
                       Navigator.pop(context);
                     },
                   ),

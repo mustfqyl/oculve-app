@@ -3,6 +3,10 @@ from importlib.machinery import SourceFileLoader
 from pathlib import Path
 import unittest
 import math
+from unittest.mock import patch
+import io
+import json
+import subprocess
 
 
 HELPER = SourceFileLoader(
@@ -12,6 +16,35 @@ HELPER = SourceFileLoader(
 
 
 class LinuxTunnelConfigTest(unittest.TestCase):
+    def test_https_dns_stays_on_selected_proxy_and_virtual_dns(self):
+        cfg = HELPER.build_dpi_config('eth0', [], 'https://cloudflare-dns.com/dns-query', 12345)
+        self.assertEqual(cfg['dns']['servers'], ['https://cloudflare-dns.com/dns-query'])
+        self.assertTrue(cfg['dns']['disableFallback'])
+        redirect = next(out for out in cfg['outbounds'] if out['tag'] == 'oculve-doh-bootstrap')
+        self.assertEqual(redirect['settings']['redirect'], '1.1.1.1:443')
+        self.assertEqual(redirect['streamSettings']['sockopt']['dialerProxy'], 'byedpi')
+        relay = next(out for out in cfg['outbounds'] if out['tag'] == 'oculve-system-dns')
+        self.assertEqual(relay['settings']['rules'][1]['action'], 'hijack')
+        self.assertEqual(cfg['routing']['rules'][0]['outboundTag'], 'oculve-doh-bootstrap')
+        with self.assertRaises(ValueError): HELPER.dns_endpoint('https://attacker.example/dns')
+
+    def test_switch_filter_has_no_root_or_established_flow_bypass(self):
+        rules = HELPER.switch_filter(Path('/sys/fs/cgroup/oculve-123'))
+        self.assertIn('policy drop', rules)
+        self.assertIn('socket cgroupv2 level 1 "oculve-123" accept', rules)
+        self.assertIn('meta nfproto ipv6 drop', rules)
+        self.assertNotIn('skuid 0', rules)
+        self.assertNotIn('ct state established', rules)
+        self.assertNotIn('flush ruleset', rules)
+        with self.assertRaises(ValueError): HELPER.switch_filter(Path('root; accept'))
+
+    def test_filter_failure_rejects_switch_before_worker_cleanup(self):
+        stream = type('Input', (), {'buffer': io.BytesIO(json.dumps({'dpiBypass': True}).encode() + b'\n')})()
+        with patch.object(HELPER.sys, 'stdin', stream), patch.object(HELPER, 'arm_switch_guard', side_effect=RuntimeError()), patch.object(HELPER, 'cleanup_dpi_attempt') as cleanup, patch.object(HELPER, 'event'):
+            self.assertEqual(HELPER.receive_command(), 'rejected')
+            cleanup.assert_not_called()
+            self.assertIsNone(HELPER.next_request)
+
     def test_dpi_automatic_groups_and_pinned_manual_strategies(self):
         automatic = HELPER.dpi_strategy_args(4)
         self.assertEqual(automatic.count('--auto'), 4)
@@ -41,24 +74,24 @@ class LinuxTunnelConfigTest(unittest.TestCase):
         self.assertEqual(config['log']['loglevel'], 'warning')
         self.assertEqual(config['log']['access'], 'none')
         self.assertEqual(config['log']['error'], 'none')
-        self.assertEqual(config['outbounds'][-1]['protocol'], 'freedom')
+        self.assertEqual(next(item for item in config['outbounds'] if item['tag'] == 'direct')['protocol'], 'freedom')
         self.assertEqual(
-            config['outbounds'][-1]['streamSettings']['sockopt']['interface'],
+            next(item for item in config['outbounds'] if item['tag'] == 'direct')['streamSettings']['sockopt']['interface'],
             'eth0',
         )
         self.assertEqual(
-            config['routing']['rules'][1]['domain'], ['domain:example.com'],
+            config['routing']['rules'][2]['domain'], ['domain:example.com'],
         )
         self.assertTrue(config['inbounds'][0]['sniffing']['routeOnly'])
         self.assertEqual(
-            config['routing']['rules'][0]['ip'], ['::/0'],
+            config['routing']['rules'][1]['ip'], ['::/0'],
         )
         self.assertEqual(config['dns']['servers'], ['tcp://9.9.9.9'])
 
     def test_dpi_mode_uses_only_local_bydpi_direct_and_block_outbounds(self):
         config = HELPER.build_dpi_config('wlan0', [], '9.9.9.9', 43127)
         outbounds = {item['tag']: item for item in config['outbounds']}
-        self.assertEqual(set(outbounds), {'byedpi', 'direct', 'block'})
+        self.assertEqual(set(outbounds), {'byedpi', 'direct', 'block', 'oculve-system-dns'})
         self.assertNotIn('vless', [item['protocol'] for item in config['outbounds']])
         self.assertEqual(
             outbounds['byedpi']['settings']['servers'],
@@ -68,7 +101,7 @@ class LinuxTunnelConfigTest(unittest.TestCase):
             outbounds['direct']['streamSettings']['sockopt']['interface'], 'wlan0',
         )
         self.assertEqual(config['inbounds'][0]['settings']['name'], 'oculve0')
-        self.assertEqual(config['routing']['rules'][0]['outboundTag'], 'block')
+        self.assertEqual(config['routing']['rules'][1]['outboundTag'], 'block')
 
     def test_dpi_routing_rules_map_existing_actions_to_xray_outbounds(self):
         rules = [
@@ -79,14 +112,14 @@ class LinuxTunnelConfigTest(unittest.TestCase):
         ]
         config = HELPER.build_dpi_config('en0', [], '1.1.1.1', 45001, rules)
         self.assertEqual(
-            [rule['outboundTag'] for rule in config['routing']['rules']],
+            [rule['outboundTag'] for rule in config['routing']['rules'] if rule['outboundTag'] != 'oculve-system-dns'],
             ['block', 'byedpi', 'byedpi', 'direct', 'byedpi', 'direct', 'block'],
         )
         self.assertEqual(
-            config['routing']['rules'][1]['domain'], ['full:www.gstatic.com'],
+            config['routing']['rules'][2]['domain'], ['full:www.gstatic.com'],
         )
         self.assertEqual(
-            config['routing']['rules'][2]['domain'], ['full:cp.cloudflare.com'],
+            config['routing']['rules'][3]['domain'], ['full:cp.cloudflare.com'],
         )
         self.assertLess(
             config['routing']['rules'].index(next(

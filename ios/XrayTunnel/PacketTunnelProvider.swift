@@ -338,7 +338,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
 
     /// Runs on watchdogQueue. Keep the NE routes/DNS installed during recovery.
     private func scheduleNativeRecovery(after delay: TimeInterval) {
-        guard !watchdogSuspended, !runtimeRecoveryInFlight,
+        guard !isStartupStopped(), !watchdogSuspended, !runtimeRecoveryInFlight,
               let spec = runtimeSpec else { return }
         runtimeRecoveryInFlight = true
         setForwardingReady(false)
@@ -377,7 +377,79 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         }
     }
 
+    private var replacementInProgress = false
+
+    private func replaceProtectedRuntime(_ payload: Data) async throws {
+        guard payload.count <= 65536,
+              let metadata = try PropertyListSerialization.propertyList(from: payload, options: [], format: nil) as? [String: Any],
+              let configuration = protocolConfiguration as? NETunnelProviderProtocol else {
+            throw tunnelError("Invalid replacement metadata")
+        }
+        let old: RuntimeSpec? = watchdogQueue.sync {
+            guard !replacementInProgress, !isStartupStopped(), let current = runtimeSpec else { return nil }
+            replacementInProgress = true
+            return current
+        }
+        guard let old else { throw tunnelError("Protected tunnel is unavailable") }
+        defer { watchdogQueue.sync { replacementInProgress = false } }
+        let stored = try TunnelSecretProfile.load(metadata,
+            providerBundleIdentifier: configuration.providerBundleIdentifier ?? "")
+        guard (metadata["bypassSubnets"] as? [String] ?? []).isEmpty else { throw tunnelError("System route exclusions are unsupported") }
+        let candidate = stored
+        let credentials = try LocalProxyCredentials.generate()
+        let prepared = try await TunnelXrayConfigPreparer.prepareForStartup(jsonData: candidate,
+            credentials: credentials, resolveIPv4: { host in
+                try? LocalProxyDelayClient.resolveIPv4(host: host, port: old.port, credentials: old.credentials)
+            }, attempts: 1)
+        guard !isStartupStopped(), let parsed = parseConfig(jsonData: prepared.data),
+              TunnelDNSPolicy.allowsRouteExclusions(prepared.bootstrapAddresses.map { "\($0)/32" }) else {
+            throw tunnelError("Protected switch preparation failed")
+        }
+        let dpiBypass = TunnelDpiRuntime.isDpiConfig(candidate)
+        let interfaceName = dpiBypass ? try await TunnelDpiRuntime.currentPhysicalInterface() : nil
+        // Retire workers, never the NetworkExtension session or virtual DNS.
+        stopTunnelWatchdog()
+        setForwardingReady(false)
+        let stopped: Bool = await withCheckedContinuation { continuation in
+            runtimeQueue.async { continuation.resume(returning: self.stopNativeRuntime()) }
+        }
+        guard stopped, !isStartupStopped() else { throw tunnelError("Protected workers could not stop") }
+        let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: "254.1.1.1")
+        settings.mtu = NSNumber(value: tunnelMTU)
+        let addresses = prepared.bootstrapAddresses
+        let ipv4 = NEIPv4Settings(addresses: ["198.18.0.1"], subnetMasks: ["255.255.0.0"])
+        ipv4.includedRoutes = [NEIPv4Route.default(), NEIPv4Route(destinationAddress: TunnelDNSPolicy.virtualServer, subnetMask: "255.255.255.255")]
+        ipv4.excludedRoutes = buildIPv4ExcludedRoutes(serverAddresses: addresses.filter { isIPv4Literal($0) })
+        settings.ipv4Settings = ipv4
+        settings.ipv6Settings = TunnelIPv6Policy.networkSettings(proxyAddresses: addresses)
+        let dns = NEDNSSettings(servers: dnsServers); dns.matchDomains = [""]; settings.dnsSettings = dns
+        do { try await setTunnelNetworkSettings(settings) }
+        catch {
+            if !isStartupStopped() {
+                startTunnelWatchdog(port: old.port)
+                watchdogQueue.async { self.scheduleNativeRecovery(after: 0) }
+            }
+            throw error
+        }
+        guard !isStartupStopped() else { throw CancellationError() }
+        runtimeSpec = RuntimeSpec(config: prepared.data, port: parsed.inboundPort,
+            geoAssetsDirectory: metadata["geoAssetsDirectory"] as? String, credentials: credentials,
+            dpiBypass: dpiBypass, physicalInterfaceName: interfaceName)
+        startTunnelWatchdog(port: parsed.inboundPort)
+        rememberTunnelLog("Server replaced inside protected tunnel")
+        watchdogQueue.async { self.scheduleNativeRecovery(after: 0) }
+    }
+
     override func handleAppMessage(_ messageData: Data, completionHandler: ((Data?) -> Void)?) {
+        let prefix = Data("oculve_replace:".utf8)
+        if messageData.starts(with: prefix) {
+            let payload = Data(messageData.dropFirst(prefix.count))
+            Task {
+                do { try await replaceProtectedRuntime(payload); completionHandler?(Data("accepted".utf8)) }
+                catch { rememberTunnelLog("Server switch rejected; existing tunnel protection retained"); completionHandler?(Data("rejected".utf8)) }
+            }
+            return
+        }
         if let message = String(data: messageData, encoding: .utf8) {
             if message == "xray_runtime_state" {
                 completionHandler?(Data((isForwardingReady() ? "ready" : "recovering").utf8))
@@ -584,6 +656,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
 
     private func startTunnelWatchdog(port: Int?) {
         watchdogQueue.sync {
+            guard !self.isStartupStopped() else { return }
             watchdogGeneration += 1
             runtimeRecoveryInFlight = false
             watchdogInboundPort = port
