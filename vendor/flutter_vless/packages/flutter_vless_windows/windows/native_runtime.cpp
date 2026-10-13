@@ -7,6 +7,40 @@
 #include <sddl.h>
 #include <algorithm>
 
+ProcessHandle::ProcessHandle() = default;
+
+ProcessHandle::~ProcessHandle() {
+  Close();
+}
+
+void ProcessHandle::Close() {
+  if (hJob) {
+    CloseHandle(reinterpret_cast<HANDLE>(hJob));
+    hJob = 0;
+  }
+  if (hProcess) {
+    HANDLE process = reinterpret_cast<HANDLE>(hProcess);
+    if (IsRunning()) TerminateProcess(process, 0);
+    WaitForSingleObject(process, 3000);
+    CloseHandle(process);
+    hProcess = 0;
+  }
+  for (auto* slot : {&hThread, &hStdOutRead, &hStdErrRead}) {
+    if (*slot && reinterpret_cast<HANDLE>(*slot) != INVALID_HANDLE_VALUE) {
+      CloseHandle(reinterpret_cast<HANDLE>(*slot));
+    }
+    *slot = 0;
+  }
+}
+
+bool ProcessHandle::IsRunning() const {
+  if (hProcess == 0) return false;
+  HANDLE hp = reinterpret_cast<HANDLE>(hProcess);
+  if (hp == INVALID_HANDLE_VALUE) return false;
+  DWORD exit_code = 0;
+  return GetExitCodeProcess(hp, &exit_code) && exit_code == STILL_ACTIVE;
+}
+
 namespace flutter_vless::native {
 std::wstring Wide(const std::string& s) {
   int n = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, s.data(), static_cast<int>(s.size()), nullptr, 0);

@@ -62,38 +62,6 @@ namespace json_utils {
 }
 }
 
-// ProcessHandle implementation
-ProcessHandle::ProcessHandle() = default;
-
-ProcessHandle::~ProcessHandle() {
-  Close();
-}
-
-void ProcessHandle::Close() {
-  if (hJob) { CloseHandle(reinterpret_cast<HANDLE>(hJob)); hJob = 0; }
-  if (hProcess) {
-    HANDLE process = reinterpret_cast<HANDLE>(hProcess);
-    if (IsRunning()) TerminateProcess(process, 0);
-    WaitForSingleObject(process, 3000);
-    CloseHandle(process); hProcess = 0;
-  }
-  for (auto* slot : {&hThread, &hStdOutRead, &hStdErrRead}) {
-    if (*slot && reinterpret_cast<HANDLE>(*slot) != INVALID_HANDLE_VALUE) CloseHandle(reinterpret_cast<HANDLE>(*slot));
-    *slot = 0;
-  }
-}
-
-bool ProcessHandle::IsRunning() const {
-  if (hProcess == 0) return false;
-  HANDLE hp = reinterpret_cast<HANDLE>(hProcess);
-  if (hp == INVALID_HANDLE_VALUE) return false;
-  DWORD exit_code = 0;
-  if (GetExitCodeProcess(hp, &exit_code)) {
-    return exit_code == STILL_ACTIVE;
-  }
-  return false;
-}
-
 // Helper function to convert std::string to std::wstring
 static std::wstring StringToWString(const std::string& str) {
   if (str.empty()) return std::wstring();
