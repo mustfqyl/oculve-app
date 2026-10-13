@@ -169,7 +169,7 @@ jobs:
         id: windows-build
         run: |
           $log = Join-Path $env:RUNNER_TEMP "windows-build.log"
-          flutter build windows --debug --verbose *> $log
+          flutter build windows --release --verbose *> $log
           $result = $LASTEXITCODE
           if ($result -ne 0) {
             $mt = Get-Command mt.exe -ErrorAction SilentlyContinue
@@ -192,6 +192,12 @@ jobs:
           }
           exit $result
 
+      - name: Package portable Windows test build
+        id: windows-package
+        if: steps.windows-build.outcome == 'success'
+        shell: pwsh
+        run: ./tool/package_windows.ps1
+
       - name: Write sanitized Windows job report
         if: always()
         shell: pwsh
@@ -200,7 +206,8 @@ jobs:
             'Platform: Windows x64'
             'Flutter tests (XRAY_TEST_BINARY pinned by tool/prepare_desktop.py): ${{ steps.flutter-tests.outcome }}'
             'Native regression tests (WFP recording backend): ${{ steps.native-tests.outcome }}'
-            'Windows debug build: ${{ steps.windows-build.outcome }}'
+            'Windows release build: ${{ steps.windows-build.outcome }}'
+            'Portable package with app-local Microsoft runtimes: ${{ steps.windows-package.outcome }}'
             'Live WFP tunnel/leak test: not run on GitHub-hosted runner'
           ) | Set-Content -Path (Join-Path $env:RUNNER_TEMP 'oculve-windows-report.txt')
           Get-Content (Join-Path $env:RUNNER_TEMP 'oculve-windows-report.txt') | Add-Content $env:GITHUB_STEP_SUMMARY
@@ -211,7 +218,7 @@ jobs:
         with:
           name: oculve-windows-build-and-report
           path: |
-            build/windows/x64/runner/Debug/**
+            dist/Oculve-Windows-Test.zip
             ${{ runner.temp }}/oculve-windows-report.txt
           if-no-files-found: warn
           retention-days: 7
