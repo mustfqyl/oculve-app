@@ -2,6 +2,7 @@
 
 #ifdef _WIN32
     #include <ws2tcpip.h>
+    #include <netioapi.h>
     
     #ifndef TCP_MAXRT
     #define TCP_MAXRT 5
