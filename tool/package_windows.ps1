@@ -25,6 +25,7 @@ if ($LASTEXITCODE -ne 0 -or -not $vsInstall) {
 }
 $vcRedistRoot = Join-Path $vsInstall 'VC/Redist/MSVC'
 $vcRuntime = Get-ChildItem $vcRedistRoot -Directory |
+  Where-Object { $_.Name -match '^\d+(\.\d+){1,3}$' } |
   Sort-Object { [version]$_.Name } -Descending |
   ForEach-Object { Join-Path $_.FullName 'x64/Microsoft.VC143.CRT' } |
   Where-Object { Test-Path $_ } |
