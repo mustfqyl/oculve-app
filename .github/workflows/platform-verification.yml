@@ -25,7 +25,7 @@ jobs:
       - name: Install Linux build dependencies
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev libstdc++-12-dev libsecret-1-dev libayatana-appindicator3-dev
+          sudo apt-get install -y clang cmake ninja-build pkg-config iproute2 nftables libgtk-3-dev libstdc++-12-dev libsecret-1-dev libayatana-appindicator3-dev
 
       - name: Set up Flutter
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
@@ -42,10 +42,15 @@ jobs:
       - name: Test Linux tunnel policy
         run: python3 -m unittest discover -s test -p '*_test.py'
 
+      - name: Probe isolated tunnel test capabilities
+        id: linux-net-probe
+        run: python3 tool/probe_linux_network_ci.py
+
       - name: Fetch and verify Linux Xray runtime
         run: python3 tool/prepare_desktop.py linux
 
       - name: Run Flutter tests and real Xray integration tests
+        id: flutter-tests
         run: |
           set +e
           flutter test --reporter expanded > "$RUNNER_TEMP/flutter-tests.log" 2>&1
@@ -58,6 +63,7 @@ jobs:
           XRAY_TEST_BINARY: linux/xray/xray
 
       - name: Build Linux desktop app
+        id: linux-build
         run: |
           set +e
           flutter build linux --debug > "$RUNNER_TEMP/linux-build.log" 2>&1
@@ -68,6 +74,7 @@ jobs:
           exit "$result"
 
       - name: Build Android debug APK
+        id: android-build
         run: |
           set +e
           flutter build apk --debug > "$RUNNER_TEMP/android-build.log" 2>&1
@@ -76,6 +83,31 @@ jobs:
             python3 tool/ci_failure_annotation.py "$RUNNER_TEMP/android-build.log" "Android debug build"
           fi
           exit "$result"
+
+      - name: Write sanitized Linux job report
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "Platform: Linux x64"
+            echo "Flutter tests (XRAY_TEST_BINARY pinned by tool/prepare_desktop.py): ${{ steps.flutter-tests.outcome }}"
+            echo "Linux debug build: ${{ steps.linux-build.outcome }}"
+            echo "Android debug APK build: ${{ steps.android-build.outcome }}"
+            echo "Linux kernel leak test capability probe: ${{ steps.linux-net-probe.outputs.available }}"
+            echo "Live Linux TUN traffic/leak test: not run; capability probe only"
+          } > "$RUNNER_TEMP/oculve-linux-report.txt"
+          cat "$RUNNER_TEMP/oculve-linux-report.txt" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Store Linux build and sanitized report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: oculve-linux-build-and-report
+          path: |
+            build/linux/x64/debug/bundle/**
+            ${{ runner.temp }}/oculve-linux-report.txt
+          if-no-files-found: warn
+          retention-days: 7
 
   windows:
     name: Windows desktop and tests
@@ -110,6 +142,7 @@ jobs:
         run: python tool/prepare_desktop.py windows
 
       - name: Run Flutter tests and real Xray integration tests
+        id: flutter-tests
         run: |
           $log = Join-Path $env:RUNNER_TEMP "flutter-tests.log"
           flutter test --reporter expanded *> $log
@@ -121,7 +154,19 @@ jobs:
         env:
           XRAY_TEST_BINARY: windows/xray/xray.exe
 
+      - name: Run Windows native regression tests
+        id: native-tests
+        shell: pwsh
+        run: |
+          cmake -S tool/windows_native_tests -B "$env:RUNNER_TEMP/oculve-windows-native-tests" -A x64
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build "$env:RUNNER_TEMP/oculve-windows-native-tests" --config Debug --parallel
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ctest --test-dir "$env:RUNNER_TEMP/oculve-windows-native-tests" -C Debug --output-on-failure
+          exit $LASTEXITCODE
+
       - name: Build Windows desktop app
+        id: windows-build
         run: |
           $log = Join-Path $env:RUNNER_TEMP "windows-build.log"
           flutter build windows --debug --verbose *> $log
@@ -146,3 +191,27 @@ jobs:
             python tool/ci_failure_annotation.py $log "Windows desktop build"
           }
           exit $result
+
+      - name: Write sanitized Windows job report
+        if: always()
+        shell: pwsh
+        run: |
+          @(
+            'Platform: Windows x64'
+            'Flutter tests (XRAY_TEST_BINARY pinned by tool/prepare_desktop.py): ${{ steps.flutter-tests.outcome }}'
+            'Native regression tests (WFP recording backend): ${{ steps.native-tests.outcome }}'
+            'Windows debug build: ${{ steps.windows-build.outcome }}'
+            'Live WFP tunnel/leak test: not run on GitHub-hosted runner'
+          ) | Set-Content -Path (Join-Path $env:RUNNER_TEMP 'oculve-windows-report.txt')
+          Get-Content (Join-Path $env:RUNNER_TEMP 'oculve-windows-report.txt') | Add-Content $env:GITHUB_STEP_SUMMARY
+
+      - name: Store Windows build and sanitized report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: oculve-windows-build-and-report
+          path: |
+            build/windows/x64/runner/Debug/**
+            ${{ runner.temp }}/oculve-windows-report.txt
+          if-no-files-found: warn
+          retention-days: 7

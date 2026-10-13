@@ -75,7 +75,7 @@ void main() {
       Scaffold(body: ListView(children: const [StartupSetting()])),
       const LanSharingScreen(),
       const FragmentationSettingsScreen(),
-      const BypassWebsitesScreen(),
+      const SplitTunnelingScreen(),
     ]) {
       testWidgets('${screen.runtimeType} fits compact viewport in $locale', (
         tester,

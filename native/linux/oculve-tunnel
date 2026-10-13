@@ -434,14 +434,20 @@ def ensure_worker_group():
         worker_group.mkdir(mode=0o755)
     return worker_group
 
-def switch_filter(group):
+def switch_filter(group, chain_exists=False, table_exists=False):
     # Dedicated table; never flush or modify another application's rules.
     name = group.name
     if not re.fullmatch(r'oculve-[0-9]+', name):
         raise ValueError('Invalid worker group')
-    return '\n'.join([
-        'add table inet oculve_switch',
-        'add chain inet oculve_switch output { type filter hook output priority -10; policy drop; }',
+    table_exists = table_exists or chain_exists
+    commands = []
+    if not table_exists:
+        commands.append('add table inet oculve_switch')
+    if not chain_exists:
+        commands.append(
+            'add chain inet oculve_switch output { type filter hook output priority -10; policy drop; }',
+        )
+    commands.extend([
         'flush chain inet oculve_switch output',
         'add rule inet oculve_switch output oifname "lo" accept',
         'add rule inet oculve_switch output oifname "oculve0" accept',
@@ -451,11 +457,21 @@ def switch_filter(group):
         'add rule inet oculve_switch output udp dport { 53, 853 } drop',
         'add rule inet oculve_switch output tcp dport { 53, 853 } drop',
         'add rule inet oculve_switch output socket cgroupv2 level 1 "' + name + '" accept',
-    ]) + '\n'
+    ])
+    return '\n'.join(commands) + '\n'
 
 def arm_switch_guard():
     global guard_active
-    rules = switch_filter(ensure_worker_group())
+    group = ensure_worker_group()
+    exists = subprocess.run(
+        ['/usr/sbin/nft', 'list', 'chain', 'inet', 'oculve_switch', 'output'],
+        capture_output=True, timeout=12,
+    ).returncode == 0
+    table_exists = exists or subprocess.run(
+        ['/usr/sbin/nft', 'list', 'table', 'inet', 'oculve_switch'],
+        capture_output=True, timeout=12,
+    ).returncode == 0
+    rules = switch_filter(group, chain_exists=exists, table_exists=table_exists)
     subprocess.run(['/usr/sbin/nft', '-f', '-'], input=rules, text=True,
                    check=True, capture_output=True, timeout=12)
     guard_active = True
@@ -719,10 +735,13 @@ def main(request=None):
         raw = sys.stdin.buffer.readline(65537)
         if len(raw) > 65536: raise ValueError('Profile too large')
         request = json.loads(raw)
-    # Join only native workers, never the helper/resolved, to this scope.
-    try: ensure_worker_group()
-    except Exception: pass
+    # Create the native worker scope before any operation that can later need
+    # protected switching. Failure here is safe: no routes or firewall state
+    # have been changed yet.
+    ensure_worker_group()
     if os.path.isfile('/usr/sbin/nft') and subprocess.run(['/usr/sbin/nft', 'list', 'table', 'inet', 'oculve_switch'], capture_output=True).returncode == 0:
+        # A prior helper may have exited with the kernel barrier still active.
+        # Refresh only Oculve's output chain for this supervisor's worker group.
         arm_switch_guard()
     base = {'dpiBypass', 'routingRules', 'bypassDomains', 'dnsServer', 'logLevel', 'version'}
     if not isinstance(request, dict) or not isinstance(request.get('dpiBypass'), bool):
@@ -739,6 +758,9 @@ def main(request=None):
     if request['dpiBypass']:
         if not isinstance(request['dpiProfile'], int) or isinstance(request['dpiProfile'], bool) or request['dpiProfile'] not in range(5) or not isinstance(request['routingRules'], list):
             raise ValueError('Invalid DPI tunnel request')
+        # Arm before launching ByeDPI/Xray or changing routes and DNS. A failed
+        # attempt remains fail-closed until an explicit Stop from the user.
+        arm_switch_guard()
         run_dpi_request(request, bypass_domains, dns_server, log_level, version)
         return
     node = request['outbound']
@@ -769,8 +791,6 @@ def main(request=None):
     port = server.get('port')
     if not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= 65535:
         raise ValueError('Invalid VLESS port')
-    endpoint = socket.getaddrinfo(server['address'], port, socket.AF_INET, socket.SOCK_STREAM)[0][4][0]
-    ipaddress.IPv4Address(endpoint)
     users = server.get('users')
     if not isinstance(users, list) or not users or not isinstance(users[0], dict):
         raise ValueError('Invalid VLESS user')
@@ -785,6 +805,12 @@ def main(request=None):
     if flow not in ('', 'xtls-rprx-vision', 'xtls-rprx-vision-udp443'):
         raise ValueError('Unsupported flow')
     mux = validate_mux(node.get('mux'), flow)
+    # Resolve the server name before enabling the output barrier so the
+    # resolver can use the current network. This is the one bootstrap lookup;
+    # arm protection immediately afterward, before route/DNS/tunnel changes.
+    endpoint = socket.getaddrinfo(server['address'], port, socket.AF_INET, socket.SOCK_STREAM)[0][4][0]
+    ipaddress.IPv4Address(endpoint)
+    arm_switch_guard()
     default = physical_default_route() if guard_active else json.loads(command('/usr/sbin/ip', '-j', 'route', 'get', endpoint))[0]
     dev, gateway = default['dev'], default.get('gateway')
     if dev == TUN:

@@ -69,9 +69,10 @@ class VpnNotifier extends StateNotifier<VpnState> {
         'The VPN runtime failed. Check permissions and connection settings.',
       );
       unawaited(ref.read(lanProxyProvider).stop());
-      // macOS keeps recovery and traffic protection inside NetworkExtension.
-      // stopVless would deliberately disarm that protection on a runtime error.
-      if (!Platform.isMacOS && !_protectedSwitch) {
+      // Native tunnel backends retain their traffic barrier during recovery.
+      // Stopping Linux here would explicitly remove its nftables guard.
+      if (!Platform.isMacOS && !Platform.isWindows && !Platform.isLinux &&
+          !_protectedSwitch) {
         unawaited(_stopAfterRuntimeError());
       }
       _scheduleReconnect();
@@ -148,7 +149,10 @@ class VpnNotifier extends StateNotifier<VpnState> {
   }
 
   Future<void> connect({bool automatic = false, bool replacing = false}) async {
-    replacing = replacing || _protectedSwitch;
+    replacing = replacing ||
+        _protectedSwitch ||
+        (automatic && Platform.isLinux &&
+            ref.read(vpnTunnelMayBeActiveProvider));
     if (_busy ||
         (!replacing && state == VpnState.connected) ||
         state == VpnState.connecting) {

@@ -1,6 +1,8 @@
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart' hide Text;
+import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_vless/flutter_vless.dart';
@@ -22,6 +24,7 @@ import 'features/home/presentation/home_screen.dart';
 
 void main(List<String> arguments) async {
   WidgetsFlutterBinding.ensureInitialized();
+  await _lockPhonesToPortrait();
   if (Platform.isLinux) VlessPlatform.instance = LinuxXrayPlatform();
   var loginLaunch = false;
   if (Platform.isMacOS || Platform.isWindows || Platform.isLinux) {
@@ -68,6 +71,23 @@ void main(List<String> arguments) async {
   }
 
   runApp(UncontrolledProviderScope(container: container, child: const MyApp()));
+}
+
+Future<void> _lockPhonesToPortrait() async {
+  if (!Platform.isAndroid && !Platform.isIOS) return;
+
+  final views = ui.PlatformDispatcher.instance.views;
+  if (views.isEmpty) return;
+
+  final view = views.first;
+  if (view.physicalSize.isEmpty || view.devicePixelRatio <= 0) return;
+  final shortestSide = view.physicalSize.shortestSide / view.devicePixelRatio;
+  if (shortestSide >= 600) return;
+
+  await SystemChrome.setPreferredOrientations(const [
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.portraitDown,
+  ]);
 }
 
 class MyApp extends ConsumerWidget {

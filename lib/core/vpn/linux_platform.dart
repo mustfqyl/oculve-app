@@ -67,7 +67,10 @@ class LinuxXrayPlatform extends VlessPlatform {
     String? androidDnsProxyOutboundTag,
   }) async {
     if (_process != null) throw StateError('A tunnel is already running.');
-    final request = _request(config, dpiBypass, dpiProfile, proxyOnly);
+    await _launch(_request(config, dpiBypass, dpiProfile, proxyOnly));
+  }
+
+  Future<void> _launch(Map<String, Object?> request) async {
     final process = await Process.start('/usr/bin/pkexec', [
       '--action-id',
       'com.oculve.client.tunnel',
@@ -115,8 +118,13 @@ class LinuxXrayPlatform extends VlessPlatform {
     String? androidDnsProxyOutboundTag,
   }) async {
     final process = _process;
-    if (process == null) throw StateError('A protected tunnel is required.');
     final request = _request(config, dpiBypass, dpiProfile, proxyOnly);
+    if (process == null) {
+      // The privileged helper may have exited while its kernel barrier
+      // survived. Starting it again recovers that barrier before reconnecting.
+      await _launch(request);
+      return;
+    }
     process.stdin.writeln(jsonEncode(request));
     await process.stdin.flush();
   }

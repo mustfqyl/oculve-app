@@ -38,6 +38,47 @@ class LinuxTunnelConfigTest(unittest.TestCase):
         self.assertNotIn('flush ruleset', rules)
         with self.assertRaises(ValueError): HELPER.switch_filter(Path('root; accept'))
 
+    def test_existing_guard_chain_is_refreshed_without_replacing_table(self):
+        rules = HELPER.switch_filter(
+            Path('/sys/fs/cgroup/oculve-456'), chain_exists=True,
+        )
+        self.assertIn('flush chain inet oculve_switch output', rules)
+        self.assertNotIn('add table inet oculve_switch', rules)
+        self.assertNotIn('add chain inet oculve_switch output', rules)
+        self.assertIn('socket cgroupv2 level 1 "oculve-456" accept', rules)
+        partial = HELPER.switch_filter(
+            Path('/sys/fs/cgroup/oculve-457'), table_exists=True,
+        )
+        self.assertNotIn('add table inet oculve_switch', partial)
+        self.assertIn('add chain inet oculve_switch output', partial)
+
+    def test_supervisor_keeps_guard_after_runtime_failure_until_explicit_stop(self):
+        class Selector:
+            def register(self, *_args): pass
+            def select(self, _timeout): return [object()]
+            def close(self): pass
+
+        old = (HELPER.guard_active, HELPER.stopping, HELPER.explicit_stop,
+               HELPER.next_request)
+        HELPER.guard_active = True
+        HELPER.stopping = False
+        HELPER.explicit_stop = False
+        HELPER.next_request = None
+        stream = type('Input', (), {'buffer': io.BytesIO(b'stop\n')})()
+        try:
+            with patch.object(HELPER, 'main', side_effect=RuntimeError('worker failed')), \
+                 patch.object(HELPER.selectors, 'DefaultSelector', return_value=Selector()), \
+                 patch.object(HELPER.sys, 'stdin', stream), \
+                 patch.object(HELPER, 'cleanup_dpi_attempt') as cleanup, \
+                 patch.object(HELPER, 'event'):
+                HELPER.supervise()
+            cleanup.assert_called_once()
+            self.assertTrue(HELPER.guard_active)
+            self.assertTrue(HELPER.explicit_stop)
+        finally:
+            (HELPER.guard_active, HELPER.stopping, HELPER.explicit_stop,
+             HELPER.next_request) = old
+
     def test_filter_failure_rejects_switch_before_worker_cleanup(self):
         stream = type('Input', (), {'buffer': io.BytesIO(json.dumps({'dpiBypass': True}).encode() + b'\n')})()
         with patch.object(HELPER.sys, 'stdin', stream), patch.object(HELPER, 'arm_switch_guard', side_effect=RuntimeError()), patch.object(HELPER, 'cleanup_dpi_attempt') as cleanup, patch.object(HELPER, 'event'):
