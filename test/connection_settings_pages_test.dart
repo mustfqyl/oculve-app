@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:oculve/core/theme/app_theme.dart';
+import 'package:oculve/core/desktop/startup_service.dart';
 import 'package:oculve/features/settings/presentation/startup_setting.dart';
 import 'package:oculve/features/settings/presentation/lan_sharing_screen.dart';
 import 'package:oculve/features/settings/presentation/xray_core_settings_screen.dart';
@@ -19,21 +19,14 @@ void main() {
   testWidgets(
     'startup reflects OS approval instead of claiming it is enabled',
     (tester) async {
-      const channel = MethodChannel('oculve/startup');
-      final calls = <MethodCall>[];
-      var approval = false;
-      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .setMockMethodCallHandler(channel, (call) async {
-            calls.add(call);
-            if (call.method == 'setEnabled') approval = call.arguments == true;
-            return {'enabled': false, 'requiresApproval': approval};
-          });
-      addTearDown(
-        () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-            .setMockMethodCallHandler(channel, null),
-      );
+      final backend = _ApprovalStartupBackend();
       await tester.pumpWidget(
         ProviderScope(
+          overrides: [
+            startupServiceProvider.overrideWith(
+              (ref) => StartupService(backend),
+            ),
+          ],
           child: MaterialApp(
             theme: AppTheme.darkTheme,
             home: Scaffold(body: ListView(children: const [StartupSetting()])),
@@ -48,10 +41,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 300));
       expect(find.text('On'), findsOneWidget);
       expect(find.byType(Dialog), findsNothing);
-      expect(
-        calls.where((c) => c.method == 'setEnabled').last.arguments,
-        isTrue,
-      );
+      expect(backend.enabledChanges.last, isTrue);
       expect(
         find.text('Approve Oculve in System Settings → General → Login Items.'),
         findsOneWidget,
@@ -63,10 +53,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('startup-mode')));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
-      expect(
-        calls.where((c) => c.method == 'setEnabled').last.arguments,
-        isFalse,
-      );
+      expect(backend.enabledChanges.last, isFalse);
       expect(find.text('Off'), findsOneWidget);
     },
   );
@@ -110,4 +97,22 @@ void main() {
       });
     }
   }
+}
+
+class _ApprovalStartupBackend extends StartupBackend {
+  final enabledChanges = <bool>[];
+  bool requiresApproval = false;
+
+  @override
+  Future<({bool enabled, bool requiresApproval})> status() async =>
+      (enabled: false, requiresApproval: requiresApproval);
+
+  @override
+  Future<void> setEnabled(bool enabled) async {
+    enabledChanges.add(enabled);
+    requiresApproval = enabled;
+  }
+
+  @override
+  Future<bool> launchedAtLogin(List<String> arguments) async => false;
 }
