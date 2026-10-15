@@ -17,6 +17,8 @@ import android.os.Handler
 import android.os.Looper
 import android.os.ResultReceiver
 import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import com.github.tfox.flutter_vless.xray.core.BoundedProcessOutput
 import com.github.tfox.flutter_vless.xray.core.XrayCoreManager
 import com.github.tfox.flutter_vless.xray.dto.XrayConfig
 import com.github.tfox.flutter_vless.xray.service.XrayVPNService
@@ -28,11 +30,10 @@ import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.PluginRegistry
-import java.io.BufferedReader
 import java.io.File
-import java.io.InputStreamReader
 import java.util.ArrayList
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Main entry point for the Flutter Vless plugin on Android.
@@ -97,6 +98,10 @@ class FlutterVlessPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activity
         when (call.method) {
             "getSecurityCapabilities" -> result.success(mapOf("protectedServerSwitch" to true, "androidProxyDns" to true, "iosKeychainReference" to false))
             "startVless", "replaceVless" -> {
+                if (call.argument<Boolean>("proxy_only") != true && VpnService.prepare(context) != null) {
+                    result.error("VPN_PERMISSION_REQUIRED", "VPN permission is required before starting the tunnel", null)
+                    return
+                }
                 // 1. Parse configuration from Flutter
                 val config = XrayConfig()
                 config.REMARK = call.argument("remark") ?: ""
@@ -168,7 +173,7 @@ class FlutterVlessPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activity
                         if (resultCode == 0) result.success(null)
                         else {
                             val code = resultData?.getString("error_code")
-                            val safeCode = if (code in setOf("ENDPOINT_RESOLUTION_FAILED", "NATIVE_VALIDATION_FAILED", "PROFILE_SAVE_FAILED")) code!! else "INVALID_CONFIG"
+                            val safeCode = if (code in setOf("ENDPOINT_RESOLUTION_FAILED", "NATIVE_VALIDATION_FAILED", "PROFILE_SAVE_FAILED", "VPN_PERMISSION_REQUIRED")) code!! else "INVALID_CONFIG"
                             result.error(safeCode, "VPN startup preflight failed; see the content-free client diagnostics", null)
                         }
                     }
@@ -182,10 +187,31 @@ class FlutterVlessPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activity
                 }
             }
             "stopVless" -> {
+                val handler = Handler(Looper.getMainLooper())
+                val completed = AtomicBoolean(false)
+                val deadline = Runnable {
+                    if (completed.compareAndSet(false, true)) {
+                        result.error("VPN_STOP_ERROR", "Timed out waiting for the VPN to stop. Retry stopping the VPN.", null)
+                    }
+                }
+                handler.postDelayed(deadline, 30_000)
                 val intent = Intent(context, XrayVPNService::class.java)
                 intent.putExtra("COMMAND", AppConfigs.V2RAY_SERVICE_COMMANDS.STOP_SERVICE)
-                context.startService(intent)
-                result.success(null)
+                intent.putExtra("stop_receiver", object : ResultReceiver(handler) {
+                    override fun onReceiveResult(resultCode: Int, resultData: Bundle?) {
+                        if (!completed.compareAndSet(false, true)) return
+                        handler.removeCallbacks(deadline)
+                        if (resultCode == 0) result.success(null)
+                        else result.error("VPN_STOP_ERROR", "Unable to finish stopping the VPN. Retry stopping the VPN.", null)
+                    }
+                })
+                try { context.startService(intent) }
+                catch (_: Exception) {
+                    if (completed.compareAndSet(false, true)) {
+                        handler.removeCallbacks(deadline)
+                        result.error("VPN_STOP_ERROR", "Android could not stop the VPN service. Retry stopping the VPN.", null)
+                    }
+                }
             }
             "initializeVless" -> {
                 // Store notification icon settings globally
@@ -252,9 +278,8 @@ class FlutterVlessPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activity
                         val nativeLibraryDir = context.applicationInfo.nativeLibraryDir
                         val xrayExecutable = File(nativeLibraryDir, "libxray.so")
                         if (xrayExecutable.exists()) {
-                            val p = Runtime.getRuntime().exec(arrayOf(xrayExecutable.absolutePath, "-version"))
-                            val reader = BufferedReader(InputStreamReader(p.inputStream))
-                            val version = reader.readLine()
+                            val p = ProcessBuilder(xrayExecutable.absolutePath, "-version").redirectErrorStream(true).start()
+                            val version = BoundedProcessOutput.read(p, maxBytes = 4096).lineSequence().firstOrNull()
                             result.success(version)
                         } else {
                             result.success("Xray not found")
@@ -303,6 +328,7 @@ class FlutterVlessPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activity
                     val stateName = when (state) {
                         AppConfigs.V2RAY_STATES.V2RAY_CONNECTED -> "CONNECTED"
                         AppConfigs.V2RAY_STATES.V2RAY_CONNECTING -> "CONNECTING"
+                        AppConfigs.V2RAY_STATES.V2RAY_PERMISSION_REQUIRED -> "PERMISSION_REQUIRED"
                         else -> "DISCONNECTED"
                     }
 
@@ -319,10 +345,10 @@ class FlutterVlessPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activity
             }
         }
         val filter = IntentFilter(AppConfigs.V2RAY_CONNECTION_INFO)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            activity?.registerReceiver(xrayReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-        } else {
-            activity?.registerReceiver(xrayReceiver, filter)
+        // AndroidX also enforces a same-app signature permission before API 33.
+        // The legacy platform overload accepts spoofed status from other apps.
+        activity?.let {
+            ContextCompat.registerReceiver(it, xrayReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
         }
     }
 

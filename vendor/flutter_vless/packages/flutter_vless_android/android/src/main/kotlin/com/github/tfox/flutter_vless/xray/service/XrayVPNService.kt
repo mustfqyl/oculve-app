@@ -1,5 +1,6 @@
 package com.github.tfox.flutter_vless.xray.service
 
+import android.content.pm.ServiceInfo
 import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.LocalSocket
@@ -12,6 +13,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.ParcelFileDescriptor
 import android.os.ResultReceiver
+import com.github.tfox.flutter_vless.xray.core.ChildProcessCompat
 import com.github.tfox.flutter_vless.xray.core.AuthenticatedSocksClient
 import com.github.tfox.flutter_vless.xray.core.AndroidTunnelDnsPolicy
 import com.github.tfox.flutter_vless.xray.core.LocalProxyCredentials
@@ -24,12 +26,12 @@ import com.github.tfox.flutter_vless.xray.utils.AppConfigs
 import org.json.JSONObject
 import java.io.File
 import java.util.UUID
-import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 /** Owns the session and TUN. Worker failures never deactivate established protection. */
 class XrayVPNService : VpnService() {
-    private val worker = Executors.newSingleThreadScheduledExecutor()
+    private lateinit var runtimeLease: NativeRuntimeQueue.Lease
+    private val worker get() = runtimeLease.worker
     private val recovery = SessionRecoveryPolicy()
     private val requests = java.util.concurrent.atomic.AtomicLong()
     private var interfaceSignature: String? = null
@@ -53,6 +55,7 @@ class XrayVPNService : VpnService() {
 
     override fun onCreate() {
         super.onCreate()
+        runtimeLease = NativeRuntimeQueue.acquire()
         profiles = AuthorizedProfileStore(this)
         // Cold start cleanup must also run when authorization cannot be decrypted or is absent.
         // The helper preserves files referenced by live native workers and all standalone delays.
@@ -62,7 +65,7 @@ class XrayVPNService : VpnService() {
             override fun onAvailable(network: Network) = physicalLinkChanged()
             override fun onLost(network: Network) = physicalLinkChanged()
             private fun physicalLinkChanged() {
-                worker.execute {
+                runtimeLease.post {
                     if (recovery.authorized && config != null && AppConfigs.V2RAY_STATE == AppConfigs.V2RAY_STATES.V2RAY_CONNECTED) recover(Event.RECOVERING)
                 }
             }
@@ -89,13 +92,17 @@ class XrayVPNService : VpnService() {
         @Suppress("DEPRECATION")
         val command = intent?.getSerializableExtra("COMMAND") as? AppConfigs.V2RAY_SERVICE_COMMANDS
         if (command == AppConfigs.V2RAY_SERVICE_COMMANDS.STOP_SERVICE) {
+            @Suppress("DEPRECATION")
+            val receiver = intent?.getParcelableExtra<ResultReceiver>("stop_receiver")
             val request = requests.incrementAndGet()
-            profiles.disarm()
             recovery.disarm() // Invalidate queued callbacks immediately, before slow native I/O finishes.
             worker.execute {
-                profiles.disarm(); deactivateSession()
+                val stopped = runCatching {
+                    profiles.disarm(); deactivateSession()
+                }.getOrDefault(false)
+                receiver?.send(if (stopped) 0 else 1, null)
                 // A queued STOP releases its old session, but must not destroy a newer START.
-                if (requests.get() == request) stopSelfResult(startId)
+                if (stopped && requests.get() == request) stopSelfResult(startId)
             }
             return START_NOT_STICKY
         }
@@ -115,7 +122,15 @@ class XrayVPNService : VpnService() {
                 receiver?.send(1, Bundle().apply { putString("error_code", Event.PROFILE_UNAVAILABLE.name) })
                 if (request == requests.get() && tun == null && !recovery.authorized) {
                     XrayCoreManager.publishState(this, AppConfigs.V2RAY_STATES.V2RAY_DISCONNECTED)
-                    stopForeground(STOP_FOREGROUND_REMOVE); stopSelfResult(startId)
+                    removeForegroundNotification(); stopSelfResult(startId)
+                }
+                return@execute
+            }
+            if (intent?.getBooleanExtra("PRESERVE_TUNNEL", false) == true &&
+                !incoming.PROXY_ONLY && VpnService.prepare(this) != null) {
+                receiver?.send(1, Bundle().apply { putString("error_code", "VPN_PERMISSION_REQUIRED") })
+                if (request == requests.get() && tun == null && !recovery.authorized) {
+                    removeForegroundNotification(); stopSelfResult(startId)
                 }
                 return@execute
             }
@@ -130,7 +145,7 @@ class XrayVPNService : VpnService() {
                 .getOrElse { event(Event.CONFIG_REJECTED); false }
             receiver?.send(if (accepted) 0 else 1, Bundle().apply { if (!accepted) putString("error_code", rejection) })
             if (!accepted && request == requests.get() && tun == null && !recovery.authorized) {
-                stopForeground(STOP_FOREGROUND_REMOVE); stopSelfResult(startId)
+                removeForegroundNotification(); stopSelfResult(startId)
             }
         }
         return START_STICKY
@@ -138,6 +153,10 @@ class XrayVPNService : VpnService() {
 
     private fun acceptSession(incoming: XrayConfig, explicit: Boolean, request: Long, rejected: (String) -> Unit): Boolean {
         if (request != requests.get()) return false
+        if (!incoming.PROXY_ONLY && VpnService.prepare(this) != null) {
+            rejected("VPN_PERMISSION_REQUIRED")
+            return false
+        }
         val candidate = incoming.copy(BLOCKED_APPS = ArrayList(incoming.BLOCKED_APPS), BYPASS_SUBNETS = ArrayList(incoming.BYPASS_SUBNETS))
         val secret = LocalProxyCredentials.generate()
         val candidateBootstrap = bootstrapCache.toMutableMap()
@@ -177,7 +196,10 @@ class XrayVPNService : VpnService() {
         try { if (explicit) { if (candidate.PROXY_ONLY) profiles.disarm() else profiles.save(incoming) } }
         catch (_: Exception) { event(Event.PROFILE_SAVE_FAILED); rejected(Event.PROFILE_SAVE_FAILED.name); return false }
         // Mode changes intentionally deactivate VPN protection; VPN-to-VPN replacements retain it.
-        if (candidate.PROXY_ONLY && tun != null) { deactivateSession() }
+        if (candidate.PROXY_ONLY && tun != null && !deactivateSession()) {
+            event(Event.CONFIG_REJECTED)
+            return false
+        }
         val owner = recovery.activate()
         if (!stopWorkers()) { event(Event.WORKER_START_FAILED); recover(Event.WORKER_START_FAILED); return false }
         SessionRuntimeFiles.removeAbandoned(noBackupFilesDir)
@@ -225,7 +247,7 @@ class XrayVPNService : VpnService() {
                     .also { readinessProbe = it }.configure(requireNotNull(prepared))
             }
             val started = XrayCoreManager.startCore(this, current, runtime, protector, owner) { generation, code ->
-                worker.execute { if (recovery.owns(generation)) { event(Event.WORKER_EXIT, code.toLong()); recover(Event.WORKER_EXIT) } }
+                runtimeLease.post { if (recovery.owns(generation)) { event(Event.WORKER_EXIT, code.toLong()); recover(Event.WORKER_EXIT) } }
             }
             if (!started) { recover(Event.PROTECT_FAILED); return }
             if (!recovery.owns(owner)) { stopWorkers(); return }
@@ -259,7 +281,7 @@ class XrayVPNService : VpnService() {
     private fun startDpiBypass(current: XrayConfig, owner: Long) {
         if (!recovery.owns(owner)) return
         val secret = requireNotNull(credentials)
-        var forwardingStarted = process?.isAlive == true
+        var forwardingStarted = process?.let(ChildProcessCompat::isAlive) == true
         val source = requireNotNull(sourceConfig)
         for (profile in listOf(current.DPI_PROFILE)) {
             if (!recovery.owns(owner)) return
@@ -294,7 +316,7 @@ class XrayVPNService : VpnService() {
                 current.DPI_PROFILE = profile
                 val runtime = XrayCoreManager.buildRuntimeConfigJson(current, noBackupFilesDir, secret)
                 if (!XrayCoreManager.startCore(this, current, runtime, protector, owner) { generation, code ->
-                    worker.execute { if (recovery.owns(generation)) { event(Event.WORKER_EXIT, code.toLong()); recover(Event.WORKER_EXIT) } }
+                    runtimeLease.post { if (recovery.owns(generation)) { event(Event.WORKER_EXIT, code.toLong()); recover(Event.WORKER_EXIT) } }
                 }) {
                     runCatching { dpiEngine.stop() }
                     continue
@@ -308,6 +330,7 @@ class XrayVPNService : VpnService() {
                     forwardingStarted = true
                 }
                 if (AuthenticatedSocksClient.checkConnectivity(current.LOCAL_SOCKS5_PORT, secret)) {
+                    if (!recovery.owns(owner)) return
                     current.V2RAY_FULL_JSON_CONFIG = source.V2RAY_FULL_JSON_CONFIG
                     prepared = runtime
                     recovery.recovered()
@@ -360,12 +383,20 @@ class XrayVPNService : VpnService() {
         Thread({
             runCatching { child.inputStream.use { val bytes = ByteArray(4096); while (it.read(bytes) >= 0) { } } }
             val code = runCatching { child.waitFor() }.getOrDefault(-1)
-            worker.execute { if (recovery.owns(owner) && process === child) { event(Event.WORKER_EXIT, code.toLong()); recover(Event.WORKER_EXIT) } }
+            runtimeLease.post { if (recovery.owns(owner) && process === child) { event(Event.WORKER_EXIT, code.toLong()); recover(Event.WORKER_EXIT) } }
         }, "tun2socks-monitor").apply { isDaemon = true; start() }
     }
 
+    private fun removeForegroundNotification() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) stopForeground(STOP_FOREGROUND_REMOVE)
+        else {
+            @Suppress("DEPRECATION")
+            stopForeground(true)
+        }
+    }
+
     private fun sendFd(owner: Long): Boolean {
-        return FileDescriptorTransfer.send({ recovery.owns(owner) }, { process?.isAlive == true }, {
+        return FileDescriptorTransfer.send({ recovery.owns(owner) }, { process?.let(ChildProcessCompat::isAlive) == true }, {
                 LocalSocket().use { socket ->
                     socket.connect(LocalSocketAddress(requireNotNull(socketFile).absolutePath, LocalSocketAddress.Namespace.FILESYSTEM))
                     socket.soTimeout = 1000
@@ -378,8 +409,8 @@ class XrayVPNService : VpnService() {
     }
 
     private fun recover(reason: Event) {
-        if (!recovery.authorized) return
-        val next = recovery.restart() // Late callbacks from both workers lose ownership together.
+        // Permission loss can race with recovery; check and advance atomically.
+        val next = recovery.restart() ?: return
         event(reason)
         stopWorkers() // TUN remains installed throughout backoff, including persistent failure.
         XrayCoreManager.publishState(this, AppConfigs.V2RAY_STATES.V2RAY_CONNECTING)
@@ -408,6 +439,8 @@ class XrayVPNService : VpnService() {
                     catch (_: Exception) { recover(Event.PATH_PROBE_FAILED); return@schedule }
                 }
             }
+            // A permission revocation can arrive while a health probe blocks.
+            if (!recovery.owns(owner)) return@schedule
             XrayCoreManager.publishState(this, AppConfigs.V2RAY_STATES.V2RAY_CONNECTED, (System.nanoTime() - connectedAt) / 1_000_000_000)
             tick(owner, count + 1)
         }, 1, TimeUnit.SECONDS)
@@ -425,8 +458,8 @@ class XrayVPNService : VpnService() {
         val child = process; process = null
         if (child != null) {
             child.destroy()
-            if (!child.waitFor(1, TimeUnit.SECONDS)) child.destroyForcibly()
-            if (!child.waitFor(1, TimeUnit.SECONDS)) { process = child; return false }
+            if (!ChildProcessCompat.waitFor(child, 1, TimeUnit.SECONDS)) ChildProcessCompat.destroyForcibly(child)
+            if (!ChildProcessCompat.waitFor(child, 1, TimeUnit.SECONDS)) { process = child; return false }
         }
         if (!XrayCoreManager.stopWorkers()) return false
         if (!runCatching { dpiEngine.stop() }.getOrDefault(false)) return false
@@ -437,22 +470,41 @@ class XrayVPNService : VpnService() {
         return true
     }
 
-    private fun deactivateSession() {
+    private fun deactivateSession(): Boolean {
         recovery.disarm()
-        stopWorkers()
-        runCatching { tun?.close() }; tun = null
+        // onDestroy follows a successful STOP. Once this instance owns no
+        // resources, touching the global core could stop a newer service's session.
+        if (config == null && sourceConfig == null && prepared == null &&
+            credentials == null && process == null && tun == null &&
+            protector == null && readinessProbe == null &&
+            tunConfigFile == null && socketFile == null) return true
+        // Retain state for a retry if workers or the TUN could not be closed.
+        // Neither the method acknowledgement nor DISCONNECTED may claim success.
+        if (!stopWorkers()) return false
+        if (runCatching { tun?.close() }.isFailure) return false
+        tun = null
         config = null; sourceConfig = null; prepared = null; credentials = null
         bootstrapCache.clear()
         event(Event.SESSION_STOP)
         XrayCoreManager.publishState(this, AppConfigs.V2RAY_STATES.V2RAY_DISCONNECTED)
-        stopForeground(STOP_FOREGROUND_REMOVE)
+        removeForegroundNotification()
+        return true
     }
 
     override fun onRevoke() {
         requests.incrementAndGet()
-        profiles.disarm()
         recovery.disarm()
-        worker.execute { deactivateSession(); stopSelf() }
+        XrayCoreManager.publishState(this, AppConfigs.V2RAY_STATES.V2RAY_PERMISSION_REQUIRED)
+        // Serialize deletion after any pending AtomicFile commit; a late writer
+        // must not recreate the authorization removed by an OS revocation.
+        worker.execute {
+            profiles.disarm()
+            if (deactivateSession() && AppConfigs.V2RAY_STATE == AppConfigs.V2RAY_STATES.V2RAY_PERMISSION_REQUIRED) {
+                // An empty instance also confirms closure, without touching a new core.
+                XrayCoreManager.publishState(this, AppConfigs.V2RAY_STATES.V2RAY_DISCONNECTED)
+            }
+            stopSelf()
+        }
         super.onRevoke()
     }
     override fun onDestroy() {
@@ -460,7 +512,7 @@ class XrayVPNService : VpnService() {
         recovery.disarm()
         networkCallback?.let { runCatching { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(it) } }
         worker.execute { deactivateSession() }
-        worker.shutdown()
+        NativeRuntimeQueue.release(runtimeLease)
         super.onDestroy()
     }
 
@@ -485,7 +537,7 @@ class XrayVPNService : VpnService() {
             .setSmallIcon(current?.APPLICATION_ICON?.takeIf { it != 0 } ?: android.R.drawable.ic_dialog_info)
             .addAction(android.app.Notification.Action.Builder(null, current?.NOTIFICATION_DISCONNECT_BUTTON_NAME ?: "Disconnect", stop).build())
             .setOngoing(true).build()
-        if (Build.VERSION.SDK_INT >= 34) startForeground(1, notification, 0x40000000) else startForeground(1, notification)
+        if (Build.VERSION.SDK_INT >= 34) startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE) else startForeground(1, notification)
     }
     companion object {
         const val ACTION_MEASURE_DELAY = "com.github.tfox.flutter_vless.MEASURE_DELAY"

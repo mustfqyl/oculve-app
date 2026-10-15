@@ -12,6 +12,11 @@ import Security
         let permission = await manager.testSaveAndLoadProfile()
         precondition(permission && keychain.records.isEmpty)
         try await manager.start()
+        let earlySaves = SDK.saves
+        let earlySecrets = keychain.records.count
+        do { try await manager.replace(); fatalError("A starting provider cannot accept a replacement") } catch {}
+        precondition(SDK.saves == earlySaves && keychain.records.count == earlySecrets,
+                     "Premature replacement must preserve preferences and secrets")
         let profile = SDK.profile!
         let policy = profile.protocolConfiguration!
         precondition(manager.isRecoveryEnabled && policy.includeAllNetworks && !policy.excludeLocalNetworks)

@@ -1,0 +1,58 @@
+ M analysis_options.yaml
+ M ios/XrayTunnel/PacketTunnelProvider.swift
+ M lib/core/connection/lan_proxy_service.dart
+ M lib/core/network/oculve_api.dart
+ M lib/core/providers/locale_provider.dart
+ M lib/core/providers/theme_provider.dart
+ M lib/core/providers/vpn_provider.dart
+ M lib/core/theme/app_theme.dart
+ M lib/core/vpn/server_address_resolver.dart
+ M lib/core/vpn/server_latency.dart
+ M lib/features/auth/data/auth_repository.dart
+ M lib/features/settings/presentation/inline_account_delete.dart
+ M lib/features/settings/presentation/usage_statistics_screen.dart
+ M test/inline_account_delete_test.dart
+ M test/server_latency_test.dart
+ M test/session_race_test.dart
+ M test/statistics_test.dart
+ M test/vpn_state_test.dart
+ M vendor/flutter_vless/ios/flutter_vless/Sources/flutter_vless/FlutterVlessPlugin.swift
+ M vendor/flutter_vless/ios/flutter_vless/Sources/flutter_vless_privacy/LocalHTTPProxyClient.swift
+ M vendor/flutter_vless/ios/flutter_vless/Sources/flutter_vless_privacy/LocalProxyDelayClient.swift
+ M vendor/flutter_vless/ios/flutter_vless/Sources/flutter_vless_privacy/LocalSOCKS5Client.swift
+ M vendor/flutter_vless/packages/flutter_vless_android/android/src/androidTest/kotlin/com/github/tfox/flutter_vless/xray/service/ProtectedSystemDnsTest.kt
+ M vendor/flutter_vless/packages/flutter_vless_android/android/src/main/kotlin/com/github/tfox/flutter_vless/FlutterVlessPlugin.kt
+ M vendor/flutter_vless/packages/flutter_vless_android/android/src/main/kotlin/com/github/tfox/flutter_vless/xray/core/AuthenticatedSocksClient.kt
+ M vendor/flutter_vless/packages/flutter_vless_android/android/src/main/kotlin/com/github/tfox/flutter_vless/xray/core/XrayCoreManager.kt
+ M vendor/flutter_vless/packages/flutter_vless_android/android/src/main/kotlin/com/github/tfox/flutter_vless/xray/service/XrayVPNService.kt
+ M vendor/flutter_vless/packages/flutter_vless_android/android/src/test/kotlin/com/github/tfox/flutter_vless/xray/core/AuthenticatedSocksClientTest.kt
+ M vendor/flutter_vless/packages/flutter_vless_macos/macos/flutter_vless_macos/Sources/flutter_vless_macos/FlutterVlessPlugin.swift
+ M vendor/flutter_vless/packages/flutter_vless_macos/macos/flutter_vless_macos/Sources/flutter_vless_macos_privacy/LocalHTTPProxyClient.swift
+ M vendor/flutter_vless/packages/flutter_vless_macos/macos/flutter_vless_macos/Sources/flutter_vless_macos_privacy/LocalProxyDelayClient.swift
+ M vendor/flutter_vless/packages/flutter_vless_macos/macos/flutter_vless_macos/Sources/flutter_vless_macos_privacy/LocalSOCKS5Client.swift
+ M vendor/flutter_vless/tool/fixtures/ios_manager_policy/SDK.swift
+ M vendor/flutter_vless/tool/fixtures/ios_manager_policy/main.swift
+ M vendor/flutter_vless/tool/fixtures/ios_privacy_probe.swift
+ M vendor/flutter_vless/tool/fixtures/macos_manager_policy.swift
+ M vendor/flutter_vless/tool/test_ios_manager_policy.sh
+ M vendor/flutter_vless/tool/test_macos_privacy_runtime.sh
+?? outputs/goal-native-soak-2026-10-14.txt
+?? outputs/goal-progress-2026-10-14.md
+?? outputs/goal-report-2026-10-14.md
+?? outputs/goal-worktree-status-2026-10-14.txt
+?? test/api_session_race_test.dart
+?? test/background_efficiency_test.dart
+?? test/doh_resource_lifecycle_test.dart
+?? test/lan_lifecycle_test.dart
+?? test/preference_lifecycle_test.dart
+?? test/vpn_lifecycle_test.dart
+?? vendor/flutter_vless/packages/flutter_vless_android/android/src/main/kotlin/com/github/tfox/flutter_vless/xray/core/BoundedProcessOutput.kt
+?? vendor/flutter_vless/packages/flutter_vless_android/android/src/main/kotlin/com/github/tfox/flutter_vless/xray/core/ChildProcessCompat.kt
+?? vendor/flutter_vless/packages/flutter_vless_android/android/src/main/kotlin/com/github/tfox/flutter_vless/xray/core/DeadlineSocketInputStream.kt
+?? vendor/flutter_vless/packages/flutter_vless_android/android/src/test/kotlin/com/github/tfox/flutter_vless/StatusReceiverSecurityTest.kt
+?? vendor/flutter_vless/packages/flutter_vless_android/android/src/test/kotlin/com/github/tfox/flutter_vless/xray/core/BoundedProcessOutputTest.kt
+?? vendor/flutter_vless/packages/flutter_vless_android/android/src/test/kotlin/com/github/tfox/flutter_vless/xray/core/ChildProcessCompatTest.kt
+?? vendor/flutter_vless/packages/flutter_vless_android/android/src/test/kotlin/com/github/tfox/flutter_vless/xray/core/LegacyTlsVerificationTest.kt
+?? vendor/flutter_vless/tool/test_apple_socket_deadlines.sh
+?? vendor/flutter_vless/tool/test_apple_traffic_polling.sh
+?? vendor/flutter_vless/tool/test_macos_runtime_soak.sh

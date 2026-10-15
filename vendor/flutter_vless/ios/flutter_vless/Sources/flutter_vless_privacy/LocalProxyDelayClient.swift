@@ -128,7 +128,8 @@ private final class LocalProxyTLSConnection {
 
     func write(_ bytes: [UInt8]) -> Bool {
         guard withinDeadline else { return false }
-        guard let tls else { return LocalSOCKS5Client.sendAll(fd: fd, bytes: bytes) }
+        guard let tls else { return LocalSOCKS5Client.sendAll(fd: fd, bytes: bytes,
+            deadline: LocalSocketDeadline(uptimeNanoseconds: deadline)) }
         var offset = 0
         while offset < bytes.count, withinDeadline {
             var count = 0
@@ -148,6 +149,7 @@ private final class LocalProxyTLSConnection {
                 if count > 0 { return Array(bytes.prefix(count)) }
                 guard status == errSecSuccess || status == errSSLWouldBlock else { return nil }
             } else {
+                guard LocalSocketDeadline(uptimeNanoseconds: deadline).apply(to: fd) else { return nil }
                 count = bytes.withUnsafeMutableBytes { recv(fd, $0.baseAddress, maxCount, 0) }
                 if count > 0 { return Array(bytes.prefix(count)) }
                 guard count < 0 && errno == EINTR else { return nil }
@@ -157,7 +159,7 @@ private final class LocalProxyTLSConnection {
     }
 
     private func transportRead(_ data: UnsafeMutableRawPointer, _ size: UnsafeMutablePointer<Int>) -> OSStatus {
-        guard withinDeadline else { size.pointee = 0; return errSSLClosedAbort }
+        guard withinDeadline, LocalSocketDeadline(uptimeNanoseconds: deadline).apply(to: fd) else { size.pointee = 0; return errSSLClosedAbort }
         let requested = size.pointee
         let count = recv(fd, data, requested, 0)
         size.pointee = max(0, count)
@@ -167,7 +169,7 @@ private final class LocalProxyTLSConnection {
     }
 
     private func transportWrite(_ data: UnsafeRawPointer, _ size: UnsafeMutablePointer<Int>) -> OSStatus {
-        guard withinDeadline else { size.pointee = 0; return errSSLClosedAbort }
+        guard withinDeadline, LocalSocketDeadline(uptimeNanoseconds: deadline).apply(to: fd) else { size.pointee = 0; return errSSLClosedAbort }
         let requested = size.pointee
         let count = send(fd, data, requested, MSG_NOSIGNAL)
         size.pointee = max(0, count)

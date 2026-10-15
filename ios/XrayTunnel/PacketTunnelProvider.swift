@@ -156,6 +156,9 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         // fallback; opening the app performs its transactional migration.
         let config = try TunnelSecretProfile.load(providerConfiguration,
             providerBundleIdentifier: configuration.providerBundleIdentifier ?? "")
+        // Establish this session before the first suspension. A Stop during
+        // interface discovery must remain cancelled when discovery completes.
+        beginStartup()
         let dpiBypass = TunnelDpiRuntime.isDpiConfig(config)
         let dpiInterfaceName: String?
         if dpiBypass {
@@ -164,8 +167,8 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         } else {
             dpiInterfaceName = nil
         }
+        guard !isStartupStopped() else { throw CancellationError() }
         TunnelDebugStore.shared.configure(groupIdentifier: providerConfiguration["groupIdentifier"] as? String)
-        beginStartup()
         setForwardingReady(false)
         rememberTunnelLog("Starting Xray packet tunnel")
         // A system-initiated Connect after a manual Stop must rearm crash

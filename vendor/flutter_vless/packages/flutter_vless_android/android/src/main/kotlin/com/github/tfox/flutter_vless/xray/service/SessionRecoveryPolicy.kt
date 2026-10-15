@@ -8,7 +8,7 @@ internal class SessionRecoveryPolicy {
     @Synchronized fun activate(): Long { authorized = true; failures = 0; return ++generation }
     @Synchronized fun disarm() { authorized = false; ++generation }
     @Synchronized fun owns(candidate: Long) = authorized && generation == candidate
-    @Synchronized fun restart(): Long { check(authorized); return ++generation }
+    @Synchronized fun restart(): Long? = if (authorized) ++generation else null
     @Synchronized fun recovered() { failures = 0 }
     @Synchronized fun nextDelayMillis(): Long {
         val delay = (1000L shl failures.coerceAtMost(6)).coerceAtMost(60_000)

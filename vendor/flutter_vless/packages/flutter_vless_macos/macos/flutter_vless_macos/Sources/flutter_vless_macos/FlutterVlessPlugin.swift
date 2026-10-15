@@ -108,131 +108,13 @@ private func pluginDebug(_ message: NativeDiagnosticMessage) {
     pluginLog.info(message)
 }
 
-/// Captures the system routing and resolver state from the app process.
-///
-/// The Packet Tunnel provider can prove Xray/HEV health, but the app process is
-/// the most convenient place to run macOS CLI diagnostics such as `route get`,
-/// `netstat`, and `scutil --dns`. These snapshots are intentionally verbose
-/// because the final bug was only obvious when comparing:
-///
-/// - default route before and after `NEVPNStatus.connected`,
-/// - DNS host routes (`1.1.1.1`, `8.8.8.8`) versus resolver ownership,
-/// - server host route outside utun,
-/// - empty/unreachable DNS resolver states.
+/// Network snapshots are withheld from private diagnostics. Record the event
+/// without spawning commands and collecting output that will be discarded.
 private struct SystemNetworkDiagnostics {
     static func logSnapshot(reason: String) {
-        DispatchQueue.global(qos: .utility).async {
-            var sections: [(String, String, [String])] = [
-                ("route-default", "/sbin/route", ["-n", "get", "default"]),
-                ("route-dns-1.1.1.1", "/sbin/route", ["-n", "get", "1.1.1.1"]),
-                ("route-dns-8.8.8.8", "/sbin/route", ["-n", "get", "8.8.8.8"]),
-                ("netstat-inet", "/usr/sbin/netstat", ["-rn", "-f", "inet"]),
-                ("netstat-inet6", "/usr/sbin/netstat", ["-rn", "-f", "inet6"]),
-                ("scutil-dns", "/usr/sbin/scutil", ["--dns"])
-            ]
-            let interfaceNames = allInterfaceNames()
-            if let defaultInterface = currentDefaultInterface() {
-                sections.append(("ifconfig-default-\(defaultInterface)", "/sbin/ifconfig", [defaultInterface]))
-            }
-            if interfaceNames.contains("en0") {
-                sections.append(("ifconfig-en0", "/sbin/ifconfig", ["en0"]))
-            }
-            for utun in interfaceNames.filter({ $0.hasPrefix("utun") }).suffix(4) {
-                sections.append(("ifconfig-\(utun)", "/sbin/ifconfig", [utun]))
-            }
-            var output = [
-                "System network snapshot reason=\(reason)",
-                "interfaces=\(interfaceNames.joined(separator: ",")) defaultIf=\(currentDefaultInterface() ?? "nil") routeIf1.1.1.1=\(routeInterface(for: "1.1.1.1") ?? "nil") routeIf8.8.8.8=\(routeInterface(for: "8.8.8.8") ?? "nil")"
-            ]
-            for (name, executable, arguments) in sections {
-                output.append("--- \(name) ---")
-                output.append(run(executable: executable, arguments: arguments))
-            }
-            pluginDebug("System network snapshot omitted from private diagnostics")
-        }
-    }
-
-    static func currentDefaultInterface() -> String? {
-        routeInterface(for: "default")
-    }
-
-    static func routeInterface(for destination: String) -> String? {
-        let output = run(executable: "/sbin/route", arguments: ["-n", "get", destination])
-        return parseRouteInterface(output)
-    }
-
-    static func allInterfaceNames() -> [String] {
-        guard let first = if_nameindex() else {
-            return []
-        }
-        defer { if_freenameindex(first) }
-
-        var names: [String] = []
-        var pointer = first
-        while pointer.pointee.if_index != 0 {
-            if let namePointer = pointer.pointee.if_name {
-                names.append(String(cString: namePointer))
-            }
-            pointer = pointer.advanced(by: 1)
-        }
-        return names
-    }
-
-    static func currentDNSServers() -> [String] {
-        let output = run(executable: "/usr/sbin/scutil", arguments: ["--dns"])
-        let primarySection = output.components(separatedBy: "DNS configuration (for scoped queries)").first ?? output
-        var servers: [String] = []
-        for line in primarySection.components(separatedBy: .newlines) {
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard trimmed.hasPrefix("nameserver"),
-                  let value = trimmed.components(separatedBy: ":").last?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  isIPv4Literal(value),
-                  !servers.contains(value) else {
-                continue
-            }
-            servers.append(value)
-        }
-        pluginDebug("Detected current system DNS servers before VPN: \(servers.isEmpty ? "none" : servers.joined(separator: ","))")
-        return servers
-    }
-
-    private static func run(executable: String, arguments: [String]) -> String {
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: executable)
-        task.arguments = arguments
-        let pipe = Pipe()
-        task.standardOutput = pipe
-        task.standardError = pipe
-        do {
-            try task.run()
-            task.waitUntilExit()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            let text = String(data: data, encoding: .utf8) ?? ""
-            return String(text.prefix(6000))
-        } catch {
-            return "failed: \(error.localizedDescription)"
-        }
-    }
-
-    private static func parseRouteInterface(_ output: String) -> String? {
-        for line in output.components(separatedBy: .newlines) {
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard trimmed.hasPrefix("interface:") else {
-                continue
-            }
-            return trimmed
-                .dropFirst("interface:".count)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        return nil
-    }
-
-    private static func isIPv4Literal(_ address: String) -> Bool {
-        var addr = in_addr()
-        return address.withCString { inet_pton(AF_INET, $0, &addr) } == 1
+        pluginDebug("System network snapshot omitted from private diagnostics")
     }
 }
-
 
 private struct SystemProxyHelper {
     private static let lock = NSLock()
@@ -660,11 +542,14 @@ public class FlutterVlessPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
     private let proxyOnlyRunner = ProxyOnlyRunner()
 
     private var timer: Timer?
+    private var trafficPollTask: Task<Void, Never>?
+    private var trafficPollRevision = 0
     private var eventSink: FlutterEventSink?
     private var totalUpload: Int = 0
     private var totalDownload: Int = 0
     private var uploadSpeed: Int = 0
     private var downloadSpeed: Int = 0
+    private var lastTrafficSampleTime = ProcessInfo.processInfo.systemUptime
     private var lastTrafficLogDate: Date = .distantPast
     private var lastProviderDebugLogDate: Date = .distantPast
     private var lastNetworkSnapshotLogDate: Date = .distantPast
@@ -739,9 +624,8 @@ public class FlutterVlessPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
     /// - proxy-only uses Xray stats from the app-process core;
     /// - VPN mode asks the provider for HEV byte counters via `xray_traffic`.
     ///
-    /// The timer also periodically asks for `xray_debug`, which is why final
-    /// user logs contain both app-side route snapshots and provider-side golden
-    /// health checks.
+    /// Provider diagnostics are collected through the explicit snapshot API;
+    /// routine status polling does not fetch payloads that its logger redacts.
     private func startTimer(reason: String = "unspecified", initialState: String? = nil) {
         guard Thread.isMainThread else {
             pluginDebug("startTimer requested off main thread reason=\(reason); dispatching to main")
@@ -761,6 +645,7 @@ public class FlutterVlessPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
         self.timer?.invalidate()
         emitStatus(duration: currentDurationSeconds(), state: initialState ?? currentWireState(), reason: "timer-start:\(reason)")
         logSystemNetworkSnapshot(reason: "timer-start:\(reason)")
+        self.lastTrafficSampleTime = ProcessInfo.processInfo.systemUptime
         let timer = Timer(timeInterval: 1, repeats: true, block: { [weak self] _ in
             guard let self = self else { return }
             if self.proxyOnlyRunner.isRunning {
@@ -770,12 +655,7 @@ public class FlutterVlessPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
                 let stats = self.proxyOnlyRunner.queryTrafficStats()
                 let currentUp = stats.upload
                 let currentDown = stats.download
-                let upSpeed = max(0, currentUp - Int64(self.totalUpload))
-                let downSpeed = max(0, currentDown - Int64(self.totalDownload))
-                self.totalUpload = Int(currentUp)
-                self.totalDownload = Int(currentDown)
-                self.uploadSpeed = Int(upSpeed)
-                self.downloadSpeed = Int(downSpeed)
+                self.sampleTraffic(up: Int(currentUp), down: Int(currentDown))
                 self.emitStatus(duration: seconds, state: "CONNECTED", reason: "timer-proxy")
                 return
             }
@@ -792,18 +672,22 @@ public class FlutterVlessPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
             let elapsed = Date().timeIntervalSince(self.packetTunnelManager?.connectedDate ?? Date())
             let seconds = Int(elapsed)
             self.emitStatus(duration: seconds, state: self.currentWireState(), reason: "timer-vpn")
-            Task{
+            guard self.trafficPollTask == nil else { return }
+            let revision = self.trafficPollRevision
+            self.trafficPollTask = Task { @MainActor in
+                defer {
+                    if revision == self.trafficPollRevision { self.trafficPollTask = nil }
+                }
                 await self.packetTunnelManager?.refreshForwardingState()
+                guard !Task.isCancelled, revision == self.trafficPollRevision else { return }
                 do{
                     let response =  try await self.packetTunnelManager?.sendProviderMessage(data: "xray_traffic".data(using: .utf8)!)
+                    guard !Task.isCancelled, revision == self.trafficPollRevision else { return }
                     if response != nil{
                         let traffic = String(decoding: response!, as: UTF8.self)
                         let parts = traffic.split(separator: ",")
                         if parts.count >= 2, let up = Int(parts[0]), let down = Int(parts[1]) {
-                            self.uploadSpeed = up - self.totalUpload
-                            self.downloadSpeed = down - self.totalDownload
-                            self.totalUpload = up
-                            self.totalDownload = down
+                            self.sampleTraffic(up: up, down: down)
                             if Date().timeIntervalSince(self.lastTrafficLogDate) >= 5 {
                                 self.lastTrafficLogDate = Date()
                                 pluginDebug("Traffic stats up=\(up) down=\(down) upSpeed=\(self.uploadSpeed) downSpeed=\(self.downloadSpeed) vpnStatus=\(self.packetTunnelManager?.status?.rawValue ?? -1)")
@@ -816,6 +700,7 @@ public class FlutterVlessPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
                         pluginDebug("Traffic polling returned nil provider response")
                     }
                 }catch{
+                    guard !Task.isCancelled, revision == self.trafficPollRevision else { return }
                     pluginDebug("Error polling traffic: \(error.localizedDescription)")
                 }
             }
@@ -839,6 +724,9 @@ public class FlutterVlessPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
         }
 
         pluginDebug("Stopping traffic polling timer reason=\(reason) hadTimer=\(self.timer != nil) eventSink=\(self.eventSink != nil)")
+        self.trafficPollRevision += 1
+        self.trafficPollTask?.cancel()
+        self.trafficPollTask = nil
         self.timer?.invalidate()
         self.timer = nil
         emitStatus(duration: 0, state: "DISCONNECTED", reason: "timer-stop:\(reason)")
@@ -850,6 +738,22 @@ public class FlutterVlessPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
         self.lastNetworkSnapshotLogDate = .distantPast
         self.lastAppNetworkProbeDate = .distantPast
         self.didScheduleConnectedDiagnostics = false
+    }
+
+    private func sampleTraffic(up: Int, down: Int) {
+        guard up >= 0, down >= 0 else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        let interval = now - self.lastTrafficSampleTime
+        func rate(_ current: Int, _ previous: Int) -> Int {
+            guard interval > 0 else { return 0 }
+            let value = max(0, Double(current) - Double(previous)) / interval
+            return value >= Double(Int.max) ? Int.max : Int(value)
+        }
+        self.uploadSpeed = rate(up, self.totalUpload)
+        self.downloadSpeed = rate(down, self.totalDownload)
+        self.totalUpload = up
+        self.totalDownload = down
+        self.lastTrafficSampleTime = now
     }
 
     private func currentDurationSeconds() -> Int {
@@ -901,38 +805,13 @@ public class FlutterVlessPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
 
 
 
-    /// Requests provider-side debug evidence.
-    ///
-    /// Primary path is `sendProviderMessage("xray_debug")`. The shared App
-    /// Group file is the fallback because NetworkExtension sessions can return
-    /// nil during startup/shutdown even when the provider already wrote useful
-    /// data.
+    /// Automatic snapshots were interpolated as redacted strings. Keep the
+    /// event without provider IPC/file reads; explicit diagnostics use the
+    /// separate getProviderDebugSnapshot method below.
     private func logProviderDebugSnapshot() {
-        guard Date().timeIntervalSince(lastProviderDebugLogDate) >= 5 else {
-            return
-        }
+        guard Date().timeIntervalSince(lastProviderDebugLogDate) >= 5 else { return }
         lastProviderDebugLogDate = Date()
-        Task {
-            do {
-                guard let response = try await self.packetTunnelManager?.sendProviderMessage(data: Data(NativeLogPrivacy.snapshotCommand.utf8)) else {
-                    if let snapshot = self.packetTunnelManager?.readSharedDebugLog(), !snapshot.isEmpty {
-                        pluginLog.info("Provider shared debug snapshot:\n\(snapshot, privacy: .public)")
-                    } else {
-                        pluginLog.warning("Provider debug snapshot unavailable")
-                    }
-                    return
-                }
-                let snapshot = String(decoding: response, as: UTF8.self)
-                if !snapshot.isEmpty {
-                    pluginLog.info("Provider debug snapshot:\n\(snapshot, privacy: .public)")
-                }
-            } catch {
-                pluginLog.error("Provider debug snapshot failed: \(error.localizedDescription, privacy: .public)")
-                if let snapshot = self.packetTunnelManager?.readSharedDebugLog(), !snapshot.isEmpty {
-                    pluginLog.info("Provider shared debug snapshot:\n\(snapshot, privacy: .public)")
-                }
-            }
-        }
+        pluginLog.info("Automatic provider debug snapshot omitted")
     }
 
     public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
@@ -985,7 +864,7 @@ public class FlutterVlessPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
         pluginLog.info("stopVless requested")
         let operation = commands.submit {
             self.proxyOnlyRunner.stop()
-            try await self.packetTunnelManager?.stop()
+            try await self.packetTunnelManager?.stop(waitForDisconnect: true)
         }
         Task {
             do {
@@ -1533,12 +1412,12 @@ final class PacketTunnelManager: ObservableObject {
     func replace() async throws {
         try await preferenceOperations.submit {
             guard let active = try await self.loadTunnelProviderManager(),
-                  [.connecting, .connected, .reasserting].contains(active.connection.status),
+                  [.connected, .reasserting].contains(active.connection.status),
                   !self.proxyOnly else { throw TunnelSecretError.invalidProfile }
             self.manager = active
             try await self.saveConfiguration(activate: true)
             guard let manager = self.manager,
-                  [.connecting, .connected, .reasserting].contains(manager.connection.status),
+                  [.connected, .reasserting].contains(manager.connection.status),
                   let metadata = (manager.protocolConfiguration as? NETunnelProviderProtocol)?.providerConfiguration else {
                 throw TunnelSecretError.invalidProfile
             }

@@ -63,6 +63,7 @@ class UserFacingFailure {
           'Android could not start the VPN. Keep the app open and try again.',
         'PERMISSION_REQUEST_IN_PROGRESS' =>
           'Complete the Android permission prompt before trying again.',
+        'VPN_PERMISSION_REQUIRED' => 'VPN permission was not granted.',
         _ => safeFallback,
       };
     }

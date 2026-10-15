@@ -20,6 +20,7 @@ class VlessMethodChannelAdapter extends VlessPlatform {
   final EventChannel eventChannel;
 
   StreamSubscription<dynamic>? _statusSubscription;
+  int _initializationRevision = 0;
 
   @override
   Future<void> initializeVless({
@@ -30,13 +31,18 @@ class VlessMethodChannelAdapter extends VlessPlatform {
     required String groupIdentifier,
     String? keychainAccessGroup,
   }) async {
+    final revision = ++_initializationRevision;
     if (keychainAccessGroup != null) {
       if (keychainAccessGroup.trim().isEmpty) {
         throw ArgumentError.value(keychainAccessGroup, 'keychainAccessGroup');
       }
       await _requireSecurityCapability('iosKeychainReference');
     }
+    if (revision != _initializationRevision) return;
     await _statusSubscription?.cancel();
+    // Multiple callers can await cancellation of the same old subscription.
+    // Only the newest request may attach a replacement or configure native state.
+    if (revision != _initializationRevision) return;
     _statusSubscription = eventChannel
         .receiveBroadcastStream()
         .distinct()
@@ -45,10 +51,10 @@ class VlessMethodChannelAdapter extends VlessPlatform {
       if (status != null) {
         onStatusChanged(status);
       } else {
-        debugPrint('Ignoring malformed VLESS status payload: $event');
+        debugPrint('Ignoring malformed VLESS status payload.');
       }
     }, onError: (Object error, StackTrace stackTrace) {
-      debugPrint('VLESS status stream error: $error');
+      debugPrint('VLESS status stream error.');
     });
 
     await methodChannel.invokeMethod(

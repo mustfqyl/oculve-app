@@ -41,14 +41,13 @@ public final class LocalHTTPProxyClient: @unchecked Sendable {
                                       port: Int, timeout: TimeInterval = 8) throws -> Int32 {
         let request = try connectRequest(host: host, port: port, credentials: credentials)
         guard (1...65535).contains(proxyPort) else { throw LocalSOCKS5Client.Failure.invalidDestination }
+        let deadline = try LocalSocketDeadline(timeout: timeout)
         let fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)
         guard fd >= 0 else { throw LocalSOCKS5Client.Failure.connect }
         do {
-            var duration = timeval(tv_sec: Int(timeout), tv_usec: 0)
             var noSignal: Int32 = 1
             setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSignal, socklen_t(MemoryLayout<Int32>.size))
-            setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &duration, socklen_t(MemoryLayout<timeval>.size))
-            setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &duration, socklen_t(MemoryLayout<timeval>.size))
+            guard deadline.apply(to: fd) else { throw LocalSOCKS5Client.Failure.connect }
             var address = sockaddr_in()
             address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
             address.sin_family = sa_family_t(AF_INET)
@@ -59,10 +58,10 @@ public final class LocalHTTPProxyClient: @unchecked Sendable {
                     Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
                 }
             }) == 0 else { throw LocalSOCKS5Client.Failure.connect }
-            guard LocalSOCKS5Client.sendAll(fd: fd, bytes: request) else { throw LocalSOCKS5Client.Failure.request }
+            guard LocalSOCKS5Client.sendAll(fd: fd, bytes: request, deadline: deadline) else { throw LocalSOCKS5Client.Failure.request }
             var header: [UInt8] = []
             while header.count < 8192 && !header.suffix(4).elementsEqual([13, 10, 13, 10]) {
-                guard let byte = LocalSOCKS5Client.receiveExactly(fd: fd, count: 1) else {
+                guard let byte = LocalSOCKS5Client.receiveExactly(fd: fd, count: 1, deadline: deadline) else {
                     throw LocalSOCKS5Client.Failure.request
                 }
                 header += byte
@@ -72,6 +71,8 @@ public final class LocalHTTPProxyClient: @unchecked Sendable {
                   line.hasPrefix("HTTP/1.1 200 ") || line.hasPrefix("HTTP/1.0 200 ") else {
                 throw LocalSOCKS5Client.Failure.authentication
             }
+            guard !deadline.isExpired,
+                  try LocalSocketDeadline(timeout: timeout).apply(to: fd) else { throw LocalSOCKS5Client.Failure.request }
             return fd
         } catch {
             close(fd)

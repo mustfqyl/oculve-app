@@ -73,7 +73,10 @@ class SessionController extends StateNotifier<AsyncValue<Account?>> {
   SessionController(this.api) : super(const AsyncValue.loading());
   final OculveApi api;
   int _sessionRevision = 0;
+  int _accountRequest = 0;
+  int _appliedAccountRequest = 0;
   Future<void>? _refreshInFlight;
+  int? _refreshRevision;
   Future<void> restore() async {
     final revision = ++_sessionRevision;
     try {
@@ -108,6 +111,7 @@ class SessionController extends StateNotifier<AsyncValue<Account?>> {
           ? {'X-Oculve-Passkey-Platform': Platform.operatingSystem}
           : null,
     );
+    if (revision != _sessionRevision || !mounted) return;
     if (data['requiresTwoFactor'] == true) {
       final methods = data['methods'];
       throw SecondFactorRequired(
@@ -120,7 +124,6 @@ class SessionController extends StateNotifier<AsyncValue<Account?>> {
         nativePasskeySupported: data['nativePasskeySupported'] == true,
       );
     }
-    if (revision != _sessionRevision || !mounted) return;
     await refresh();
   }
 
@@ -151,11 +154,20 @@ class SessionController extends StateNotifier<AsyncValue<Account?>> {
 
   Future<void> register(String code) async {
     final revision = ++_sessionRevision;
-    await api.request(
-      '/api/auth/register',
-      body: {'authCode': code, 'planCode': 'open'},
-      headers: await api.registrationHeaders(),
-    );
+    final headers = await api.registrationHeaders();
+    if (revision != _sessionRevision || !mounted) return;
+    try {
+      await api.request(
+        '/api/auth/register',
+        body: {'authCode': code, 'planCode': 'open'},
+        headers: headers,
+      );
+    } on ApiFailure catch (error) {
+      // HTTP 201 confirms creation even when its session acknowledgement is
+      // incomplete. Keep the saved-code/sign-in recovery path instead of retrying creation.
+      if (error.status == 201) throw RegistrationCreatedButNotReady(error);
+      rethrow;
+    }
     if (revision != _sessionRevision || !mounted) return;
     try {
       for (var attempt = 0; attempt < 5; attempt++) {
@@ -165,6 +177,7 @@ class SessionController extends StateNotifier<AsyncValue<Account?>> {
         } on ApiFailure catch (error) {
           if (error.status != 404 || attempt == 4) rethrow;
           await Future<void>.delayed(const Duration(milliseconds: 700));
+          if (revision != _sessionRevision || !mounted) return;
         }
       }
     } catch (error) {
@@ -174,9 +187,12 @@ class SessionController extends StateNotifier<AsyncValue<Account?>> {
 
   Future<void> refresh() {
     final inFlight = _refreshInFlight;
-    if (inFlight != null) return inFlight;
+    if (inFlight != null && _refreshRevision == _sessionRevision) {
+      return inFlight;
+    }
     final refresh = _loadAccount();
     _refreshInFlight = refresh;
+    _refreshRevision = _sessionRevision;
     return refresh.whenComplete(() {
       if (identical(_refreshInFlight, refresh)) _refreshInFlight = null;
     });
@@ -184,53 +200,76 @@ class SessionController extends StateNotifier<AsyncValue<Account?>> {
 
   Future<void> _loadAccount() async {
     final revision = _sessionRevision;
-    final data = await api.request('/api/user/me');
-    final url = data['subscriptionUrl'] as String?;
-    final active = Account(data, const []).canConnect;
-    final subscription = active && url != null && url.isNotEmpty
-        ? await api.subscriptionResponse(url)
-        : null;
-    final profiles = subscription == null
-        ? <VpnProfile>[]
-        : VpnProfile.parseSubscription(
-            subscription.body,
-            responseHeaders: subscription.headers,
-          );
+    var request = ++_accountRequest;
+    var data = await api.request('/api/user/me');
     if (revision != _sessionRevision || !mounted) return;
-    state = AsyncValue.data(Account(data, profiles));
-  }
-
-  Future<void> _refreshAfterRegistration() async {
-    for (var attempt = 0; attempt < 5; attempt++) {
-      try {
-        await refresh();
-        return;
-      } on ApiFailure catch (error) {
-        if (error.status != 404 || attempt == 4) rethrow;
-        await Future<void>.delayed(const Duration(milliseconds: 700));
+    // A newer account read can settle while the old subscription downloads.
+    // Merge its details only with profiles from that account's current URL.
+    for (var version = 0; version < 3; version++) {
+      final latestBeforeLoad = state.valueOrNull;
+      if (_appliedAccountRequest > request && latestBeforeLoad != null) {
+        data = latestBeforeLoad.data;
+        request = _appliedAccountRequest;
       }
+      final url = data['subscriptionUrl'] as String?;
+      final active = Account(data, const []).canConnect;
+      final subscription = active && url != null && url.isNotEmpty
+          ? await api.subscriptionResponse(url)
+          : null;
+      if (revision != _sessionRevision || !mounted) return;
+      final latest = state.valueOrNull;
+      if (_appliedAccountRequest > request && latest != null) {
+        data = latest.data;
+        request = _appliedAccountRequest;
+        if (latest.subscriptionUrl != (url ?? '')) continue;
+      }
+      final profiles =
+          subscription == null || !Account(data, const []).canConnect
+          ? <VpnProfile>[]
+          : VpnProfile.parseSubscription(
+              subscription.body,
+              responseHeaders: subscription.headers,
+            );
+      _appliedAccountRequest = request;
+      state = AsyncValue.data(Account(data, profiles));
+      return;
     }
+    throw const ApiFailure(
+      'The request could not be completed. Please try again.',
+    );
   }
 
   /// Update account/security details without re-registering the VPN device.
   Future<void> refreshAccount() async {
     final revision = _sessionRevision;
+    final request = ++_accountRequest;
     final data = await api.request('/api/user/me');
-    if (revision != _sessionRevision || !mounted || state.valueOrNull == null) {
+    if (revision != _sessionRevision ||
+        !mounted ||
+        state.valueOrNull == null ||
+        request < _appliedAccountRequest) {
       return;
     }
+    _appliedAccountRequest = request;
     state = AsyncValue.data(
       Account(data, state.valueOrNull?.profiles ?? const []),
     );
   }
 
   Future<void> logout() async {
-    ++_sessionRevision;
+    final revision = ++_sessionRevision;
+    final request = api.request('/api/auth/logout', body: {});
+    final authentication = api.authenticationRevision;
     try {
-      await api.request('/api/auth/logout', body: {});
+      await request;
     } finally {
-      await api.clear();
-      state = const AsyncValue.data(null);
+      if (revision == _sessionRevision &&
+          authentication == api.authenticationRevision) {
+        await api.clear();
+        if (mounted && revision == _sessionRevision) {
+          state = const AsyncValue.data(null);
+        }
+      }
     }
   }
 

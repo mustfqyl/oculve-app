@@ -58,6 +58,53 @@ class AuthenticatedSocksClientTest {
         }
     }
 
+    @Test fun slowDripSocksReplyCannotExtendTheHandshakeDeadline() {
+        withServer { port, serve ->
+            val peer = serve { input, output ->
+                assertArrayEquals(byteArrayOf(5, 1, 0), ByteArray(3).also(input::readFully))
+                output.write(byteArrayOf(5, 0))
+                input.readFully(ByteArray(5))
+                input.readFully(ByteArray("target.example".length + 2))
+                runCatching {
+                    for (byte in byteArrayOf(5, 0, 0, 1, 127, 0, 0, 1, 1, 1)) {
+                        Thread.sleep(50)
+                        output.write(byte.toInt())
+                        output.flush()
+                    }
+                }
+            }
+            assertThrows(java.net.SocketTimeoutException::class.java) {
+                AuthenticatedSocksClient.connect(port, null, "target.example", 80, timeoutMs = 150).close()
+            }
+            peer.get(3, TimeUnit.SECONDS)
+        }
+    }
+
+    @Test fun slowDripHttpResponseCannotExtendTheProbeDeadline() {
+        withServer { port, serve ->
+            val peer = serve { input, output ->
+                input.readFully(ByteArray(3))
+                output.write(byteArrayOf(5, 0))
+                input.readFully(ByteArray(5))
+                input.readFully(ByteArray("target.example".length + 2))
+                output.write(byteArrayOf(5, 0, 0, 1, 127, 0, 0, 1, 1, 1))
+                val request = StringBuilder()
+                while (!request.endsWith("\r\n\r\n")) request.append(input.readUnsignedByte().toChar())
+                runCatching {
+                    for (byte in "HTTP/1.1 204 No Content\r\n\r\n".toByteArray()) {
+                        Thread.sleep(250)
+                        output.write(byte.toInt())
+                        output.flush()
+                    }
+                }
+            }
+            assertThrows(java.net.SocketTimeoutException::class.java) {
+                AuthenticatedSocksClient.measure(port, null, "http://target.example/")
+            }
+            peer.get(8, TimeUnit.SECONDS)
+        }
+    }
+
     private fun withServer(block: (Int, (((DataInputStream, java.io.OutputStream) -> Unit) -> java.util.concurrent.Future<*>)) -> Unit) {
         ServerSocket(0).use { server ->
             val worker = Executors.newSingleThreadExecutor()

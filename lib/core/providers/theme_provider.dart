@@ -18,6 +18,7 @@ class ThemeNotifier extends StateNotifier<AppThemeMode> {
 
   Future<void> _load() async {
     final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
     final saved = prefs.getString(_key);
     if (saved != null) {
       state = AppThemeMode.values.firstWhere(

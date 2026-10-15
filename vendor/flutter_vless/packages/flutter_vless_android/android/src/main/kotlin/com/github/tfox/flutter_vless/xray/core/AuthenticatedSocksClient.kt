@@ -1,5 +1,9 @@
 package com.github.tfox.flutter_vless.xray.core
 
+import android.os.Build
+import javax.net.ssl.HostnameVerifier
+import javax.net.ssl.HttpsURLConnection
+import javax.net.ssl.SSLPeerUnverifiedException
 import java.io.DataInputStream
 import java.io.IOException
 import java.net.InetSocketAddress
@@ -15,13 +19,32 @@ internal object AuthenticatedSocksClient {
         "https://cp.cloudflare.com/generate_204"
     )
 
+    internal fun startVerifiedTls(socket: SSLSocket, host: String,
+                                  legacyVerifier: HostnameVerifier? = null) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                socket.sslParameters = socket.sslParameters.apply { endpointIdentificationAlgorithm = "HTTPS" }
+            }
+            socket.startHandshake()
+            // Android 6 lacks SSLParameters' HTTPS endpoint identification.
+            // Keep its platform verifier rather than skipping host validation.
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N &&
+                !(legacyVerifier ?: HttpsURLConnection.getDefaultHostnameVerifier()).verify(host, socket.session)) {
+                throw SSLPeerUnverifiedException("TLS hostname verification failed")
+            }
+        } catch (error: Exception) {
+            runCatching { socket.close() }
+            throw error
+        }
+    }
+
     fun connect(port: Int, credentials: LocalProxyCredentials?, host: String, targetPort: Int,
                 timeoutMs: Int = 5000): Socket {
         val socket = Socket()
         try {
             socket.connect(InetSocketAddress("127.0.0.1", port), timeoutMs)
             socket.soTimeout = timeoutMs
-            val input = DataInputStream(socket.getInputStream())
+            val input = DataInputStream(DeadlineSocketInputStream(socket, timeoutMs))
             val output = socket.getOutputStream()
             val method = if (credentials == null) 0 else 2
             output.write(byteArrayOf(5, 1, method.toByte()))
@@ -39,6 +62,7 @@ internal object AuthenticatedSocksClient {
             if (input.readUnsignedByte() != 0) throw IOException("Invalid SOCKS reply")
             val addressLength = when (input.readUnsignedByte()) { 1 -> 4; 3 -> input.readUnsignedByte(); 4 -> 16; else -> throw IOException("Invalid SOCKS address") }
             input.readFully(ByteArray(addressLength + 2))
+            socket.soTimeout = timeoutMs
             return socket
         } catch (error: Exception) { socket.close(); throw error }
     }
@@ -52,12 +76,11 @@ internal object AuthenticatedSocksClient {
                 .createSocket(raw, "cloudflare-dns.com", 443, true) as SSLSocket
             tls.use { socket ->
                 socket.soTimeout = 5000
-                socket.sslParameters = socket.sslParameters.apply { endpointIdentificationAlgorithm = "HTTPS" }
-                socket.startHandshake()
+                startVerifiedTls(socket, "cloudflare-dns.com")
                 val query = java.net.URLEncoder.encode(hostname, "UTF-8")
                 socket.getOutputStream().write(("GET /dns-query?name=$query&type=A HTTP/1.1\r\n" +
                     "Host: cloudflare-dns.com\r\nAccept: application/dns-json\r\nConnection: close\r\n\r\n").toByteArray(Charsets.US_ASCII))
-                val input = DataInputStream(socket.getInputStream())
+                val input = DataInputStream(DeadlineSocketInputStream(socket, 5000))
                 var headerBytes = 0
                 fun line(): String {
                     val text = StringBuilder()
@@ -138,8 +161,8 @@ internal object AuthenticatedSocksClient {
             val transport = if (secure) {
                 (SSLSocketFactory.getDefault() as SSLSocketFactory).createSocket(raw, uri.host, targetPort, true).let {
                     it as SSLSocket
-                    it.sslParameters = it.sslParameters.apply { endpointIdentificationAlgorithm = "HTTPS" }
-                    it.startHandshake()
+                    it.soTimeout = timeoutMs
+                    startVerifiedTls(it, uri.host)
                     it
                 }
             } else raw
@@ -147,7 +170,7 @@ internal object AuthenticatedSocksClient {
                 val path = (uri.rawPath.takeUnless { it.isNullOrEmpty() } ?: "/") + (uri.rawQuery?.let { "?$it" } ?: "")
                 val host = if (targetPort == if (secure) 443 else 80) uri.host else "${uri.host}:$targetPort"
                 socket.getOutputStream().write("$method $path HTTP/1.1\r\nHost: $host\r\nConnection: close\r\n\r\n".toByteArray(Charsets.US_ASCII))
-                val input = socket.getInputStream()
+                val input = DeadlineSocketInputStream(socket, timeoutMs)
                 val line = StringBuilder()
                 while (line.length < 1024) { val value = input.read(); if (value < 0) throw IOException("Empty probe response"); if (value == 10) break; line.append(value.toChar()) }
                 val match = Regex("HTTP/1\\.[01] ([1-5][0-9]{2})(?: .*)?")

@@ -28,7 +28,40 @@ class _SignedInSession extends SessionController {
   Account? get current => state.valueOrNull;
 }
 
+class _LoginDuringRefreshApi extends OculveApi {
+  final oldAccount = Completer<Map<String, dynamic>>();
+  var accountRequests = 0;
+
+  @override
+  Future<Map<String, dynamic>> request(
+    String path, {
+    Map<String, dynamic>? body,
+    String? method,
+    Map<String, String>? headers,
+  }) async {
+    if (path == '/api/auth/login') return {'success': true};
+    expect(path, '/api/user/me');
+    if (++accountRequests == 1) return oldAccount.future;
+    return {'status': 'active', 'authCode': 'NEW-ACCOUNT'};
+  }
+}
+
 void main() {
+  test('login loads its own account while an old refresh is pending', () async {
+    final api = _LoginDuringRefreshApi();
+    addTearDown(api.close);
+    final session = _SignedInSession(api);
+    addTearDown(session.dispose);
+    final oldRefresh = session.refresh();
+    final login = session.login('NEW-ACCOUNT');
+    await Future<void>.delayed(Duration.zero);
+    api.oldAccount.complete({'status': 'active', 'authCode': 'OLD-ACCOUNT'});
+    await Future.wait([oldRefresh, login]);
+
+    expect(api.accountRequests, 2);
+    expect(session.current?.authCode, 'NEW-ACCOUNT');
+  });
+
   test('late account refresh cannot restore a signed-out session', () async {
     final api = _DelayedAccountApi();
     final session = _SignedInSession(api);

@@ -228,28 +228,35 @@ class DohServerAddressResolver {
     }
 
     try {
-      final request = await client.postUrl(endpoint);
-      request.followRedirects = false;
-      request.headers.set(HttpHeaders.acceptHeader, 'application/dns-message');
-      request.headers.set(
-        HttpHeaders.contentTypeHeader,
-        'application/dns-message',
-      );
-      request.add(dnsMessage);
-      final response = await request.close().timeout(
-        const Duration(seconds: 4),
-      );
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        throw const HttpException('DoH resolver returned an error.');
-      }
-      final result = <int>[];
-      await for (final chunk in response.timeout(const Duration(seconds: 4))) {
-        result.addAll(chunk);
-        if (result.length > 16 * 1024) {
-          throw const HttpException('DoH response is too large.');
+      return await (() async {
+        final request = await client.postUrl(endpoint);
+        request.followRedirects = false;
+        request.headers.set(
+          HttpHeaders.acceptHeader,
+          'application/dns-message',
+        );
+        request.headers.set(
+          HttpHeaders.contentTypeHeader,
+          'application/dns-message',
+        );
+        request.add(dnsMessage);
+        final response = await request.close().timeout(
+          const Duration(seconds: 4),
+        );
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          throw const HttpException('DoH resolver returned an error.');
         }
-      }
-      return result;
+        final result = <int>[];
+        await for (final chunk in response.timeout(
+          const Duration(seconds: 4),
+        )) {
+          if (result.length + chunk.length > 16 * 1024) {
+            throw const HttpException('DoH response is too large.');
+          }
+          result.addAll(chunk);
+        }
+        return result;
+      })().timeout(const Duration(seconds: 4));
     } finally {
       client.close(force: true);
     }

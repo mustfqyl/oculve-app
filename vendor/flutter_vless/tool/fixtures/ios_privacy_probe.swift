@@ -55,7 +55,7 @@ func runModes() async {
                 let decoded = try JSONSerialization.jsonObject(with:prepared) as! [String:Any]
                 let log = decoded["log"] as! [String:Any]
                 precondition(log["access"] as? String == "none" && log["error"] as? String == "none")
-                precondition(log["loglevel"] as? String == (["error","none"].contains(level) ? level : "warning"))
+                precondition(log["loglevel"] as? String == level)
                 var error: NSError?
                 if !XRayStartPrivate(prepared,logger,&error) { print("START_FAILURE mode=\(mode) error=\(error?.localizedDescription ?? "nil")");exit(1) }
                 let fd = socket(AF_INET, SOCK_STREAM, 0)

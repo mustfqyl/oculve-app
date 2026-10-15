@@ -126,6 +126,27 @@ import Security
         keychain.failure = nil
         try await provider.startTunnel(options: nil)
         precondition(provider.reachedBootstrap, "Obsolete metadata cannot disable the required OS protection")
+        // Stop arrives while DPI interface discovery is suspended. Resuming
+        // the lookup must not erase cancellation and reach on-demand/bootstrap.
+        let dpiProvider = ProviderEntryProbe()
+        dpiProvider.keychain = keychain
+        let dpiReference = try providerStore.insert(Data("dpi-config".utf8))
+        let dpiProfile = NETunnelProviderProtocol()
+        dpiProfile.providerBundleIdentifier = "fixture.XrayTunnel"
+        dpiProfile.includeAllNetworks = true
+        dpiProfile.excludeLocalNetworks = false
+        dpiProfile.excludeAPNs = false
+        dpiProfile.excludeCellularServices = false
+        dpiProfile.providerConfiguration = ["configSchemaVersion": 2,
+            "xrayConfigReference": dpiReference, "keychainAccessGroup": "TEAM.fixture.shared"]
+        dpiProvider.protocolConfiguration = dpiProfile
+        let pendingStartup = Task { try await dpiProvider.startTunnel(options: nil) }
+        while !(await TunnelDpiRuntime.gate.entered) { await Task.yield() }
+        dpiProvider.stop()
+        await TunnelDpiRuntime.gate.resume()
+        do { try await pendingStartup.value; preconditionFailure("Stop during DPI lookup must cancel startup") }
+        catch is CancellationError {}
+        precondition(!dpiProvider.reachedBootstrap)
         try await verifyStatusNotificationScope(manager)
         try await verifySecretTransactions()
         print("PASS: preference-load errors; transactional Keychain rollback/migration/cleanup; permission privacy; cold-start secret denial; traffic protection and proxy-switch teardown")
@@ -141,6 +162,14 @@ func verifySecretTransactions() async throws {
     while manager.isProcessing { await Task.yield() }
     manager.xrayConfig = Data("{\"remote-password\":\"old-secret\"}".utf8)
     try await manager.start()
+    let savesBeforeEarlySwitch = SDK.saves
+    let secretsBeforeEarlySwitch = keychain.records.count
+    let messagesBeforeEarlySwitch = SDK.providerMessages.count
+    do { try await manager.replace(); preconditionFailure("A connecting provider cannot accept replacement messages") }
+    catch TunnelSecretError.invalidProfile {}
+    precondition(SDK.saves == savesBeforeEarlySwitch && keychain.records.count == secretsBeforeEarlySwitch,
+                 "Reject a premature replacement before changing the saved profile or Keychain")
+    precondition(SDK.providerMessages.count == messagesBeforeEarlySwitch)
     let firstMetadata = (SDK.profile!.protocolConfiguration as! NETunnelProviderProtocol).providerConfiguration!
     let first = try TunnelSecretProfile.reference(in: firstMetadata)
     precondition(firstMetadata["xrayConfig"] == nil)

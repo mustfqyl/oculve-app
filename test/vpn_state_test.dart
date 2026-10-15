@@ -45,10 +45,12 @@ class TestPlatform extends VlessPlatform {
   bool permission = true;
   Completer<bool>? permissionGate;
   Completer<void>? startGate;
+  Object? startFailure;
   int starts = 0;
   int stops = 0;
   int replacements = 0;
   bool rejectReplacement = false;
+  Object? replacementFailure;
   String? lastConfig;
   String? lastRemark;
   bool lastDpiBypass = false;
@@ -95,6 +97,7 @@ class TestPlatform extends VlessPlatform {
     lastDpiProfile = dpiProfile;
     lastAndroidDnsProxyOutboundTag = androidDnsProxyOutboundTag;
     await startGate?.future;
+    if (startFailure != null) throw startFailure!;
   }
 
   @override
@@ -117,6 +120,7 @@ class TestPlatform extends VlessPlatform {
     lastConfig = config;
     lastDpiBypass = dpiBypass;
     await startGate?.future;
+    if (replacementFailure != null) throw replacementFailure!;
   }
 
   @override
@@ -130,7 +134,11 @@ class _FastestProbe extends ServerLatencyProbe {
   final checkedNames = <String>[];
 
   @override
-  Future<int?> measure(VpnProfile profile) async {
+  Future<int?> measure(
+    VpnProfile profile, {
+    bool Function()? shouldContinue,
+    Future<void>? cancellation,
+  }) async {
     checkedNames.add(profile.name);
     return profile.name == 'Fast route' ? 23 : 160;
   }
@@ -380,6 +388,48 @@ void main() {
       expect(outbound['settings']['vnext'][0]['port'], 444);
     },
   );
+  test(
+    'cancelling Optimal skips queued probes and does not select a server',
+    () async {
+      container.dispose();
+      final gates = List.generate(3, (_) => Completer<int?>());
+      var samples = 0;
+      final realProbe = ServerLatencyProbe(
+        useAndroidNativePing: true,
+        androidNativeRttSampler: (_, _) => gates[samples++].future,
+      );
+      container = ProviderContainer(
+        overrides: [
+          apiProvider.overrideWithValue(api),
+          serverLatencyProbeProvider.overrideWithValue(realProbe),
+        ],
+      );
+      final profiles = List.generate(
+        4,
+        (index) => VpnProfile.parseSubscription(
+          testLink.replaceFirst('127.0.0.1:443', '127.0.0.1:${443 + index}'),
+        ).single,
+      );
+      container.read(sessionProvider.notifier).state = AsyncValue.data(
+        Account({'status': 'active'}, profiles),
+      );
+      container.read(selectedServerProvider.notifier).state = optimalServerId;
+      final controller = container.read(vpnProvider.notifier);
+      final connect = controller.connect();
+      await Future<void>.delayed(Duration.zero);
+      expect(samples, 3);
+      await controller.disconnect();
+      for (final gate in gates) {
+        gate.complete(20);
+      }
+      await connect;
+      expect(samples, 3);
+      expect(platform.starts, 0);
+      expect(container.read(optimalServerProfileProvider), isNull);
+      expect(container.read(vpnProvider), VpnState.disconnected);
+    },
+  );
+
   test('unsolicited native errors do not create a UI failure', () async {
     final controller = container.read(vpnProvider.notifier);
     await controller.initialize();

@@ -95,3 +95,24 @@ enum NativeLogPrivacy {
     static func removeLegacyProviderLog(in url: URL) {}
     static func operationError(_ error: Error) -> NSError { error as NSError }
 }
+
+// A controlled suspension exercises Stop while the real provider awaits the
+// DPI physical-interface lookup, without touching host networking.
+actor InterfaceLookupGate {
+    private var continuation: CheckedContinuation<String, Never>?
+    var entered = false
+    func lookup() async -> String {
+        entered = true
+        return await withCheckedContinuation { continuation = $0 }
+    }
+    func resume() { continuation?.resume(returning: "en0"); continuation = nil }
+}
+enum TunnelDpiRuntime {
+    static let gate = InterfaceLookupGate()
+    static func isDpiConfig(_ data: Data) -> Bool { data == Data("dpi-config".utf8) }
+    static func currentPhysicalInterface() async throws -> String { await gate.lookup() }
+}
+final class TunnelDebugStore {
+    static let shared = TunnelDebugStore()
+    func configure(groupIdentifier: String?) {}
+}

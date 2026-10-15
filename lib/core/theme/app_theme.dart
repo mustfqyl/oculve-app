@@ -171,6 +171,7 @@ class _PremiumBackgroundState extends State<PremiumBackground>
     with TickerProviderStateMixin {
   late AnimationController _driftCtrl;
   late AnimationController _nodeCtrl;
+  late final Listenable _backgroundMotion;
 
   @override
   void initState() {
@@ -178,11 +179,24 @@ class _PremiumBackgroundState extends State<PremiumBackground>
     _driftCtrl = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 44),
-    )..repeat(reverse: true);
+    );
     _nodeCtrl = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 12),
-    )..repeat();
+    );
+    _backgroundMotion = Listenable.merge([_driftCtrl, _nodeCtrl]);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _driftCtrl.stop();
+      _nodeCtrl.stop();
+    } else {
+      if (!_driftCtrl.isAnimating) _driftCtrl.repeat(reverse: true);
+      if (!_nodeCtrl.isAnimating) _nodeCtrl.repeat();
+    }
   }
 
   @override
@@ -229,7 +243,7 @@ class _PremiumBackgroundState extends State<PremiumBackground>
 
           // Website BackgroundEffects' dark neon and light studio orbs.
           AnimatedBuilder(
-            animation: Listenable.merge([_driftCtrl, _nodeCtrl]),
+            animation: _backgroundMotion,
             builder: (context, _) {
               final t = _driftCtrl.value;
               final nodeOne = (_nodeCtrl.value * 1.5) % 1;
@@ -315,7 +329,8 @@ class _PremiumBackgroundState extends State<PremiumBackground>
           ),
 
           // Content
-          widget.child,
+          // Background motion must not repaint unchanged text and controls.
+          RepaintBoundary(child: widget.child),
         ],
       ),
     );

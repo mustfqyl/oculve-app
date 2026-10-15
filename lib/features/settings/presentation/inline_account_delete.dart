@@ -33,13 +33,17 @@ class _InlineAccountDeleteState extends State<InlineAccountDelete>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _fill =
-        AnimationController(vsync: this, duration: const Duration(seconds: 10))
-          ..addStatusListener((status) {
-            if (status == AnimationStatus.completed &&
-                _stage == _DeleteStage.waiting) {
-              setState(() => _stage = _DeleteStage.ready);
-            }
-          });
+        AnimationController(
+          vsync: this,
+          duration: const Duration(seconds: 10),
+          // This is a destructive-action safety delay, not decorative motion.
+          animationBehavior: AnimationBehavior.preserve,
+        )..addStatusListener((status) {
+          if (status == AnimationStatus.completed &&
+              _stage == _DeleteStage.waiting) {
+            setState(() => _stage = _DeleteStage.ready);
+          }
+        });
   }
 
   void _reset() {

@@ -1,0 +1,22 @@
+SOAK_BEGIN cycles=1000 runtime=26.9.9 rss=31211520 fds=7
+SOAK_SAMPLE cycles=50 rss=32669696 fds=7 requests=50
+SOAK_SAMPLE cycles=100 rss=31752192 fds=8 requests=100
+SOAK_SAMPLE cycles=150 rss=24215552 fds=7 requests=150
+SOAK_SAMPLE cycles=200 rss=24182784 fds=7 requests=200
+SOAK_SAMPLE cycles=250 rss=24854528 fds=7 requests=250
+SOAK_SAMPLE cycles=300 rss=24215552 fds=7 requests=300
+SOAK_SAMPLE cycles=350 rss=24494080 fds=7 requests=350
+SOAK_SAMPLE cycles=400 rss=24641536 fds=7 requests=400
+SOAK_SAMPLE cycles=450 rss=24707072 fds=9 requests=450
+SOAK_SAMPLE cycles=500 rss=24166400 fds=7 requests=500
+SOAK_SAMPLE cycles=550 rss=24772608 fds=8 requests=550
+SOAK_SAMPLE cycles=600 rss=24805376 fds=8 requests=600
+SOAK_SAMPLE cycles=650 rss=25100288 fds=8 requests=650
+SOAK_SAMPLE cycles=700 rss=25362432 fds=7 requests=700
+SOAK_SAMPLE cycles=750 rss=24412160 fds=7 requests=750
+SOAK_SAMPLE cycles=800 rss=23511040 fds=7 requests=800
+SOAK_SAMPLE cycles=850 rss=24543232 fds=7 requests=850
+SOAK_SAMPLE cycles=900 rss=24231936 fds=7 requests=900
+SOAK_SAMPLE cycles=950 rss=24674304 fds=8 requests=950
+SOAK_SAMPLE cycles=1000 rss=24608768 fds=7 requests=1000
+SOAK_PASS cycles=1000 rss=24608768 fds=7

@@ -18,8 +18,7 @@ import java.util.concurrent.TimeUnit
 object XrayCoreManager {
     @Volatile private var xrayProcess: Process? = null
     private var runtimeFile: File? = null
-    private var lastProxyUplink = 0L
-    private var lastProxyDownlink = 0L
+    private val trafficSampler = TrafficSampler()
     private fun nextFreePort(preferredPort: Int, usedPorts: Set<Int>): Int {
         var port = preferredPort
         while (usedPorts.contains(port)) {
@@ -225,8 +224,8 @@ object XrayCoreManager {
             builder.environment()["XRAY_LOCATION_ASSET"] = Utilities.getUserAssetsPath(context)
             val process = builder.start()
             val reader = drain(process)
-            val done = process.waitFor(10, TimeUnit.SECONDS)
-            if (!done) process.destroyForcibly()
+            val done = ChildProcessCompat.waitFor(process, 10, TimeUnit.SECONDS)
+            if (!done) ChildProcessCompat.destroyForcibly(process)
             reader.join(1000)
             done && process.exitValue() == 0
         } catch (_: Exception) { false } finally { file.delete() }
@@ -264,9 +263,9 @@ object XrayCoreManager {
                 } catch (_: Exception) { onExit(ownerGeneration, -1) }
             }, "xray-monitor").apply { isDaemon = true; start() }
             if (protector != null && !protector.awaitVerified()) { stopWorkers(); return false }
-            if (!process.isAlive) { stopWorkers(); return false }
+            if (!ChildProcessCompat.isAlive(process)) { stopWorkers(); return false }
             AppConfigs.V2RAY_CONFIG = config
-            lastProxyUplink = 0; lastProxyDownlink = 0
+            trafficSampler.reset()
             true
         } catch (_: Exception) { stopWorkers(); false }
     }
@@ -276,8 +275,8 @@ object XrayCoreManager {
         xrayProcess = null // Invalidate callbacks before signaling the old process.
         if (process != null) {
             process.destroy()
-            if (!process.waitFor(1, TimeUnit.SECONDS)) process.destroyForcibly()
-            if (!process.waitFor(1, TimeUnit.SECONDS)) { xrayProcess = process; return false }
+            if (!ChildProcessCompat.waitFor(process, 1, TimeUnit.SECONDS)) ChildProcessCompat.destroyForcibly(process)
+            if (!ChildProcessCompat.waitFor(process, 1, TimeUnit.SECONDS)) { xrayProcess = process; return false }
         }
         runtimeFile?.delete(); runtimeFile = null
         return true
@@ -296,25 +295,24 @@ object XrayCoreManager {
     }
 
     fun getV2rayTraffic(context: Context): LongArray {
-        if (xrayProcess?.isAlive != true) return longArrayOf(0, 0, 0, 0)
+        if (xrayProcess?.let(ChildProcessCompat::isAlive) != true) return longArrayOf(0, 0, 0, 0)
         return try {
+            val config = AppConfigs.V2RAY_CONFIG
+            val tag = if (config?.DPI_BYPASS == true) "byedpi" else "proxy"
             val process = ProcessBuilder(File(context.applicationInfo.nativeLibraryDir, "libxray.so").absolutePath,
-                "api", "statsquery", "--server=127.0.0.1:${AppConfigs.V2RAY_CONFIG?.LOCAL_API_PORT ?: 10809}", "--pattern", "outbound>>>proxy>>>").start()
+                "api", "statsquery", "--server=127.0.0.1:${config?.LOCAL_API_PORT ?: 10809}", "--pattern", "outbound>>>$tag>>>").redirectErrorStream(true).start()
             // Stats are bounded and parsed locally; never included in diagnostics.
-            val output = process.inputStream.bufferedReader().readText().take(64 * 1024)
-            if (!process.waitFor(2, TimeUnit.SECONDS)) { process.destroyForcibly(); return longArrayOf(0, 0, 0, 0) }
+            val output = BoundedProcessOutput.read(process)
             val stats = JSONObject(output).optJSONArray("stat") ?: JSONArray()
             var up = 0L; var down = 0L
             for (i in 0 until stats.length()) {
                 val stat = stats.getJSONObject(i)
                 when (stat.optString("name")) {
-                    "outbound>>>proxy>>>traffic>>>uplink" -> up = stat.optLong("value")
-                    "outbound>>>proxy>>>traffic>>>downlink" -> down = stat.optLong("value")
+                    "outbound>>>$tag>>>traffic>>>uplink" -> up = stat.optLong("value")
+                    "outbound>>>$tag>>>traffic>>>downlink" -> down = stat.optLong("value")
                 }
             }
-            val result = longArrayOf((up - lastProxyUplink).coerceAtLeast(0), (down - lastProxyDownlink).coerceAtLeast(0), up, down)
-            lastProxyUplink = up; lastProxyDownlink = down
-            result
+            trafficSampler.sample(up, down)
         } catch (_: Exception) { longArrayOf(0, 0, 0, 0) }
     }
 
@@ -333,14 +331,14 @@ object XrayCoreManager {
             process = builder.start()
             drain(process)
             repeat(20) {
-                if (process?.isAlive != true) return -1
+                if (process?.let(ChildProcessCompat::isAlive) != true) return -1
                 try { return AuthenticatedSocksClient.measure(socksPort, credentials, url) }
                 catch (_: Exception) { Thread.sleep(100) }
             }
             -1
         } catch (_: Exception) { -1 } finally {
             process?.destroy()
-            if (process?.waitFor(1, TimeUnit.SECONDS) == false) process?.destroyForcibly()
+            if (process?.let { ChildProcessCompat.waitFor(it, 1, TimeUnit.SECONDS) } == false) process?.let(ChildProcessCompat::destroyForcibly)
             file.delete()
         }
     }

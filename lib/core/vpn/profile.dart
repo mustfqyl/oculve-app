@@ -88,6 +88,7 @@ class VpnProfile {
           headers: responseHeaders,
         );
     final profiles = <VpnProfile>[];
+    final profileIds = <String>{};
     void addConfig(Map<String, dynamic> json, {String? name}) {
       final rawOutbounds = json['outbounds'];
       if (rawOutbounds is! List) return;
@@ -125,7 +126,7 @@ class VpnProfile {
         ],
       });
       final id = sha256.convert(utf8.encode(config)).toString();
-      if (profiles.any((p) => p.id == id)) return;
+      if (!profileIds.add(id)) return;
       profiles.add(
         VpnProfile(
           id: id,

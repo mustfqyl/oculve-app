@@ -271,11 +271,14 @@ public class FlutterVlessPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
     private let commands = NativeOperationQueue()
 
     private var timer: Timer?
+    private var trafficPollTask: Task<Void, Never>?
+    private var trafficPollRevision = 0
     private var eventSink: FlutterEventSink?
     private var totalUpload: Int = 0
     private var totalDownload: Int = 0
     private var uploadSpeed: Int = 0
     private var downloadSpeed: Int = 0
+    private var lastTrafficSampleTime = ProcessInfo.processInfo.systemUptime
     private var lastTrafficLogDate: Date = .distantPast
 
     public static func register(with registrar: FlutterPluginRegistrar) {
@@ -317,6 +320,7 @@ public class FlutterVlessPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
         pluginLog.info("Starting traffic polling timer reason=\(reason, privacy: .public)")
         self.timer?.invalidate()
         emitStatus(duration: currentDurationSeconds(), state: currentRuntimeState(), reason: "timer-start:\(reason)")
+        self.lastTrafficSampleTime = ProcessInfo.processInfo.systemUptime
         let timer = Timer(timeInterval: 1, repeats: true, block: { [weak self] _ in
             guard let self else { return }
             if self.proxyOnlyRunner.isRunning {
@@ -340,20 +344,24 @@ public class FlutterVlessPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
                 return
             }
 
-            Task{
+            guard self.trafficPollTask == nil else { return }
+            let revision = self.trafficPollRevision
+            self.trafficPollTask = Task { @MainActor in
+                defer {
+                    if revision == self.trafficPollRevision { self.trafficPollTask = nil }
+                }
                 do{
                     await self.packetTunnelManager?.refreshForwardingState()
+                    guard !Task.isCancelled, revision == self.trafficPollRevision else { return }
                     self.emitStatus(duration: seconds, state: self.currentRuntimeState(), reason: "provider-readiness")
                     guard self.currentRuntimeState() == "CONNECTED" else { return }
                     let response =  try await self.packetTunnelManager?.sendProviderMessage(data: "xray_traffic".data(using: .utf8)!)
+                    guard !Task.isCancelled, revision == self.trafficPollRevision else { return }
                     if response != nil{
                         let traffic = String(decoding: response!, as: UTF8.self)
                         let parts = traffic.split(separator: ",")
                         if parts.count >= 2, let up = Int(parts[0]), let down = Int(parts[1]) {
-                            self.uploadSpeed = up - self.totalUpload
-                            self.downloadSpeed = down - self.totalDownload
-                            self.totalUpload = up
-                            self.totalDownload = down
+                            self.sampleTraffic(up: up, down: down)
                             if Date().timeIntervalSince(self.lastTrafficLogDate) >= 5 {
                                 self.lastTrafficLogDate = Date()
                                 pluginLog.info("Traffic stats up=\(up, privacy: .public) down=\(down, privacy: .public) upSpeed=\(self.uploadSpeed, privacy: .public) downSpeed=\(self.downloadSpeed, privacy: .public)")
@@ -361,6 +369,7 @@ public class FlutterVlessPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
                         }
                     }
                 }catch{
+                    guard !Task.isCancelled, revision == self.trafficPollRevision else { return }
                     pluginLog.error("Error polling traffic: \(NativeLogPrivacy.operationError(error).localizedDescription, privacy: .public)")
                 }
             }
@@ -378,6 +387,9 @@ public class FlutterVlessPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
         }
 
         pluginLog.info("Stopping traffic polling timer reason=\(reason, privacy: .public)")
+        self.trafficPollRevision += 1
+        self.trafficPollTask?.cancel()
+        self.trafficPollTask = nil
         self.timer?.invalidate()
         self.timer = nil
         emitStatus(duration: 0, state: "DISCONNECTED", reason: "timer-stop:\(reason)")
@@ -385,6 +397,22 @@ public class FlutterVlessPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
         self.downloadSpeed = 0
         self.totalUpload = 0
         self.totalDownload = 0
+    }
+
+    private func sampleTraffic(up: Int, down: Int) {
+        guard up >= 0, down >= 0 else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        let interval = now - self.lastTrafficSampleTime
+        func rate(_ current: Int, _ previous: Int) -> Int {
+            guard interval > 0 else { return 0 }
+            let value = max(0, Double(current) - Double(previous)) / interval
+            return value >= Double(Int.max) ? Int.max : Int(value)
+        }
+        self.uploadSpeed = rate(up, self.totalUpload)
+        self.downloadSpeed = rate(down, self.totalDownload)
+        self.totalUpload = up
+        self.totalDownload = down
+        self.lastTrafficSampleTime = now
     }
 
     private func currentDurationSeconds() -> Int {
@@ -464,7 +492,7 @@ public class FlutterVlessPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
         pluginLog.info("stopVless requested")
         let operation = commands.submit {
             self.proxyOnlyRunner.stop()
-            try await self.packetTunnelManager?.stop()
+            try await self.packetTunnelManager?.stop(waitForDisconnect: true)
         }
         Task {
             do {
@@ -1000,12 +1028,12 @@ final class PacketTunnelManager: ObservableObject {
     func replace() async throws {
         try await preferenceOperations.submit {
             guard let active = try await self.loadTunnelProviderManager(),
-                  [.connecting, .connected, .reasserting].contains(active.connection.status),
+                  [.connected, .reasserting].contains(active.connection.status),
                   !self.proxyOnly else { throw TunnelSecretError.invalidProfile }
             self.manager = active
             try await self.saveConfiguration(activate: true)
             guard let manager = self.manager,
-                  [.connecting, .connected, .reasserting].contains(manager.connection.status),
+                  [.connected, .reasserting].contains(manager.connection.status),
                   let metadata = (manager.protocolConfiguration as? NETunnelProviderProtocol)?.providerConfiguration else {
                 throw TunnelSecretError.invalidProfile
             }

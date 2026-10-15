@@ -5,6 +5,30 @@ import 'package:oculve/core/theme/app_theme.dart';
 import 'package:oculve/features/settings/presentation/inline_account_delete.dart';
 
 void main() {
+  testWidgets('reduced motion preserves the ten second deletion safety wait', (
+    tester,
+  ) async {
+    tester.platformDispatcher.accessibilityFeaturesTestValue =
+        const FakeAccessibilityFeatures(disableAnimations: true);
+    addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: InlineAccountDelete(onDelete: () async {})),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('account-delete-start')));
+    await tester.pump();
+    await tester.enterText(find.byType(TextField), 'DELETE MY ACCOUNT');
+    await tester.pump();
+    final confirm = find.byKey(const ValueKey('account-delete-confirm'));
+    await tester.pump(const Duration(seconds: 1));
+    expect(tester.widget<OutlinedButton>(confirm).onPressed, isNull);
+    await tester.pump(const Duration(seconds: 8));
+    expect(tester.widget<OutlinedButton>(confirm).onPressed, isNull);
+    await tester.pump(const Duration(milliseconds: 1020));
+    expect(tester.widget<OutlinedButton>(confirm).onPressed, isNotNull);
+    await tester.pumpWidget(const SizedBox());
+  });
   testWidgets(
     'exact phrase waits ten seconds and only final tap deletes once',
     (tester) async {

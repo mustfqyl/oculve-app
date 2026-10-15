@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 import 'dart:io';
 import 'dart:math';
 import 'package:crypto/crypto.dart';
@@ -61,28 +63,49 @@ class OculveApi {
   final DeviceHwid _subscriptionHwid;
   final SubscriptionDeviceInfo _subscriptionDeviceInfo;
   String? _token;
+  int _sessionRevision = 0;
+  int _authenticationRevision = 0;
+  Future<void> _storageMutation = Future<void>.value();
   String? _deviceId;
+  Future<String>? _registrationSecretPending;
   Future<String>? _clientUserAgent;
+  int get authenticationRevision => _authenticationRevision;
   bool get hasSession => _token != null && _token!.isNotEmpty;
   String get _key => 'oculve.session.${origin.origin}';
 
   void close() => _client.close(force: true);
 
   Future<void> restore() async {
+    final revision = _sessionRevision;
     try {
-      _token = await _storage.read(key: _key);
+      final token = await _storage.read(key: _key);
+      if (revision == _sessionRevision) _token = token;
     } catch (_) {
       // Unsigned macOS preview builds cannot always access the App Group
       // Keychain. A missing persisted session is safe: the user signs in.
-      _token = null;
+      if (revision == _sessionRevision) _token = null;
     }
   }
 
-  Future<void> clear() async {
+  Future<void> clear() => _clearSession(cancelAuthentication: true);
+
+  Future<void> _clearSession({required bool cancelAuthentication}) async {
+    if (cancelAuthentication) ++_authenticationRevision;
+    ++_sessionRevision;
     _token = null;
-    try {
-      await _storage.delete(key: _key);
-    } catch (_) {}
+    await _mutateSessionStorage(() => _storage.delete(key: _key));
+  }
+
+  // Keychain writes can finish after a logout delete. Preserve mutation order
+  // so an older token cannot survive locally and reappear on the next launch.
+  Future<void> _mutateSessionStorage(Future<void> Function() mutation) {
+    return _storageMutation = _storageMutation.then((_) async {
+      try {
+        await mutation();
+      } catch (_) {
+        // Unsigned previews may only keep a session in memory.
+      }
+    });
   }
 
   Future<Map<String, dynamic>> request(
@@ -175,8 +198,15 @@ class OculveApi {
   }
 
   // Preserve the existing registration identity; it is not subscription HWID.
-  Future<String> _registrationDeviceSecret() async {
-    if (_deviceId != null) return _deviceId!;
+  Future<String> _registrationDeviceSecret() {
+    final pending = _registrationSecretPending;
+    if (pending != null) return pending;
+    if (_deviceId != null) return Future.value(_deviceId!);
+    return _registrationSecretPending = _loadRegistrationDeviceSecret()
+        .whenComplete(() => _registrationSecretPending = null);
+  }
+
+  Future<String> _loadRegistrationDeviceSecret() async {
     const key = 'oculve.device.hwid.v1';
     try {
       final stored = await _storage.read(key: key);
@@ -189,13 +219,12 @@ class OculveApi {
     final random = Random.secure();
     final seed = List<int>.generate(32, (_) => random.nextInt(256));
     final generated = sha256.convert(seed).toString();
-    _deviceId = generated;
     try {
       await _storage.write(key: key, value: generated);
     } catch (_) {
       await preferences.setString(key, generated);
     }
-    return generated;
+    return _deviceId = generated;
   }
 
   Future<_ApiResponse> _send(
@@ -208,12 +237,28 @@ class OculveApi {
     if (uri.scheme != 'https' || uri.userInfo.isNotEmpty) {
       throw const ApiFailure('A secure HTTPS service address is required.');
     }
+    final requestMethod = method ?? (body == null ? 'GET' : 'POST');
+    final authenticationRequest =
+        authenticated &&
+            requestMethod == 'POST' &&
+            const {
+              '/api/auth/login',
+              '/api/auth/login/two-factor',
+              '/api/auth/login/passkey',
+              '/api/auth/register',
+            }.contains(uri.path)
+        ? ++_authenticationRevision
+        : null;
+    if (authenticated &&
+        requestMethod == 'POST' &&
+        uri.path == '/api/auth/logout') {
+      ++_authenticationRevision;
+    }
     final tokenForRequest = authenticated ? _token : null;
+    final sessionRevision = _sessionRevision;
+    HttpClientRequest? request;
     try {
-      final request = await _client.openUrl(
-        method ?? (body == null ? 'GET' : 'POST'),
-        uri,
-      );
+      request = await _client.openUrl(requestMethod, uri);
       // Do not forward session credentials through redirects.
       request.followRedirects = false;
       request.headers.set(HttpHeaders.userAgentHeader, await _userAgent());
@@ -231,14 +276,7 @@ class OculveApi {
       final response = await request.close().timeout(
         const Duration(seconds: 20),
       );
-      final bytes = <int>[];
-      await for (final chunk in response.timeout(const Duration(seconds: 20))) {
-        bytes.addAll(chunk);
-        if (bytes.length > 2 * 1024 * 1024) {
-          throw const ApiFailure('Service response is too large.');
-        }
-      }
-      final text = utf8.decode(bytes);
+      final text = await _readResponseBody(response);
       if (response.statusCode < 200 || response.statusCode >= 300) {
         // A 401 from a TOTP challenge can mean an invalid code while the
         // session is still valid. Only the account endpoint establishes that
@@ -246,8 +284,10 @@ class OculveApi {
         if (response.statusCode == 401 &&
             authenticated &&
             uri.path == '/api/user/me' &&
-            _token == tokenForRequest) {
-          await clear();
+            _sessionRevision == sessionRevision) {
+          // An expired old session must not cancel a newer authentication
+          // already in flight. Explicit clear/logout still invalidates it.
+          await _clearSession(cancelAuthentication: false);
         }
         final message = !authenticated && response.statusCode == 403
             ? 'Subscription access was rejected. Your device limit may be reached.'
@@ -264,16 +304,50 @@ class OculveApi {
               };
         throw ApiFailure(message, response.statusCode);
       }
-      if (authenticated) {
+      var authenticationChallenge = false;
+      if (authenticationRequest != null &&
+          authenticationRequest == _authenticationRevision) {
+        // A completed login must acknowledge its own session. Otherwise a
+        // missing cookie could make a different-code login reuse the old account.
+        Map<String, dynamic> acknowledgement;
+        try {
+          acknowledgement = jsonDecode(text) as Map<String, dynamic>;
+        } catch (_) {
+          throw ApiFailure(
+            'The service returned an invalid response.',
+            response.statusCode,
+          );
+        }
+        authenticationChallenge =
+            uri.path == '/api/auth/login' &&
+            acknowledgement['requiresTwoFactor'] == true;
+        final tokenCookie = response.cookies
+            .where((cookie) => cookie.name == 'token')
+            .firstOrNull;
+        if (!authenticationChallenge &&
+            (tokenCookie == null || tokenCookie.value.isEmpty)) {
+          throw ApiFailure(
+            'The service returned an invalid response.',
+            response.statusCode,
+          );
+        }
+      }
+      if (authenticated && !authenticationChallenge) {
         for (final cookie in response.cookies.where((c) => c.name == 'token')) {
-          if (_token != tokenForRequest) break;
+          if (authenticationRequest == null
+              ? _sessionRevision != sessionRevision
+              : _authenticationRevision != authenticationRequest) {
+            break;
+          }
+          ++_sessionRevision;
           _token = cookie.value;
           // An unsigned macOS development build cannot access the App Group
           // Keychain. Keep the authenticated session in memory in that case;
           // signed releases still persist it in secure storage.
-          try {
-            await _storage.write(key: _key, value: _token);
-          } catch (_) {}
+          await _mutateSessionStorage(
+            () => _storage.write(key: _key, value: cookie.value),
+          );
+          break;
         }
       }
       const subscriptionHeaderNames = {
@@ -290,11 +364,35 @@ class OculveApi {
       });
       return _ApiResponse(text, subscriptionHeaders);
     } on ApiFailure {
+      request?.abort();
       rethrow;
     } catch (_) {
+      request?.abort();
       throw const ApiFailure(
         'Could not reach the service securely. Check your connection.',
       );
+    }
+  }
+
+  Future<String> _readResponseBody(HttpClientResponse response) async {
+    final chunks = StreamIterator<List<int>>(response);
+    final bytes = BytesBuilder(copy: false);
+    try {
+      // Bound the entire body transfer. An idle timeout alone lets a slow
+      // server keep the loading flow and its connection alive indefinitely.
+      await (() async {
+        while (await chunks.moveNext()) {
+          final chunk = chunks.current;
+          if (bytes.length + chunk.length > 2 * 1024 * 1024) {
+            throw const ApiFailure('Service response is too large.');
+          }
+          bytes.add(chunk);
+        }
+      })().timeout(const Duration(seconds: 20));
+      return utf8.decode(bytes.takeBytes());
+    } finally {
+      // Cancels the underlying response also on overflow or timeout.
+      await chunks.cancel();
     }
   }
 

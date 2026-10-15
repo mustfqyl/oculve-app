@@ -7,12 +7,15 @@ class SessionRecoveryPolicyTest {
     @Test fun oldCallbacksCannotChangeNewWorkersAndStopDisarmsAllCallbacks() {
         val policy = SessionRecoveryPolicy()
         val initial = policy.activate()
-        val restarted = policy.restart()
+        val restarted = requireNotNull(policy.restart())
         assertFalse(policy.owns(initial)); assertTrue(policy.owns(restarted))
         val replacement = policy.activate()
         assertFalse(policy.owns(restarted)); assertTrue(policy.owns(replacement))
         policy.disarm()
         assertFalse(policy.owns(replacement)); assertFalse(policy.authorized)
+        val stoppedGeneration = policy.generation
+        assertNull("A cancelled recovery must not restart or throw", policy.restart())
+        assertEquals(stoppedGeneration, policy.generation)
     }
     @Test fun persistentFailuresStayAuthorizedWithCappedBackoff() {
         val policy = SessionRecoveryPolicy()

@@ -76,7 +76,9 @@ class LanProxyService extends ChangeNotifier {
     Future<ProxyEndpoint> Function()? endpoint,
     bool allowLoopbackForTest = false,
   }) async {
+    if (_disposed) return;
     await stop();
+    if (_disposed) return;
     final generation = ++_generation;
     error = null;
     if ((!isPrivateAddress(address) &&
@@ -88,7 +90,7 @@ class LanProxyService extends ChangeNotifier {
       );
     }
     final server = await ServerSocket.bind(address, port, shared: false);
-    if (generation != _generation || !ready()) {
+    if (_disposed || generation != _generation || !ready()) {
       await server.close();
       return;
     }
@@ -148,7 +150,17 @@ class LanProxyService extends ChangeNotifier {
     final incoming = _ProxyReader(client);
     Socket? upstream;
     _ProxyReader? outgoing;
-    bool active() => generation == _generation && ready();
+    var expired = false;
+    void expireHandshake() {
+      expired = true;
+      client.destroy();
+      upstream?.destroy();
+    }
+
+    // The per-read idle timeout can be kept alive by a byte every few seconds.
+    // Bound unauthenticated clients' total occupancy of a connection slot.
+    var handshake = Timer(const Duration(seconds: 10), expireHandshake);
+    bool active() => !expired && generation == _generation && ready();
     try {
       final first = (await incoming.take(1))[0];
       late String host;
@@ -243,6 +255,8 @@ class LanProxyService extends ChangeNotifier {
         }
       }
       if (!active() || targetPort <= 0 || targetPort > 65535) return;
+      handshake.cancel();
+      handshake = Timer(const Duration(seconds: 20), expireHandshake);
       final local = await endpoint();
       if (!active()) return;
       upstream = await Socket.connect(
@@ -290,6 +304,7 @@ class LanProxyService extends ChangeNotifier {
         upstream.add(httpRequest);
         await upstream.flush();
       }
+      handshake.cancel();
       // A half-close or failure tears down both sides; active sockets are also
       // forcibly closed on disconnect, recovery, settings change or shutdown.
       await Future.any([
@@ -299,6 +314,7 @@ class LanProxyService extends ChangeNotifier {
     } catch (_) {
       // Never log proxy headers, destinations or either credential pair.
     } finally {
+      handshake.cancel();
       client.destroy();
       upstream?.destroy();
       _sockets.remove(client);
@@ -329,11 +345,18 @@ class _ProxyReader {
   _ProxyReader(Socket socket) : _iterator = StreamIterator(socket);
   final StreamIterator<List<int>> _iterator;
   final List<int> _pending = [];
+  int _offset = 0;
   Future<List<int>> take(int count) async {
     if (count < 0 || count > 16384) {
       throw const FormatException('Invalid proxy frame');
     }
-    while (_pending.length < count) {
+    while (_pending.length - _offset < count) {
+      // Headers arrive in large chunks but are parsed byte by byte. Move the
+      // consumed prefix only when another chunk is needed, not for every byte.
+      if (_offset != 0) {
+        _pending.removeRange(0, _offset);
+        _offset = 0;
+      }
       if (!await _iterator.moveNext().timeout(const Duration(seconds: 10))) {
         throw const FormatException('Closed proxy frame');
       }
@@ -342,8 +365,8 @@ class _ProxyReader {
         throw const FormatException('Proxy frame too large');
       }
     }
-    final result = _pending.sublist(0, count);
-    _pending.removeRange(0, count);
+    final result = _pending.sublist(_offset, _offset + count);
+    _offset += count;
     return result;
   }
 
@@ -359,9 +382,10 @@ class _ProxyReader {
   }
 
   Future<void> forward(Socket target, bool Function() active) async {
-    if (_pending.isNotEmpty && active()) {
-      target.add(_pending.toList());
+    if (_pending.length > _offset && active()) {
+      target.add(_pending.sublist(_offset));
       _pending.clear();
+      _offset = 0;
       await target.flush();
     }
     while (active() && await _iterator.moveNext()) {

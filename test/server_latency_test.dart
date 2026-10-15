@@ -44,15 +44,22 @@ class _SessionWithServers extends SessionController {
 
 class _FixedProbe extends ServerLatencyProbe {
   @override
-  Future<int?> measure(VpnProfile profile) async =>
-      profile.id == 'fast' ? 25 : 180;
+  Future<int?> measure(
+    VpnProfile profile, {
+    bool Function()? shouldContinue,
+    Future<void>? cancellation,
+  }) async => profile.id == 'fast' ? 25 : 180;
 }
 
 class _GatedProbe extends ServerLatencyProbe {
   final gates = {'fast': Completer<int?>(), 'slow': Completer<int?>()};
 
   @override
-  Future<int?> measure(VpnProfile profile) => gates[profile.id]!.future;
+  Future<int?> measure(
+    VpnProfile profile, {
+    bool Function()? shouldContinue,
+    Future<void>? cancellation,
+  }) => gates[profile.id]!.future;
 }
 
 class _ConnectedVpnNotifier extends VpnNotifier {
@@ -68,6 +75,185 @@ class _ErrorVpnNotifier extends VpnNotifier {
 }
 
 void main() {
+  test('cancelled queued ping skips network and releases its slot', () async {
+    final profile = VpnProfile.parseSubscription(testLink).single;
+    final gates = List.generate(3, (_) => Completer<int?>());
+    var calls = 0;
+    var active = true;
+    final probe = ServerLatencyProbe(
+      useAndroidNativePing: true,
+      androidNativeRttSampler: (_, _) {
+        final index = calls++;
+        return index < gates.length ? gates[index].future : Future.value(12);
+      },
+    );
+    final running = List.generate(3, (_) => probe.measure(profile));
+    final obsolete = probe.measure(profile, shouldContinue: () => active);
+    final next = probe.measure(profile);
+    expect(calls, 3);
+    active = false;
+    gates.first.complete(20);
+    expect(await obsolete, isNull);
+    expect(await next, 12);
+    expect(calls, 4);
+    for (final gate in gates.skip(1)) {
+      gate.complete(20);
+    }
+    await Future.wait(running);
+    expect(await probe.measure(profile), 12);
+  });
+
+  test(
+    'large DNS answer sets keep at most three address probes active',
+    () async {
+      final profile = VpnProfile.parseSubscription(
+        testLink.replaceFirst('127.0.0.1:443', 'server.example:443'),
+      ).single;
+      final gates = List.generate(3, (_) => Completer<int?>());
+      var calls = 0, active = 0, peak = 0;
+      final probe = ServerLatencyProbe(
+        hostResolver: (_) async => List.generate(
+          12,
+          (index) => InternetAddress('192.0.2.${index + 1}'),
+        ),
+        tcpRttSampler: (_, _) async {
+          final index = calls++;
+          active++;
+          if (active > peak) peak = active;
+          try {
+            return index < gates.length ? await gates[index].future : 20;
+          } finally {
+            active--;
+          }
+        },
+      );
+      final measurement = probe.measure(profile);
+      await Future<void>.delayed(Duration.zero);
+      expect(calls, 3);
+      for (final gate in gates) {
+        gate.complete(20);
+      }
+      expect(await measurement, 20);
+      expect(calls, 60);
+      expect(peak, lessThanOrEqualTo(3));
+    },
+  );
+
+  test(
+    'desktop cancellation stops the isolate and remaining socket handshakes',
+    () async {
+      final server = await ServerSocket.bind(InternetAddress.anyIPv4, 0);
+      final cancellation = Completer<void>();
+      var accepted = 0;
+      final listener = server.listen((socket) {
+        if (socket.remoteAddress.isLoopback) {
+          accepted++;
+          if (!cancellation.isCompleted) cancellation.complete();
+        }
+        socket.destroy();
+      });
+      final profile = VpnProfile.parseSubscription(
+        testLink.replaceFirst('127.0.0.1:443', 'localhost:${server.port}'),
+      ).single;
+      final probe = ServerLatencyProbe(
+        useAppleNativePing: false,
+        hostResolver: (_) async => List.generate(
+          512,
+          (index) =>
+              InternetAddress('127.0.${index ~/ 250}.${index % 250 + 1}'),
+        ),
+      );
+      try {
+        expect(
+          await probe
+              .measure(
+                profile,
+                cancellation: cancellation.future,
+                shouldContinue: () => !cancellation.isCompleted,
+              )
+              .timeout(const Duration(seconds: 3)),
+          isNull,
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        expect(accepted, greaterThan(0));
+        expect(accepted, lessThan(200));
+      } finally {
+        await listener.cancel();
+        await server.close();
+      }
+    },
+  );
+
+  test('cancelled Apple probe stops remaining TCP samples', () async {
+    final profile = VpnProfile.parseSubscription(testLink).single;
+    final gate = Completer<TcpPingSample?>();
+    var active = true;
+    var calls = 0;
+    final probe = ServerLatencyProbe(
+      useAppleNativePing: true,
+      appleNativeProbeSampler: (_, _) {
+        calls++;
+        return gate.future;
+      },
+    );
+    final result = probe.measure(profile, shouldContinue: () => active);
+    await Future<void>.delayed(Duration.zero);
+    expect(calls, 1);
+    active = false;
+    gate.complete(TcpPingSample(latencyMs: 20));
+    expect(await result, isNull);
+    expect(calls, 1);
+  });
+
+  test(
+    'leaving locations prevents a pending ping from updating the cache',
+    () async {
+      final probe = _GatedProbe();
+      final container = ProviderContainer(
+        overrides: [
+          sessionProvider.overrideWith((ref) => _SessionWithServers()),
+          serverLatencyProbeProvider.overrideWithValue(probe),
+        ],
+      );
+      addTearDown(container.dispose);
+      final subscription = container.listen(
+        serverLatencyProvider('fast'),
+        (_, _) {},
+      );
+      await Future<void>.delayed(Duration.zero);
+      subscription.close();
+      await container.pump();
+      probe.gates['fast']!.complete(180);
+      await Future<void>.delayed(Duration.zero);
+      expect(container.read(serverLatencyLastKnownProvider), isEmpty);
+    },
+  );
+
+  test('obsolete ping cannot overwrite the refreshed measurement', () async {
+    final probe = _GatedProbe();
+    final container = ProviderContainer(
+      overrides: [
+        sessionProvider.overrideWith((ref) => _SessionWithServers()),
+        serverLatencyProbeProvider.overrideWithValue(probe),
+      ],
+    );
+    addTearDown(container.dispose);
+    final provider = serverLatencyProvider('fast');
+    final subscription = container.listen(provider, (_, _) {});
+    addTearDown(subscription.close);
+    final oldGate = probe.gates['fast']!;
+    container.read(provider);
+    await Future<void>.delayed(Duration.zero);
+    probe.gates['fast'] = Completer<int?>();
+    container.invalidate(provider);
+    final refreshed = container.read(provider.future);
+    probe.gates['fast']!.complete(25);
+    expect(await refreshed, 25);
+    oldGate.complete(180);
+    await Future<void>.delayed(Duration.zero);
+    expect(container.read(serverLatencyLastKnownProvider)['fast'], 25);
+  });
+
   test('last successful ping stays visible while another probe is pending', () {
     expect(
       retainLastKnownLatency(const AsyncLoading<int?>(), 24).valueOrNull,

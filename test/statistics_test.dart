@@ -71,6 +71,34 @@ void main() {
       'MaterialIcons',
     )..addFont(rootBundle.load('fonts/MaterialIcons-Regular.otf'))).load();
   });
+  testWidgets(
+    'reduced motion statistics loading settles without continuous frames',
+    (tester) async {
+      final api = _DeferredStatisticsApi();
+      addTearDown(api.close);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [apiProvider.overrideWithValue(api)],
+          child: MaterialApp(
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context).copyWith(disableAnimations: true),
+              child: child!,
+            ),
+            home: const UsageStatisticsScreen(),
+          ),
+        ),
+      );
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pump(const Duration(seconds: 2));
+      expect(
+        find.byKey(const ValueKey('statistics-loading-state')),
+        findsOneWidget,
+      );
+      expect(tester.binding.hasScheduledFrame, isFalse);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
   testWidgets('statistics loading uses themed skeleton instead of a spinner', (
     tester,
   ) async {

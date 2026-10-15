@@ -47,6 +47,12 @@ final serverLatencyProvider = FutureProvider.autoDispose.family<int?, String>((
   ref,
   id,
 ) async {
+  var active = true;
+  final cancellation = Completer<void>();
+  ref.onDispose(() {
+    active = false;
+    cancellation.complete();
+  });
   final lastKnown = ref.read(serverLatencyLastKnownProvider)[id];
   // A direct TCP probe must leave over the device's normal network path. If the
   // VPN is up, an ordinary app socket may be routed back into the tunnel.
@@ -63,8 +69,14 @@ final serverLatencyProvider = FutureProvider.autoDispose.family<int?, String>((
     if (profile.id == id) {
       final measured = await ref
           .read(serverLatencyProbeProvider)
-          .measure(profile);
-      if (measured != null && measured > 0) {
+          .measure(
+            profile,
+            shouldContinue: () => active,
+            cancellation: cancellation.future,
+          );
+      // Refreshing or leaving the screen disposes this provider while the
+      // native/socket probe can still finish. Never publish its obsolete RTT.
+      if (active && measured != null && measured > 0) {
         final cache = ref.read(serverLatencyLastKnownProvider.notifier);
         cache.state = {...cache.state, id: measured};
         return measured;
@@ -153,7 +165,12 @@ class ServerLatencyProbe {
   final Queue<Completer<void>> _waiting = Queue();
   int _active = 0;
 
-  Future<int?> measure(VpnProfile profile) async {
+  Future<int?> measure(
+    VpnProfile profile, {
+    bool Function()? shouldContinue,
+    Future<void>? cancellation,
+  }) async {
+    if (shouldContinue?.call() == false) return null;
     if (_active >= _maxConcurrent) {
       final turn = Completer<void>();
       _waiting.add(turn);
@@ -162,7 +179,12 @@ class ServerLatencyProbe {
       _active++;
     }
     try {
-      return await measureTcpRtt(profile);
+      if (shouldContinue?.call() == false) return null;
+      return await measureTcpRtt(
+        profile,
+        shouldContinue: shouldContinue,
+        cancellation: cancellation,
+      );
     } catch (_) {
       return null;
     } finally {
@@ -204,7 +226,12 @@ class ServerLatencyProbe {
 
   /// Measures TCP connection establishment to the proxy node, excluding DNS
   /// resolution and any HTTPS/Reality destination latency.
-  Future<int?> measureTcpRtt(VpnProfile profile) async {
+  Future<int?> measureTcpRtt(
+    VpnProfile profile, {
+    bool Function()? shouldContinue,
+    Future<void>? cancellation,
+  }) async {
+    if (shouldContinue?.call() == false) return null;
     try {
       final config = jsonDecode(profile.config) as Map<String, dynamic>;
       final outbounds = config['outbounds'];
@@ -268,6 +295,7 @@ class ServerLatencyProbe {
             sample = latency == null ? null : TcpPingSample(latencyMs: latency);
           }
         }
+        if (shouldContinue?.call() == false) return null;
         final latency = sample?.latencyMs;
         final resolvedAddress = sample?.resolvedAddress;
         if (latency != null && latency > 0) {
@@ -282,6 +310,7 @@ class ServerLatencyProbe {
         return null;
       }
 
+      if (shouldContinue?.call() == false) return null;
       final directAddress = InternetAddress.tryParse(host);
       final resolution = profile.serverAddressResolution;
       final resolverNames = <String>[];
@@ -325,6 +354,7 @@ class ServerLatencyProbe {
       // hostname with the platform's native resolver, then compare it with
       // every explicitly resolved address. This catches resolver/CDN edge
       // differences without allowing a slower answer to dominate the result.
+      if (shouldContinue?.call() == false) return null;
       final uniqueAddresses = addresses.toSet().toList(growable: false);
       final addressStrings = uniqueAddresses
           .map((address) => address.address)
@@ -342,6 +372,7 @@ class ServerLatencyProbe {
         String? bestRoute;
         for (final address in uniqueAddresses) {
           for (var index = 0; index < _tcpSampleCount; index++) {
+            if (shouldContinue?.call() == false) return null;
             final sample = await sampler(address.address, port);
             final latency = sample?.latencyMs;
             if (latency != null &&
@@ -353,7 +384,7 @@ class ServerLatencyProbe {
             }
           }
         }
-        if (bestLatency == 0) return null;
+        if (shouldContinue?.call() == false || bestLatency == 0) return null;
         onDiagnostic?.call(
           '${DateTime.now().toIso8601String()} TCP ping $host:$port'
           ' | DNS: ${resolverNames.join(' + ')}'
@@ -368,32 +399,35 @@ class ServerLatencyProbe {
       late final List<List<int?>> sampleSets;
       late final List<int?> hostSamples;
       if (tcpRttSampler == null) {
-        (sampleSets, hostSamples) = await Isolate.run(
-          () => _measureTcpProbeBatch(
-            host,
-            directAddress == null,
-            addressStrings,
-            port,
-            _tcpSampleCount,
-          ),
+        final batch = await _measureTcpProbeInIsolate(
+          host,
+          directAddress == null,
+          addressStrings,
+          port,
+          _tcpSampleCount,
+          cancellation,
         );
+        if (batch == null) return null;
+        (sampleSets, hostSamples) = batch;
       } else {
-        sampleSets = await Future.wait(
-          uniqueAddresses.map((address) async {
-            final samples = <int?>[];
-            for (var i = 0; i < _tcpSampleCount; i++) {
-              samples.add(await tcpRttSampler!(address, port));
-            }
-            return samples;
-          }),
+        sampleSets = await _measureTcpAddressBatch(
+          addressStrings,
+          port,
+          _tcpSampleCount,
+          sampler: tcpRttSampler,
+          shouldContinue: shouldContinue,
         );
         final hostSampler = tcpHostRttSampler;
-        hostSamples = directAddress != null || hostSampler == null
+        hostSamples =
+            shouldContinue?.call() == false ||
+                directAddress != null ||
+                hostSampler == null
             ? const []
             : await Future.wait(
                 List.generate(_tcpSampleCount, (_) => hostSampler(host, port)),
               );
       }
+      if (shouldContinue?.call() == false) return null;
       final results = [
         for (var index = 0; index < uniqueAddresses.length; index++)
           _AddressProbeResult(
@@ -639,6 +673,63 @@ Future<TcpPingSample?> _measureAppleTcpConnect(String host, int port) async {
   );
 }
 
+typedef _TcpProbeMessage = (SendPort, String, bool, List<String>, int, int);
+
+Future<void> _runTcpProbeBatch(_TcpProbeMessage message) async {
+  final (reply, host, includeHost, addresses, port, sampleCount) = message;
+  final result = await _measureTcpProbeBatch(
+    host,
+    includeHost,
+    addresses,
+    port,
+    sampleCount,
+  );
+  Isolate.exit(reply, result);
+}
+
+Future<(List<List<int?>>, List<int?>)?> _measureTcpProbeInIsolate(
+  String host,
+  bool includeHost,
+  List<String> addresses,
+  int port,
+  int sampleCount,
+  Future<void>? cancellation,
+) async {
+  final replies = ReceivePort();
+  Isolate? worker;
+  StreamSubscription<void>? cancellationSubscription;
+  try {
+    worker = await Isolate.spawn<_TcpProbeMessage>(
+      _runTcpProbeBatch,
+      (replies.sendPort, host, includeHost, addresses, port, sampleCount),
+      onExit: replies.sendPort,
+      onError: replies.sendPort,
+      errorsAreFatal: true,
+    );
+    if (cancellation != null) {
+      void cancelWorker() {
+        worker?.kill(priority: Isolate.immediate);
+        replies.sendPort.send(null);
+      }
+
+      // Cancel this listener when the batch finishes. A pending Future.any
+      // branch would otherwise retain its completed batch until screen exit.
+      cancellationSubscription = Stream<void>.fromFuture(cancellation).listen(
+        (_) => cancelWorker(),
+        onError: (Object _, StackTrace _) => cancelWorker(),
+      );
+    }
+    final response = await replies.first;
+    return response is (List<List<int?>>, List<int?>) ? response : null;
+  } finally {
+    // A disposed screen or cancelled connection must also stop the batch's
+    // sockets and remaining samples, rather than only hiding its result.
+    worker?.kill(priority: Isolate.immediate);
+    replies.close();
+    await cancellationSubscription?.cancel();
+  }
+}
+
 Future<(List<List<int?>>, List<int?>)> _measureTcpProbeBatch(
   String host,
   bool includeNativeHostDial,
@@ -659,19 +750,34 @@ Future<(List<List<int?>>, List<int?>)> _measureTcpProbeBatch(
 Future<List<List<int?>>> _measureTcpAddressBatch(
   List<String> addresses,
   int port,
-  int sampleCount,
-) async {
-  return Future.wait(
-    addresses.map((rawAddress) async {
-      final address = InternetAddress.tryParse(rawAddress);
-      if (address == null) return List<int?>.filled(sampleCount, null);
-      final samples = <int?>[];
-      for (var index = 0; index < sampleCount; index++) {
-        samples.add(await _measureTcpSocket(address, port));
-      }
-      return samples;
-    }),
+  int sampleCount, {
+  Future<int?> Function(InternetAddress address, int port)? sampler,
+  bool Function()? shouldContinue,
+}) async {
+  // DNS can return many endpoints. Preserve every answer and its sample order
+  // while bounding simultaneous handshakes and per-probe socket pressure.
+  final results = List.generate(
+    addresses.length,
+    (_) => List<int?>.filled(sampleCount, null),
   );
+  var next = 0;
+  Future<void> worker() async {
+    while (next < addresses.length && shouldContinue?.call() != false) {
+      final index = next++;
+      final address = InternetAddress.tryParse(addresses[index]);
+      if (address == null) continue;
+      for (var sample = 0; sample < sampleCount; sample++) {
+        if (shouldContinue?.call() == false) return;
+        results[index][sample] = await (sampler ?? _measureTcpSocket)(
+          address,
+          port,
+        );
+      }
+    }
+  }
+
+  await Future.wait(List.generate(min(3, addresses.length), (_) => worker()));
+  return results;
 }
 
 Future<List<int?>> _measureTcpHostBatch(

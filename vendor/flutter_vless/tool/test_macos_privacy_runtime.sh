@@ -28,14 +28,18 @@ harness=harness[:harness.index('class ModeDelegate:')]+ '\nTask { await runModes
 (out/'main.swift').write_text(head+asset+'\nimport flutter_vless_macos_tunnel_support\n'+harness)
 PY
 SDK="$(xcrun --sdk macosx --show-sdk-path)"
-COMMON=(-O -target "$(uname -m)-apple-macos13.0" -sdk "$SDK")
+BYEDPI="$ROOT/../byedpi"
+swift build --package-path "$BYEDPI" --build-system native --scratch-path "$OUT/byedpi" -c release --target ByeDpiEngine
+BYEDPI_BUILD="$(swift build --package-path "$BYEDPI" --build-system native --scratch-path "$OUT/byedpi" -c release --show-bin-path)"
+BYEDPI_OBJECTS=("$BYEDPI_BUILD/ByeDpiEngine.build/"*.o)
+COMMON=(-O -target "$(uname -m)-apple-macos13.0" -sdk "$SDK" -I "$BYEDPI_BUILD/ByeDpiEngine.build")
 xcrun swiftc "${COMMON[@]}" -parse-as-library -module-name flutter_vless_macos_privacy -emit-module -emit-object -whole-module-optimization -emit-module-path "$OUT/modules/flutter_vless_macos_privacy.swiftmodule" "$SOURCE"/flutter_vless_macos_privacy/*.swift -o "$OUT/modules/privacy.o"
 SUPPORT=()
 for file in "$SOURCE"/flutter_vless_macos_tunnel_support/*.swift; do
     [[ "$(basename "$file")" == FlutterVlessPacketTunnelProvider.swift ]] || SUPPORT+=("$file")
 done
 xcrun swiftc "${COMMON[@]}" -parse-as-library -I "$OUT/modules" -module-name flutter_vless_macos_tunnel_support -emit-module -emit-object -whole-module-optimization -emit-module-path "$OUT/modules/flutter_vless_macos_tunnel_support.swiftmodule" "${SUPPORT[@]}" -o "$OUT/modules/support.o"
-xcrun swiftc "${COMMON[@]}" -I "$OUT/modules" -I "$SOURCE/CXRay/include" -framework AppKit -framework SystemConfiguration -framework NetworkExtension -lresolv "$OUT/main.swift" "$SOURCE/flutter_vless_macos/BoundedNativeLogStore.swift" "$OUT/modules/privacy.o" "$OUT/modules/support.o" "$ROOT/packages/flutter_vless_macos/macos/XRay.xcframework/macos-arm64_x86_64/libXRay.a" -o "$OUT/probe"
+xcrun swiftc "${COMMON[@]}" -I "$OUT/modules" -I "$SOURCE/CXRay/include" -framework AppKit -framework SystemConfiguration -framework NetworkExtension -lresolv "$OUT/main.swift" "$SOURCE/flutter_vless_macos/BoundedNativeLogStore.swift" "$OUT/modules/privacy.o" "$OUT/modules/support.o" "${BYEDPI_OBJECTS[@]}" "$ROOT/packages/flutter_vless_macos/macos/XRay.xcframework/macos-arm64_x86_64/libXRay.a" -o "$OUT/probe"
 "$OUT/probe" > "$OUT/runtime.log" 2>&1
 python3 - "$OUT/runtime.log" <<'PY'
 from pathlib import Path

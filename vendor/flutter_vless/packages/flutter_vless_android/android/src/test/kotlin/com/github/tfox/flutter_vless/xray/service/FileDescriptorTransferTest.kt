@@ -15,7 +15,7 @@ class FileDescriptorTransferTest {
         }, { waits++ }))
         assertEquals(10, attempts); assertEquals(9, waits)
         assertTrue(policy.authorized); assertTrue(policy.owns(owner))
-        val recoveryOwner = policy.restart()
+        val recoveryOwner = requireNotNull(policy.restart())
         assertFalse(policy.owns(owner)); assertTrue(policy.owns(recoveryOwner))
         assertEquals(1000L, policy.nextDelayMillis())
     }

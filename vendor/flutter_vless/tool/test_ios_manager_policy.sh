@@ -15,9 +15,15 @@ provider=root.parent.parent/'ios/XrayTunnel/PacketTunnelProvider.swift'
 if not provider.is_file(): provider=root/'example/ios/XrayTunnel/PacketTunnelProvider.swift'
 s=provider.read_text()
 a=s.index('    override func startTunnel(options:')
-b=s.index('        let dpiBypass =',a)
+b=s.index('        rememberTunnelLog("Starting Xray packet tunnel")',a)
 entry=s[a:b].replace('override func','func').replace('configuration.providerBundleIdentifier ?? ""', 'configuration.providerBundleIdentifier ?? "", client: keychain')
-(out/'Provider.swift').write_text('import Foundation\nfinal class ProviderEntryProbe {\n var protocolConfiguration: NEVPNProtocol?\n var keychain = FixtureKeychain()\n var reachedBootstrap = false\n func tunnelError(_ message: String) -> NSError { NSError(domain: "fixture.provider", code: 1) }\n'+entry+'        reachedBootstrap = true\n    }\n}\n')
+def method(name):
+    start=s.index('    private func '+name)
+    end=s.index('\n    }',start)+6
+    return s[start:end]
+stop_start=s.index('        forwardingLock.lock()',s.index('    override func stopTunnel'))
+stop_end=s.index('        rememberTunnelLog(',stop_start)
+(out/'Provider.swift').write_text('import Foundation\nfinal class ProviderEntryProbe {\n var protocolConfiguration: NEVPNProtocol?\n var keychain = FixtureKeychain()\n var reachedBootstrap = false\n private let forwardingLock = NSLock()\n private var startupStopped = false\n private var startupPreparation: Task<Void, Never>?\n func setForwardingReady(_ ready: Bool) {}\n func tunnelError(_ message: String) -> NSError { NSError(domain: "fixture.provider", code: 1) }\n'+entry+'        reachedBootstrap = true\n    }\n'+method('beginStartup')+'\n'+method('isStartupStopped')+'\n func stop() {\n'+s[stop_start:stop_end]+' }\n}\n')
 s=(root/'ios/flutter_vless/Sources/flutter_vless/FlutterVlessPlugin.swift').read_text()
 helper_start=s.index('    fileprivate static func buildProxyOnlyConfigData')
 helper_end=s.index('\n    }\n',helper_start)+6

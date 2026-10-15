@@ -2,6 +2,7 @@ import 'package:oculve/core/connection/dpi_preferences.dart';
 import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
+import 'package:flutter/services.dart';
 import '../connection/connection_preferences.dart';
 import '../connection/lan_proxy_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -34,8 +35,10 @@ class VpnNotifier extends StateNotifier<VpnState> {
   final Ref ref;
   late final FlutterVless _engine;
   bool _initialized = false;
+  Future<void>? _initialization;
   bool _busy = false;
   int _connectAttempt = 0;
+  Completer<void>? _optimalProbeCancellation;
   bool _requested = false;
   bool _runtimeErrorHandled = false;
   bool _wanted = false;
@@ -55,6 +58,21 @@ class VpnNotifier extends StateNotifier<VpnState> {
 
   void _onStatus(VlessStatus status) {
     if (!mounted) return;
+    if (status.state == 'PERMISSION_REQUIRED') {
+      ++_connectAttempt;
+      _cancelOptimalProbes();
+      _wanted = false;
+      _requested = false;
+      _protectedSwitch = false;
+      _switchAwaitingNative = false;
+      _retry?.cancel();
+      _retryCount = 0;
+      ++_lanAttempt;
+      unawaited(ref.read(lanProxyProvider).stop());
+      ref.read(trafficProvider.notifier).state = status;
+      _fail('VPN permission was not granted.');
+      return;
+    }
     if (_switchAwaitingNative &&
         status.connectionState == VlessConnectionState.connected) {
       return;
@@ -71,7 +89,9 @@ class VpnNotifier extends StateNotifier<VpnState> {
       unawaited(ref.read(lanProxyProvider).stop());
       // Native tunnel backends retain their traffic barrier during recovery.
       // Stopping Linux here would explicitly remove its nftables guard.
-      if (!Platform.isMacOS && !Platform.isWindows && !Platform.isLinux &&
+      if (!Platform.isMacOS &&
+          !Platform.isWindows &&
+          !Platform.isLinux &&
           !_protectedSwitch) {
         unawaited(_stopAfterRuntimeError());
       }
@@ -122,8 +142,14 @@ class VpnNotifier extends StateNotifier<VpnState> {
     state = next;
   }
 
-  Future<void> initialize() async {
-    if (_initialized) return;
+  Future<void> initialize() {
+    if (_initialized) return Future<void>.value();
+    return _initialization ??= _initializeEngine().whenComplete(() {
+      _initialization = null;
+    });
+  }
+
+  Future<void> _initializeEngine() async {
     await _engine.initializeVless(
       providerBundleIdentifier: 'com.oculve.app',
       groupIdentifier: 'group.com.oculve.app',
@@ -149,13 +175,16 @@ class VpnNotifier extends StateNotifier<VpnState> {
   }
 
   Future<void> connect({bool automatic = false, bool replacing = false}) async {
-    replacing = replacing ||
+    replacing =
+        replacing ||
         _protectedSwitch ||
-        (automatic && Platform.isLinux &&
+        (automatic &&
+            Platform.isLinux &&
             ref.read(vpnTunnelMayBeActiveProvider));
     if (_busy ||
         (!replacing && state == VpnState.connected) ||
-        state == VpnState.connecting) {
+        state == VpnState.connecting ||
+        state == VpnState.disconnecting) {
       return;
     }
     if (!automatic && !replacing && ref.read(vpnTunnelMayBeActiveProvider)) {
@@ -192,7 +221,7 @@ class VpnNotifier extends StateNotifier<VpnState> {
           throw StateError('No compatible servers are available.');
         }
         profile = selected == optimalServerId
-            ? await _chooseOptimalProfile(account.profiles)
+            ? await _chooseOptimalProfile(account.profiles, cancelled)
             : account.profiles.firstWhere(
                 (p) => p.id == selected,
                 orElse: () => account.profiles.first,
@@ -299,7 +328,17 @@ class VpnNotifier extends StateNotifier<VpnState> {
             : const Duration(seconds: 45);
         _timeout = Timer(connectionTimeout, () async {
           if (mounted && state == VpnState.connecting) {
-            if (!replacing) await disconnect();
+            if (!replacing) {
+              final stoppingAttempt = _connectAttempt + 1;
+              try {
+                await disconnect();
+              } catch (_) {
+                // disconnect already reports the native shutdown failure and
+                // retains the traffic barrier; a timer has no caller to rethrow to.
+                return;
+              }
+              if (!mounted || _connectAttempt != stoppingAttempt) return;
+            }
             if (mounted) {
               _fail('Connection timed out. Please try another location.');
             }
@@ -309,14 +348,28 @@ class VpnNotifier extends StateNotifier<VpnState> {
     } catch (error) {
       if (cancelled()) return;
       _requested = false;
+      final permissionRequired =
+          error is PlatformException && error.code == 'VPN_PERMISSION_REQUIRED';
+      if (permissionRequired) {
+        _wanted = false;
+        _protectedSwitch = false;
+        _switchAwaitingNative = false;
+        _retry?.cancel();
+        _retryCount = 0;
+      }
       if (!automatic && !replacing) _wanted = false;
       var tunnelStopped = !_initialized;
       try {
-        if (_initialized && !replacing && !(automatic && Platform.isMacOS)) {
+        if (_initialized &&
+            (permissionRequired ||
+                (!replacing && !(automatic && Platform.isMacOS)))) {
           await _engine.stopVless();
           tunnelStopped = true;
         }
       } catch (_) {}
+      // Shutdown may finish after a user cancellation. Its old failure must
+      // not overwrite the newer connection intent or tunnel state.
+      if (cancelled()) return;
       if (tunnelStopped && mounted) {
         ref.read(vpnTunnelMayBeActiveProvider.notifier).state = false;
       }
@@ -329,7 +382,7 @@ class VpnNotifier extends StateNotifier<VpnState> {
       );
     } finally {
       _busy = false;
-      if (automatic && _wanted && state != VpnState.connected) {
+      if (mounted && automatic && _wanted && state != VpnState.connected) {
         _scheduleReconnect();
       }
     }
@@ -425,13 +478,35 @@ class VpnNotifier extends StateNotifier<VpnState> {
         : const XrayFinalMaskSettings(),
   );
 
-  Future<VpnProfile> _chooseOptimalProfile(List<VpnProfile> profiles) async {
+  Future<VpnProfile> _chooseOptimalProfile(
+    List<VpnProfile> profiles,
+    bool Function() cancelled,
+  ) async {
     final probe = ref.read(serverLatencyProbeProvider);
     // Do not launch direct endpoint probes during a protected switch.
     final cached = ref.read(serverLatencyLastKnownProvider);
-    final samples = ref.read(vpnTunnelMayBeActiveProvider)
-        ? profiles.map((profile) => cached[profile.id]).toList()
-        : await Future.wait(profiles.map(probe.measure));
+    final cancellation = Completer<void>();
+    _optimalProbeCancellation = cancellation;
+    late final List<int?> samples;
+    try {
+      samples = ref.read(vpnTunnelMayBeActiveProvider)
+          ? profiles.map((profile) => cached[profile.id]).toList()
+          : await Future.wait(
+              profiles.map(
+                (profile) => probe.measure(
+                  profile,
+                  shouldContinue: () => !cancelled(),
+                  cancellation: cancellation.future,
+                ),
+              ),
+            );
+    } finally {
+      if (identical(_optimalProbeCancellation, cancellation)) {
+        _optimalProbeCancellation = null;
+      }
+    }
+    // The connection may have been cancelled while selecting its endpoint.
+    if (cancelled()) return profiles.first;
     final latencyById = <String, int?>{
       for (var index = 0; index < profiles.length; index++)
         profiles[index].id: samples[index],
@@ -477,6 +552,7 @@ class VpnNotifier extends StateNotifier<VpnState> {
   }
 
   Future<void> disconnect() async {
+    _cancelOptimalProbes();
     ++_connectAttempt;
     _wanted = false;
     _switchAwaitingNative = false;
@@ -484,11 +560,13 @@ class VpnNotifier extends StateNotifier<VpnState> {
     _retry?.cancel();
     ++_lanAttempt;
     await ref.read(lanProxyProvider).stop();
+    if (!mounted) return;
     _timeout?.cancel();
     _requested = false;
     state = VpnState.disconnecting;
     try {
       if (_initialized) await _engine.stopVless();
+      if (!mounted) return;
       _protectedSwitch = false;
       ref.read(vpnTunnelMayBeActiveProvider.notifier).state = false;
       state = VpnState.disconnected;
@@ -507,8 +585,16 @@ class VpnNotifier extends StateNotifier<VpnState> {
     }
   }
 
+  void _cancelOptimalProbes() {
+    final cancellation = _optimalProbeCancellation;
+    if (cancellation != null && !cancellation.isCompleted) {
+      cancellation.complete();
+    }
+  }
+
   @override
   void dispose() {
+    _cancelOptimalProbes();
     _retry?.cancel();
     _timeout?.cancel();
     _errorTimer?.cancel();

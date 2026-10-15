@@ -1,5 +1,6 @@
 package com.github.tfox.flutter_vless.xray.service
 
+import androidx.core.content.ContextCompat
 import android.content.Intent
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -63,8 +64,8 @@ class ProtectedSystemDnsTest {
                 println("DNS_AUDIT_STATE run=$run epochMs=${System.currentTimeMillis()} state=$state")
             }
         }
-        if (Build.VERSION.SDK_INT >= 33) context.registerReceiver(receiver, IntentFilter(AppConfigs.V2RAY_CONNECTION_INFO), Context.RECEIVER_NOT_EXPORTED)
-        else @Suppress("DEPRECATION") context.registerReceiver(receiver, IntentFilter(AppConfigs.V2RAY_CONNECTION_INFO))
+        ContextCompat.registerReceiver(context, receiver, IntentFilter(AppConfigs.V2RAY_CONNECTION_INFO),
+            ContextCompat.RECEIVER_NOT_EXPORTED)
         try {
             context.startForegroundService(Intent(context, XrayVPNService::class.java)
                 .putExtra("COMMAND", AppConfigs.V2RAY_SERVICE_COMMANDS.START_SERVICE)
