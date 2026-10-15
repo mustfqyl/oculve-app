@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' hide Text;
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -21,10 +23,10 @@ import 'core/vpn/linux_platform.dart';
 import 'features/auth/data/auth_repository.dart';
 import 'features/auth/presentation/signup_screen.dart';
 import 'features/home/presentation/home_screen.dart';
+import 'features/splash/presentation/loading_screen.dart';
 
 void main(List<String> arguments) async {
   WidgetsFlutterBinding.ensureInitialized();
-  await _lockPhonesToPortrait();
   if (Platform.isLinux) VlessPlatform.instance = LinuxXrayPlatform();
   var loginLaunch = false;
   if (Platform.isMacOS || Platform.isWindows || Platform.isLinux) {
@@ -57,7 +59,12 @@ void main(List<String> arguments) async {
         try {
           final tray = DesktopTrayController(container);
           await tray.initialize();
-          if (loginLaunch) await tray.showWindow();
+          if (shouldShowDesktopWindowAtLaunch(
+            loginLaunch: loginLaunch,
+            platform: defaultTargetPlatform,
+          )) {
+            await tray.showWindow();
+          }
           return;
         } catch (_) {
           // Leave the UI reachable if tray creation fails on this machine.
@@ -71,6 +78,9 @@ void main(List<String> arguments) async {
   }
 
   runApp(UncontrolledProviderScope(container: container, child: const MyApp()));
+  // Orientation is a platform-channel round trip. Let Flutter paint its first
+  // frame while the OS applies the phone-only portrait preference.
+  unawaited(_lockPhonesToPortrait().catchError((Object _) {}));
 }
 
 Future<void> _lockPhonesToPortrait() async {
@@ -167,8 +177,7 @@ class _SessionGateState extends ConsumerState<SessionGate> {
   Widget build(BuildContext context) => ref
       .watch(sessionProvider)
       .when(
-        loading: () =>
-            const Scaffold(body: Center(child: CircularProgressIndicator())),
+        loading: () => const LoadingScreen(),
         error: (error, _) => Scaffold(
           body: PremiumBackground(
             child: Center(

@@ -4,6 +4,8 @@
 <dict>
     <key>NSFaceIDUsageDescription</key>
     <string>Use Face ID to sign in securely with your Oculve passkey.</string>
+	<key>FlutterVlessKeychainAccessGroup</key>
+	<string>$(AppIdentifierPrefix)com.oculve.app</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>

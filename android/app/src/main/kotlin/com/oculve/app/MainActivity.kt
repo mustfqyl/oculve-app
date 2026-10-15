@@ -21,6 +21,7 @@ import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterFragmentActivity() {
     private val latencyExecutor = Executors.newFixedThreadPool(3)
+    private val appCatalogExecutor = Executors.newSingleThreadExecutor()
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -46,7 +47,22 @@ class MainActivity : FlutterFragmentActivity() {
             "com.oculve/vpn_app_catalog",
         ).setMethodCallHandler { call, result ->
             when (call.method) {
-                "listLaunchableApps" -> result.success(listLaunchableApps())
+                "listLaunchableApps" -> appCatalogExecutor.execute {
+                    val apps = runCatching { listLaunchableApps() }
+                    runOnUiThread {
+                        if (isFinishing || isDestroyed) return@runOnUiThread
+                        apps.fold(
+                            onSuccess = result::success,
+                            onFailure = {
+                                result.error(
+                                    "app_catalog_error",
+                                    "Could not load installed apps.",
+                                    null,
+                                )
+                            },
+                        )
+                    }
+                }
                 else -> result.notImplemented()
             }
         }
@@ -67,6 +83,7 @@ class MainActivity : FlutterFragmentActivity() {
                                 measureTcpConnect(host, port, timeoutMs.coerceIn(500, 5000))
                             }.getOrNull()
                             runOnUiThread {
+                                if (isFinishing || isDestroyed) return@runOnUiThread
                                 result.success(
                                     sample?.let {
                                         mapOf(
@@ -82,6 +99,12 @@ class MainActivity : FlutterFragmentActivity() {
                 else -> result.notImplemented()
             }
         }
+    }
+
+    override fun onDestroy() {
+        appCatalogExecutor.shutdownNow()
+        latencyExecutor.shutdownNow()
+        super.onDestroy()
     }
 
     private fun measureTcpConnect(host: String, port: Int, timeoutMs: Int): TcpConnectSample? {

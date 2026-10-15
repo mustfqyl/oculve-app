@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' show Tristate;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -808,6 +810,7 @@ void main() {
   testWidgets('location list shows latency in fastest-first order', (
     tester,
   ) async {
+    final semantics = tester.ensureSemantics();
     tester.view.physicalSize = const Size(320, 568);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -833,6 +836,28 @@ void main() {
     expect(find.text('Optimal'), findsOneWidget);
     expect(find.text('DPI Bypass'), findsOneWidget);
     expect(find.byType(DpiBypassLogo), findsOneWidget);
+    final optimalSemantics = tester.getSemantics(
+      find.byKey(const ValueKey('optimal-server-card')),
+    );
+    expect(
+      optimalSemantics.getSemanticsData().flagsCollection.isButton,
+      isTrue,
+    );
+    expect(
+      optimalSemantics.getSemanticsData().flagsCollection.isSelected,
+      Tristate.isFalse,
+    );
+    expect(
+      optimalSemantics.getSemanticsData().hasAction(SemanticsAction.tap),
+      isTrue,
+    );
+    final selectedLocationSemantics = tester.getSemantics(
+      find.ancestor(of: find.text('Zurich'), matching: find.byType(ListTile)),
+    );
+    expect(
+      selectedLocationSemantics.getSemanticsData().flagsCollection.isSelected,
+      Tristate.isTrue,
+    );
     final optimalRect = tester.getRect(
       find.byKey(const ValueKey('optimal-server-card')),
     );
@@ -884,6 +909,8 @@ void main() {
       tester.getTopLeft(find.text('Amsterdam')).dy,
       lessThan(tester.getTopLeft(find.text('Zurich')).dy),
     );
+    await tester.pumpWidget(const SizedBox.shrink());
+    semantics.dispose();
   });
 
   testWidgets('home shows the resolved optimal server and DPI Bypass mode', (

@@ -66,12 +66,17 @@ jobs:
         id: linux-build
         run: |
           set +e
-          flutter build linux --debug > "$RUNNER_TEMP/linux-build.log" 2>&1
+          flutter build linux --release > "$RUNNER_TEMP/linux-build.log" 2>&1
           result=$?
           if [ "$result" -ne 0 ]; then
             python3 tool/ci_failure_annotation.py "$RUNNER_TEMP/linux-build.log" "Linux desktop build"
           fi
           exit "$result"
+
+      - name: Package portable Linux test build
+        id: linux-package
+        if: steps.linux-build.outcome == 'success'
+        run: sh tool/package_linux.sh
 
       - name: Build Android debug APK
         id: android-build
@@ -91,9 +96,11 @@ jobs:
           {
             echo "Platform: Linux x64"
             echo "Flutter tests (XRAY_TEST_BINARY pinned by tool/prepare_desktop.py): ${{ steps.flutter-tests.outcome }}"
-            echo "Linux debug build: ${{ steps.linux-build.outcome }}"
+            echo "Linux release build: ${{ steps.linux-build.outcome }}"
+            echo "Portable package with Linux tunnel helper and runtimes: ${{ steps.linux-package.outcome }}"
             echo "Android debug APK build: ${{ steps.android-build.outcome }}"
             echo "Linux kernel leak test capability probe: ${{ steps.linux-net-probe.outputs.available }}"
+            echo "Linux desktop window launch smoke test: not run on the hosted runner"
             echo "Live Linux TUN traffic/leak test: not run; capability probe only"
           } > "$RUNNER_TEMP/oculve-linux-report.txt"
           cat "$RUNNER_TEMP/oculve-linux-report.txt" >> "$GITHUB_STEP_SUMMARY"
@@ -104,7 +111,7 @@ jobs:
         with:
           name: oculve-linux-build-and-report
           path: |
-            build/linux/x64/debug/bundle/**
+            dist/Oculve-Linux-Test.tar.gz
             ${{ runner.temp }}/oculve-linux-report.txt
           if-no-files-found: warn
           retention-days: 7
@@ -208,6 +215,7 @@ jobs:
             'Native regression tests (WFP recording backend): ${{ steps.native-tests.outcome }}'
             'Windows release build: ${{ steps.windows-build.outcome }}'
             'Portable package with app-local Microsoft runtimes: ${{ steps.windows-package.outcome }}'
+            'Windows desktop window launch smoke test: not run on the hosted runner'
             'Live WFP tunnel/leak test: not run on GitHub-hosted runner'
           ) | Set-Content -Path (Join-Path $env:RUNNER_TEMP 'oculve-windows-report.txt')
           Get-Content (Join-Path $env:RUNNER_TEMP 'oculve-windows-report.txt') | Add-Content $env:GITHUB_STEP_SUMMARY

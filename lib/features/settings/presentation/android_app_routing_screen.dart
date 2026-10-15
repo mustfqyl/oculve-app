@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart' hide Text;
+import 'package:oculve/core/localization/app_strings.dart';
 import 'package:oculve/core/localization/localized_text.dart';
 import 'package:oculve/core/theme/app_theme.dart';
 import 'package:oculve/core/vpn/android_app_catalog.dart';
@@ -20,25 +21,26 @@ class _AndroidAppRoutingScreenState extends State<AndroidAppRoutingScreen> {
   late Future<List<AndroidVpnApp>> _apps;
   final Set<String> _selected = {};
   bool _loaded = false;
+  Object? _loadError;
   bool _saving = false;
 
   Future<void> _loadSelection() async {
+    setState(() {
+      _loaded = false;
+      _loadError = null;
+    });
     try {
       final apps = await XrayPreferences.blockedApps();
       if (!mounted) return;
       setState(() {
-        _selected.addAll(apps);
+        _selected
+          ..clear()
+          ..addAll(apps);
         _loaded = true;
       });
     } catch (error) {
       if (!mounted) return;
-      setState(() => _loaded = true);
-      AppFeedback.showError(
-        context,
-        error,
-        fallback: 'Could not load app routing settings.',
-        placement: AppFeedbackPlacement.pageBottom,
-      );
+      setState(() => _loadError = error);
     }
   }
 
@@ -53,7 +55,7 @@ class _AndroidAppRoutingScreenState extends State<AndroidAppRoutingScreen> {
       setState(() => _apps = AndroidAppCatalog.listLaunchableApps());
 
   Future<void> _save() async {
-    if (_saving) return;
+    if (_saving || !_loaded) return;
     setState(() {
       _saving = true;
     });
@@ -79,6 +81,14 @@ class _AndroidAppRoutingScreenState extends State<AndroidAppRoutingScreen> {
     child: FutureBuilder<List<AndroidVpnApp>>(
       future: _apps,
       builder: (context, snapshot) {
+        if (_loadError != null) {
+          return AppErrorState(
+            title: 'Could not load app routing settings.',
+            message: AppFeedback.errorMessage(_loadError!),
+            primaryLabel: 'Try again',
+            onPrimary: _loadSelection,
+          );
+        }
         if (snapshot.hasError) {
           return AppErrorState(
             title: 'Could not load installed apps.',
@@ -161,7 +171,7 @@ class _AndroidAppRoutingScreenState extends State<AndroidAppRoutingScreen> {
                   child: FilledButton(
                     onPressed: _saving ? null : _save,
                     child: CompactLabel(
-                      _saving ? 'Saving…' : 'Save ${_selected.length} apps',
+                      _saving ? 'Saving…' : context.saveApps(_selected.length),
                     ),
                   ),
                 ),

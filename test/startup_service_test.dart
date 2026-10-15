@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:oculve/core/desktop/startup_service.dart';
 
@@ -23,6 +24,28 @@ class FakeStartupBackend extends StartupBackend {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => SharedPreferences.setMockInitialValues({}));
+  test('Windows and Linux show the app on a regular launch', () {
+    for (final platform in [TargetPlatform.windows, TargetPlatform.linux]) {
+      expect(
+        shouldShowDesktopWindowAtLaunch(loginLaunch: false, platform: platform),
+        isTrue,
+      );
+    }
+    expect(
+      shouldShowDesktopWindowAtLaunch(
+        loginLaunch: false,
+        platform: TargetPlatform.macOS,
+      ),
+      isFalse,
+    );
+    expect(
+      shouldShowDesktopWindowAtLaunch(
+        loginLaunch: true,
+        platform: TargetPlatform.macOS,
+      ),
+      isTrue,
+    );
+  });
   test(
     'legacy enabled startup migrates to Open without registration changes',
     () async {

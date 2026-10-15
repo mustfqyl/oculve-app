@@ -28,6 +28,12 @@ final vpnProvider = StateNotifierProvider<VpnNotifier, VpnState>(
   (ref) => VpnNotifier(ref),
 );
 
+bool shouldRequestVpnPermission({
+  required bool isWindows,
+  required bool automatic,
+  required bool replacing,
+}) => isWindows || (!automatic && !replacing);
+
 class VpnNotifier extends StateNotifier<VpnState> {
   VpnNotifier(this.ref) : super(VpnState.disconnected) {
     _engine = FlutterVless(onStatusChanged: _onStatus);
@@ -70,7 +76,12 @@ class VpnNotifier extends StateNotifier<VpnState> {
       ++_lanAttempt;
       unawaited(ref.read(lanProxyProvider).stop());
       ref.read(trafficProvider.notifier).state = status;
-      _fail('VPN permission was not granted.');
+      _fail(
+        UserFacingFailure.permissionDeniedMessage(
+          isWindows: Platform.isWindows,
+          isLinux: Platform.isLinux,
+        ),
+      );
       return;
     }
     if (_switchAwaitingNative &&
@@ -150,12 +161,11 @@ class VpnNotifier extends StateNotifier<VpnState> {
   }
 
   Future<void> _initializeEngine() async {
+    // iOS reads its signing-expanded shared Keychain group from Runner's
+    // Info.plist; the App Group identifier is not a Keychain access group.
     await _engine.initializeVless(
       providerBundleIdentifier: 'com.oculve.app',
       groupIdentifier: 'group.com.oculve.app',
-      // Shared Keychain references belong to the iOS Packet Tunnel backend.
-      // Passing this on Android requires a capability that Android cannot have.
-      keychainAccessGroup: Platform.isIOS ? 'group.com.oculve.app' : null,
     );
     _initialized = true;
   }
@@ -230,12 +240,22 @@ class VpnNotifier extends StateNotifier<VpnState> {
       if (cancelled()) return;
       await initialize();
       if (cancelled()) return;
-      final permission = automatic || replacing
-          ? _initialized
-          : await _engine.requestPermission();
+      final permission =
+          shouldRequestVpnPermission(
+            isWindows: Platform.isWindows,
+            automatic: automatic,
+            replacing: replacing,
+          )
+          ? await _engine.requestPermission()
+          : _initialized;
       if (cancelled()) return;
       if (!permission) {
-        throw StateError('VPN permission was not granted.');
+        throw StateError(
+          UserFacingFailure.permissionDeniedMessage(
+            isWindows: Platform.isWindows,
+            isLinux: Platform.isLinux,
+          ),
+        );
       }
       _requested = true;
       final logLevel = await XrayPreferences.logLevel();
@@ -348,8 +368,15 @@ class VpnNotifier extends StateNotifier<VpnState> {
     } catch (error) {
       if (cancelled()) return;
       _requested = false;
+      final platformSetupRequired = UserFacingFailure.requiresPlatformSetup(
+        error: error,
+        isWindows: Platform.isWindows,
+        isLinux: Platform.isLinux,
+      );
       final permissionRequired =
-          error is PlatformException && error.code == 'VPN_PERMISSION_REQUIRED';
+          (error is PlatformException &&
+              error.code == 'VPN_PERMISSION_REQUIRED') ||
+          platformSetupRequired;
       if (permissionRequired) {
         _wanted = false;
         _protectedSwitch = false;

@@ -10,6 +10,31 @@ import '../network/oculve_api.dart';
 class UserFacingFailure {
   UserFacingFailure._();
 
+  static const linuxSupportMissingMessage =
+      'Linux VPN support is not installed. Finish the Linux setup steps before connecting.';
+  static const windowsAdministratorRequiredMessage =
+      'Windows needs administrator permission to create the VPN tunnel. Close Oculve and reopen it with Run as administrator.';
+
+  static String permissionDeniedMessage({
+    required bool isWindows,
+    required bool isLinux,
+  }) => switch ((isWindows, isLinux)) {
+    (true, _) => windowsAdministratorRequiredMessage,
+    (_, true) => linuxSupportMissingMessage,
+    _ => 'VPN permission was not granted.',
+  };
+
+  static bool requiresPlatformSetup({
+    required Object error,
+    required bool isWindows,
+    required bool isLinux,
+  }) {
+    if (error is! StateError) return false;
+    final message = error.message.toString();
+    return (isWindows && message == windowsAdministratorRequiredMessage) ||
+        (isLinux && message == linuxSupportMissingMessage);
+  }
+
   static const _messages = {
     'Passkey is unavailable on this device. Use your authenticator code.',
     'No matching passkey is available on this device. Use your authenticator code.',
@@ -28,6 +53,8 @@ class UserFacingFailure {
     'Your subscription is not active.',
     'No compatible servers are available.',
     'VPN permission was not granted.',
+    linuxSupportMissingMessage,
+    windowsAdministratorRequiredMessage,
     'The VPN profile is incompatible. Refresh your server list or try another location.',
     'Could not resolve the VPN server. Check your internet connection and try again.',
     'Could not securely save the VPN profile. Restart the app and try again.',

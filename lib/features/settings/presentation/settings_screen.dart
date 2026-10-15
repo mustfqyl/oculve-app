@@ -220,6 +220,8 @@ class _GroupedSettingRow extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(16),
+        mouseCursor: SystemMouseCursors.click,
+        overlayColor: AppTheme.interactionOverlay(isDark: isDark),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           child: Row(
@@ -285,45 +287,66 @@ class _ThemeSelector extends ConsumerWidget {
         children: themes.map((entry) {
           final (mode, icon, label) = entry;
           final isSelected = currentTheme == mode;
+          void select() => ref.read(themeProvider.notifier).setTheme(mode);
           return Expanded(
-            child: GestureDetector(
-              onTap: () => ref.read(themeProvider.notifier).setTheme(mode),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 180),
-                padding: const EdgeInsets.symmetric(vertical: 7),
-                decoration: BoxDecoration(
-                  color: isSelected
-                      ? (isDark
-                            ? Colors.white.withValues(alpha: 0.12)
-                            : Colors.white)
-                      : Colors.transparent,
+            child: Semantics(
+              label: context.tr(label),
+              button: true,
+              selected: isSelected,
+              onTap: select,
+              child: ExcludeSemantics(
+                child: InkWell(
+                  onTap: select,
                   borderRadius: BorderRadius.circular(9),
-                  boxShadow: isSelected && !isDark
-                      ? [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.06),
-                            blurRadius: 4,
-                            offset: const Offset(0, 1),
+                  mouseCursor: SystemMouseCursors.click,
+                  splashFactory: NoSplash.splashFactory,
+                  overlayColor: AppTheme.interactionOverlay(isDark: isDark),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(minHeight: 48),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 180),
+                      alignment: Alignment.center,
+                      padding: const EdgeInsets.symmetric(vertical: 7),
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? (isDark
+                                  ? Colors.white.withValues(alpha: 0.12)
+                                  : Colors.white)
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(9),
+                        boxShadow: isSelected && !isDark
+                            ? [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.06),
+                                  blurRadius: 4,
+                                  offset: const Offset(0, 1),
+                                ),
+                              ]
+                            : null,
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            icon,
+                            size: 16,
+                            color: isSelected ? fg : fgMuted,
                           ),
-                        ]
-                      : null,
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(icon, size: 16, color: isSelected ? fg : fgMuted),
-                    const SizedBox(height: 3),
-                    CompactLabel(
-                      label,
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: isSelected
-                            ? FontWeight.w700
-                            : FontWeight.w500,
-                        color: isSelected ? fg : fgMuted,
+                          const SizedBox(height: 3),
+                          CompactLabel(
+                            label,
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: isSelected
+                                  ? FontWeight.w700
+                                  : FontWeight.w500,
+                              color: isSelected ? fg : fgMuted,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -378,6 +401,7 @@ class _LanguageSelector extends ConsumerWidget {
           ),
         ),
         Container(
+          key: const ValueKey('language-options'),
           padding: const EdgeInsets.all(2),
           decoration: BoxDecoration(
             color: isDark
@@ -441,6 +465,9 @@ class _LanguageOption extends StatelessWidget {
       child: ExcludeSemantics(
         child: InkWell(
           borderRadius: BorderRadius.circular(6),
+          mouseCursor: SystemMouseCursors.click,
+          splashFactory: NoSplash.splashFactory,
+          overlayColor: AppTheme.interactionOverlay(isDark: isDark),
           onTap: onTap,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 160),
@@ -463,7 +490,9 @@ class _LanguageOption extends StatelessWidget {
               style: TextStyle(
                 fontSize: 10,
                 fontWeight: FontWeight.w700,
-                color: selected ? AppTheme.successColor : muted,
+                color: selected
+                    ? AppTheme.successForeground(isDark: isDark)
+                    : muted,
               ),
             ),
           ),

@@ -24,7 +24,7 @@ class LatencyLabel extends StatelessWidget {
         ? AppTheme.foregroundMuted
         : AppTheme.lightForegroundMuted;
     final active = bars == 3
-        ? AppTheme.successColor
+        ? AppTheme.successForeground(isDark: dark)
         : bars == 2
         ? AppTheme.warningColor
         : AppTheme.dangerColor;

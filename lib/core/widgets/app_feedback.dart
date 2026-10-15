@@ -181,7 +181,7 @@ class _FeedbackOverlayState extends State<_FeedbackOverlay>
     final accent = switch (widget.kind) {
       AppFeedbackKind.error =>
         dark ? const Color(0xFFFF7777) : const Color(0xFFB42318),
-      AppFeedbackKind.success => AppTheme.successColor,
+      AppFeedbackKind.success => AppTheme.successForeground(isDark: dark),
       AppFeedbackKind.info => foreground,
     };
     final background = switch (widget.kind) {

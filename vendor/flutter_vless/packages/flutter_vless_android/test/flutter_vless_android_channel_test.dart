@@ -52,6 +52,8 @@ void main() {
       'config': config,
       'blocked_apps': ['com.browser.blocked'],
       'bypass_subnets': ['192.168.0.0/16'],
+      'dpi_bypass': false,
+      'dpi_profile': 0,
       'proxy_only': false,
       'notificationDisconnectButtonName': 'DISCONNECT',
     });

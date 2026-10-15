@@ -231,7 +231,8 @@ class _XrayCoreSettingsScreenState
 
   Future<void> _protection() async {
     bool armed = false;
-    if (Platform.isMacOS) {
+    final platform = Theme.of(context).platform;
+    if (platform == TargetPlatform.macOS) {
       try {
         armed =
             (await const MethodChannel(
@@ -243,19 +244,24 @@ class _XrayCoreSettingsScreenState
       } catch (_) {}
     }
     if (!mounted) return;
+    final explanation = switch (platform) {
+      TargetPlatform.macOS =>
+        '${context.tr(armed ? 'System protection is armed.' : 'System protection activates when you connect.')}\n\n${context.tr('Traffic protection stays enabled during tunnel recovery. Disconnecting manually ends the VPN session and its protection. Certain essential system traffic is exempted by macOS.')}',
+      TargetPlatform.windows => context.tr(
+        'Windows installs system traffic protection before the VPN starts. It stays active during tunnel recovery and ends when you disconnect.',
+      ),
+      TargetPlatform.linux => context.tr(
+        'Linux installs a firewall guard before VPN routing starts. It stays active during recovery and is removed when you stop the VPN.',
+      ),
+      _ => context.tr(
+        'Traffic protection depends on your platform. System-level verification is required before this feature can be enabled.',
+      ),
+    };
     await showDialog<void>(
       context: context,
       builder: (context) => SettingsModal(
         title: const Text('Kill switch'),
-        content: SingleChildScrollView(
-          child: Text(
-            Platform.isMacOS
-                ? '${context.tr(armed ? 'System protection is armed.' : 'System protection activates when you connect.')}\n\n${context.tr('Traffic protection stays enabled during tunnel recovery. Disconnecting manually ends the VPN session and its protection. Certain essential system traffic is exempted by macOS.')}'
-                : context.tr(
-                    'Traffic protection depends on your platform. System-level verification is required before this feature can be enabled.',
-                  ),
-          ),
-        ),
+        content: SingleChildScrollView(child: Text(explanation)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -443,10 +449,13 @@ class _XrayCoreSettingsScreenState
                       subtitle:
                           'Retry interrupted sessions. Manual Disconnect cancels retries.',
                       trailing: Switch(
-                        activeTrackColor: AppTheme.successColor,
+                        activeTrackColor: AppTheme.successForeground(
+                          isDark:
+                              Theme.of(context).brightness == Brightness.dark,
+                        ),
                         activeThumbColor: Colors.white,
                         value: _options.reconnect,
-                        overlayColor: quietOverlay,
+                        overlayColor: quietOverlay(context),
                         onChanged: _busy
                             ? null
                             : (value) => _save(() async {
@@ -462,9 +471,12 @@ class _XrayCoreSettingsScreenState
                       const StartupSetting(),
                     SettingRow(
                       title: 'Kill switch',
-                      value: Platform.isMacOS
-                          ? 'System-managed'
-                          : 'Platform dependent',
+                      value: switch (Theme.of(context).platform) {
+                        TargetPlatform.macOS ||
+                        TargetPlatform.windows ||
+                        TargetPlatform.linux => 'System-managed',
+                        _ => 'Platform dependent',
+                      },
                       onTap: _protection,
                     ),
                     SettingRow(
@@ -473,11 +485,14 @@ class _XrayCoreSettingsScreenState
                           ? 'For compatible connections'
                           : 'Available for VLESS Reality over TCP.',
                       trailing: Switch(
-                        activeTrackColor: AppTheme.successColor,
+                        activeTrackColor: AppTheme.successForeground(
+                          isDark:
+                              Theme.of(context).brightness == Brightness.dark,
+                        ),
                         activeThumbColor: Colors.white,
                         key: const ValueKey('xray-fragmentation-switch'),
                         value: _fragment,
-                        overlayColor: quietOverlay,
+                        overlayColor: quietOverlay(context),
                         onChanged: _busy || !supportsFragment
                             ? null
                             : (value) => _save(() async {
@@ -707,7 +722,7 @@ class _SplitTunnelingScreenState extends State<SplitTunnelingScreen> {
                     label: 'Remove $domain',
                     child: IconButton(
                       style: IconButton.styleFrom().copyWith(
-                        overlayColor: quietOverlay,
+                        overlayColor: quietOverlay(context),
                       ),
                       onPressed: _busy
                           ? null

@@ -137,6 +137,7 @@ class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
               child: ListTile(
                 dense: true,
                 minTileHeight: 56,
+                selected: isSelected,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(14),
                 ),
@@ -211,11 +212,11 @@ class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
                     label: context.tr('Optimal'),
                     selected: selected == optimalServerId,
                     enabled: enabled,
-                    accentColor: AppTheme.successColor,
-                    icon: const Icon(
+                    accentColor: AppTheme.successForeground(isDark: dark),
+                    icon: Icon(
                       Icons.bolt_rounded,
                       size: 21,
-                      color: AppTheme.successColor,
+                      color: AppTheme.successForeground(isDark: dark),
                     ),
                     onTap: () {
                       unawaited(
@@ -286,40 +287,56 @@ class _ServerModeCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return FrostedCard(
-      padding: EdgeInsets.zero,
-      borderRadius: 14,
-      borderColor: selected ? accentColor.withValues(alpha: .75) : null,
-      borderWidth: selected ? 1.1 : .5,
-      child: Material(
-        color: Colors.transparent,
-        borderRadius: BorderRadius.circular(14),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(14),
-          onTap: enabled ? onTap : null,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: 82),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  FrostedCircle(
-                    size: 36,
-                    blurAmount: 15,
-                    color: accentColor.withValues(alpha: .1),
-                    child: icon,
+    return Semantics(
+      label: context.tr(label),
+      button: true,
+      selected: selected,
+      enabled: enabled,
+      onTap: enabled ? onTap : null,
+      child: ExcludeSemantics(
+        child: FrostedCard(
+          padding: EdgeInsets.zero,
+          borderRadius: 14,
+          borderColor: selected ? accentColor.withValues(alpha: .75) : null,
+          borderWidth: selected ? 1.1 : .5,
+          child: Material(
+            color: Colors.transparent,
+            borderRadius: BorderRadius.circular(14),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(14),
+              mouseCursor: SystemMouseCursors.click,
+              overlayColor: AppTheme.interactionOverlay(
+                isDark: Theme.of(context).brightness == Brightness.dark,
+              ),
+              onTap: enabled ? onTap : null,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 82),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 8,
                   ),
-                  const SizedBox(height: 6),
-                  CompactLabel(
-                    label,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: AppTheme.fontSizeBody,
-                      fontWeight: FontWeight.w600,
-                    ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      FrostedCircle(
+                        size: 36,
+                        blurAmount: 15,
+                        color: accentColor.withValues(alpha: .1),
+                        child: icon,
+                      ),
+                      const SizedBox(height: 6),
+                      CompactLabel(
+                        label,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: AppTheme.fontSizeBody,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
           ),

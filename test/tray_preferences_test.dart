@@ -50,6 +50,25 @@ void main() {
     )..addFont(rootBundle.load('fonts/MaterialIcons-Regular.otf'))).load();
   });
   setUp(() => SharedPreferences.setMockInitialValues({}));
+  test('overlapping click edits cannot assign the same action', () async {
+    final notifier = TrayClickPreferencesNotifier();
+    addTearDown(notifier.dispose);
+    await notifier.ready;
+    final left = notifier.setLeft(TrayClickAction.chooseServer);
+    final right = expectLater(
+      notifier.setRight(TrayClickAction.chooseServer),
+      throwsStateError,
+    );
+    await Future.wait([left, right]);
+    expect(notifier.state.left, TrayClickAction.chooseServer);
+    expect(notifier.state.right, TrayClickAction.showMenu);
+    // A rejected edit must not poison the next save.
+    await notifier.setRight(TrayClickAction.quit);
+    final restored = TrayClickPreferencesNotifier();
+    addTearDown(restored.dispose);
+    await restored.ready;
+    expect(restored.state.right, TrayClickAction.quit);
+  });
   test('existing click preferences survive new settings and restart', () async {
     SharedPreferences.setMockInitialValues({
       'tray.left_click_action.v1': 'chooseServer',
@@ -142,11 +161,15 @@ void main() {
         .read(trayClickPreferencesProvider.notifier)
         .setIndicator(TrayStatusIndicator.appIcon);
     await Future<void>.delayed(Duration.zero);
-    final icon = calls.lastWhere((call) => call.method == 'setIcon');
-    expect(
-      (icon.arguments as Map)['iconPath'],
-      endsWith('assets/tray_icon_idle.png'),
-    );
+    if (!Platform.isLinux) {
+      // Linux updates the StatusNotifierItem pixmap over DBus; it does not
+      // call tray_manager.setIcon like Windows and macOS do.
+      final icon = calls.lastWhere((call) => call.method == 'setIcon');
+      expect(
+        (icon.arguments as Map)['iconPath'],
+        endsWith('assets/tray_icon_idle.png'),
+      );
+    }
   });
   for (final platform in [
     TargetPlatform.windows,

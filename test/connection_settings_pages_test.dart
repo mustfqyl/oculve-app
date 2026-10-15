@@ -57,6 +57,36 @@ void main() {
       expect(find.text('Off'), findsOneWidget);
     },
   );
+  for (final platform in [TargetPlatform.windows, TargetPlatform.linux]) {
+    testWidgets('kill switch explains the $platform system traffic guard', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(
+            theme: AppTheme.darkTheme.copyWith(platform: platform),
+            home: const XrayCoreSettingsScreen(),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.ensureVisible(find.text('Kill switch'));
+      expect(find.text('System-managed'), findsOneWidget);
+      await tester.tap(find.text('Kill switch'));
+      // AppPage's background intentionally animates forever; advance the
+      // dialog transition without waiting for every ticker to stop.
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(
+        find.text(
+          platform == TargetPlatform.windows
+              ? 'Windows installs system traffic protection before the VPN starts. It stays active during tunnel recovery and ends when you disconnect.'
+              : 'Linux installs a firewall guard before VPN routing starts. It stays active during recovery and is removed when you stop the VPN.',
+        ),
+        findsOneWidget,
+      );
+    });
+  }
   for (final locale in ['en', 'tr', 'es']) {
     for (final screen in [
       Scaffold(body: ListView(children: const [StartupSetting()])),

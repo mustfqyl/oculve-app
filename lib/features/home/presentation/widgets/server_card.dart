@@ -16,6 +16,7 @@ class ServerCard extends ConsumerWidget {
   const ServerCard({super.key});
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
     final profiles = ref.watch(sessionProvider).valueOrNull?.profiles ?? [];
     final id = ref.watch(selectedServerProvider);
     final isOptimal = id == optimalServerId;
@@ -62,6 +63,8 @@ class ServerCard extends ConsumerWidget {
             borderRadius: BorderRadius.circular(14),
             child: InkWell(
               borderRadius: BorderRadius.circular(14),
+              mouseCursor: SystemMouseCursors.click,
+              overlayColor: AppTheme.interactionOverlay(isDark: dark),
               onTap: () => Navigator.push(
                 context,
                 appRoute(const ServerSelectionScreen()),
@@ -69,7 +72,7 @@ class ServerCard extends ConsumerWidget {
               child: Padding(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 10,
-                  vertical: 7,
+                  vertical: 9,
                 ),
                 child: Row(
                   children: [
@@ -84,10 +87,10 @@ class ServerCard extends ConsumerWidget {
                       child: isDpiBypass
                           ? const DpiBypassLogo(size: 22)
                           : isOptimal && profile == null
-                          ? const Icon(
+                          ? Icon(
                               Icons.bolt_rounded,
                               size: 19,
-                              color: AppTheme.successColor,
+                              color: AppTheme.successForeground(isDark: dark),
                             )
                           : CountryIcon(flag: profile?.flag, size: 22),
                     ),

@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:async';
 
 import 'package:flutter/material.dart' hide Text;
+import 'package:oculve/core/localization/app_strings.dart';
 import 'package:oculve/core/localization/localized_text.dart';
 import 'package:oculve/core/widgets/app_route.dart';
 import 'package:oculve/core/widgets/app_feedback.dart';
@@ -447,6 +448,9 @@ class _AccessCodeInput extends StatelessWidget {
                       readOnly: busy,
                       autocorrect: false,
                       enableSuggestions: false,
+                      autofillHints: isAccessCode
+                          ? null
+                          : const [AutofillHints.oneTimeCode],
                       textCapitalization: TextCapitalization.characters,
                       keyboardType: TextInputType.visiblePassword,
                       textAlign: TextAlign.center,
@@ -463,7 +467,9 @@ class _AccessCodeInput extends StatelessWidget {
                         letterSpacing: 1.6,
                       ),
                       decoration: InputDecoration.collapsed(
-                        hintText: isAccessCode ? 'XXXX-XXXX-XXXX' : '000000',
+                        hintText: context.tr(
+                          isAccessCode ? 'ACCESS CODE' : 'VERIFICATION CODE',
+                        ),
                         hintStyle: TextStyle(
                           color: Colors.transparent,
                           fontSize: 16,
@@ -474,30 +480,32 @@ class _AccessCodeInput extends StatelessWidget {
                       onChanged: onChanged,
                     ),
                     if (showMask)
-                      IgnorePointer(
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            for (final part in const [
-                              'XXXX',
-                              '-',
-                              'XXXX',
-                              '-',
-                              'XXXX',
-                            ])
-                              Text(
-                                part,
-                                style: TextStyle(
-                                  color: muted.withValues(
-                                    alpha: part == '-' ? .28 : .4,
+                      ExcludeSemantics(
+                        child: IgnorePointer(
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              for (final part in const [
+                                'XXXX',
+                                '-',
+                                'XXXX',
+                                '-',
+                                'XXXX',
+                              ])
+                                Text(
+                                  part,
+                                  style: TextStyle(
+                                    color: muted.withValues(
+                                      alpha: part == '-' ? .28 : .4,
+                                    ),
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: 1.6,
                                   ),
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w700,
-                                  letterSpacing: 1.6,
                                 ),
-                              ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
                     if (busy)

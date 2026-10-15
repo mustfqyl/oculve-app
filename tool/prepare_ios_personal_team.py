@@ -71,7 +71,7 @@ passkey.write_text(source.replace(anchor,
     '    if (Platform.isIOS || !_supportedPlatform) return false;', 1))
 vpn = destination / 'lib/core/providers/vpn_provider.dart'
 source = vpn.read_text()
-anchor = '  Future<void> connect({bool automatic = false}) async {\n'
+anchor = '  Future<void> connect({bool automatic = false, bool replacing = false}) async {\n'
 if anchor not in source:
     raise SystemExit('VPN entry point changed; inspect before preparing.')
 vpn.write_text(source.replace(anchor, anchor + '''    if (Platform.isIOS) {

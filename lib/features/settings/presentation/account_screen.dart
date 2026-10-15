@@ -629,7 +629,13 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
                                   color: resetArmed
                                       ? AppTheme.warningColor
                                       : resetDone
-                                      ? AppTheme.successColor
+                                      ? AppTheme.successForeground(
+                                          isDark:
+                                              Theme.of(
+                                                sheetContext,
+                                              ).brightness ==
+                                              Brightness.dark,
+                                        )
                                       : null,
                                   semanticLabel: context.tr(
                                     resetArmed
@@ -711,8 +717,8 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
                                       message:
                                           '${context.tr('Last active')}: ${_lastActive(device['lastUsedAt']?.toString())}',
                                       child: SizedBox(
-                                        width: 36,
-                                        height: 40,
+                                        width: 48,
+                                        height: 48,
                                         child: Center(
                                           child: Icon(
                                             Icons.hourglass_bottom_rounded,
@@ -1097,7 +1103,11 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
                                     key: const ValueKey('account-status-dot'),
                                     size: 6,
                                     color: isActive
-                                        ? AppTheme.successColor
+                                        ? AppTheme.successForeground(
+                                            isDark:
+                                                Theme.of(context).brightness ==
+                                                Brightness.dark,
+                                          )
                                         : status == 'limited'
                                         ? AppTheme.warningColor
                                         : AppTheme.dangerColor,
@@ -1230,7 +1240,11 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
                                   borderRadius: BorderRadius.circular(3),
                                   color: usageFraction >= .9
                                       ? AppTheme.errorColor
-                                      : AppTheme.successColor,
+                                      : AppTheme.successForeground(
+                                          isDark:
+                                              Theme.of(context).brightness ==
+                                              Brightness.dark,
+                                        ),
                                   backgroundColor: _muted.withValues(
                                     alpha: .16,
                                   ),
@@ -1321,8 +1335,8 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
                                 child: IconButton(
                                   key: const ValueKey('account-code-copy'),
                                   constraints: const BoxConstraints(
-                                    minWidth: 40,
-                                    minHeight: 40,
+                                    minWidth: 48,
+                                    minHeight: 48,
                                   ),
                                   style: IconButton.styleFrom().copyWith(
                                     overlayColor: _quietOverlay,
@@ -1397,7 +1411,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
                           OutlinedButton.icon(
                             style: OutlinedButton.styleFrom(
                               foregroundColor: _fg,
-                              minimumSize: const Size.fromHeight(44),
+                              minimumSize: const Size.fromHeight(48),
                               side: BorderSide(
                                 color: _muted.withValues(alpha: .65),
                               ),
@@ -1483,14 +1497,9 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
     );
   }
 
-  WidgetStateProperty<Color?> get _quietOverlay =>
-      WidgetStateProperty.resolveWith((states) {
-        // Keep keyboard focus visible without mouse-hover or pressed ink.
-        return states.contains(WidgetState.focused) &&
-                !states.contains(WidgetState.hovered)
-            ? _muted.withValues(alpha: .12)
-            : Colors.transparent;
-      });
+  WidgetStateProperty<Color?> get _quietOverlay => AppTheme.interactionOverlay(
+    isDark: Theme.of(context).brightness == Brightness.dark,
+  );
 
   Widget _label(String text) => Text(
     text,

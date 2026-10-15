@@ -27,6 +27,7 @@ class AppTheme {
   static const Color cardHoverBorder = Color(0x33FFFFFF);
 
   static const Color successColor = Color(0xFF10B981);
+  static const Color lightSuccessColor = Color(0xFF065F46);
   static const Color warningColor = Color(0xFFF59E0B);
   static const Color errorColor = Color(0xFFEF4444);
 
@@ -35,6 +36,22 @@ class AppTheme {
   static const Color surfaceColor = backgroundSecondary;
   static const Color accentColor = Color(0xFF3B82F6); // Assuming a nice blue
   static const Color dangerColor = errorColor;
+
+  static Color successForeground({required bool isDark}) =>
+      isDark ? successColor : lightSuccessColor;
+
+  static WidgetStateProperty<Color?> interactionOverlay({
+    required bool isDark,
+  }) => WidgetStateProperty.resolveWith((states) {
+    final ink = isDark ? Colors.white : Colors.black;
+    if (states.contains(WidgetState.focused)) {
+      return ink.withValues(alpha: .09);
+    }
+    if (states.contains(WidgetState.hovered)) {
+      return ink.withValues(alpha: .055);
+    }
+    return Colors.transparent;
+  });
 
   // === Website LIGHT theme tokens ===
   static const Color lightBackground = Color(0xFFFAFAFA);
@@ -108,7 +125,7 @@ class AppTheme {
       primaryColor: lightAccent,
       colorScheme: const ColorScheme.light(
         primary: lightAccent,
-        secondary: successColor,
+        secondary: lightSuccessColor,
         surface: lightBackgroundSecondary,
         error: errorColor,
         onPrimary: lightBackground,

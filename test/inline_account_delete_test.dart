@@ -60,7 +60,7 @@ void main() {
                 .first,
           )
           .height;
-      expect(idlePaintHeight, 40);
+      expect(idlePaintHeight, 48);
       await tester.tap(find.byKey(const ValueKey('account-delete-start')));
       await tester.pump();
       final field = find.byType(TextField);

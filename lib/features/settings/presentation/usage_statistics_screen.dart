@@ -324,7 +324,11 @@ class _UsageStatisticsScreenState extends ConsumerState<UsageStatisticsScreen> {
                                             .clamp(0, 1)
                                       : 0,
                                   minHeight: 4,
-                                  color: AppTheme.successColor,
+                                  color: AppTheme.successForeground(
+                                    isDark:
+                                        Theme.of(context).brightness ==
+                                        Brightness.dark,
+                                  ),
                                   backgroundColor: muted.withValues(alpha: .22),
                                 ),
                               ),
@@ -348,30 +352,33 @@ class _UsageStatisticsScreenState extends ConsumerState<UsageStatisticsScreen> {
                           key: const ValueKey('statistics-servers'),
                           onTap: () =>
                               setState(() => _allServers = !_allServers),
-                          overlayColor: quietOverlay,
-                          child: Padding(
-                            padding: const EdgeInsets.only(top: 7),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    _allServers
-                                        ? 'Show fewer servers'
-                                        : 'View all servers',
-                                    style: TextStyle(
-                                      color: muted,
-                                      fontSize: 10,
+                          overlayColor: quietOverlay(context),
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(minHeight: 48),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 7),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      _allServers
+                                          ? 'Show fewer servers'
+                                          : 'View all servers',
+                                      style: TextStyle(
+                                        color: muted,
+                                        fontSize: 10,
+                                      ),
                                     ),
                                   ),
-                                ),
-                                Icon(
-                                  _allServers
-                                      ? Icons.expand_less
-                                      : Icons.chevron_right,
-                                  color: muted,
-                                  size: 18,
-                                ),
-                              ],
+                                  Icon(
+                                    _allServers
+                                        ? Icons.expand_less
+                                        : Icons.chevron_right,
+                                    color: muted,
+                                    size: 18,
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                         ),
@@ -424,7 +431,13 @@ class _UsageStatisticsScreenState extends ConsumerState<UsageStatisticsScreen> {
     children: [
       Padding(
         padding: const EdgeInsets.only(top: 2),
-        child: Icon(icon, color: AppTheme.successColor, size: 18),
+        child: Icon(
+          icon,
+          color: AppTheme.successForeground(
+            isDark: Theme.of(context).brightness == Brightness.dark,
+          ),
+          size: 18,
+        ),
       ),
       const SizedBox(width: 6),
       Expanded(
@@ -450,23 +463,38 @@ class _UsageStatisticsScreenState extends ConsumerState<UsageStatisticsScreen> {
       ),
     ],
   );
-  Widget _period(String title, bool monthly) => InkWell(
-    key: ValueKey('statistics-period-$monthly'),
-    onTap: () => setState(() => _monthly = monthly),
-    borderRadius: BorderRadius.circular(20),
-    overlayColor: quietOverlay,
-    child: Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: _monthly == monthly ? AppTheme.successColor : Colors.transparent,
+  Widget _period(String title, bool monthly) => Semantics(
+    button: true,
+    selected: _monthly == monthly,
+    child: SizedBox(
+      height: 48,
+      child: InkWell(
+        key: ValueKey('statistics-period-$monthly'),
+        onTap: () => setState(() => _monthly = monthly),
         borderRadius: BorderRadius.circular(20),
-      ),
-      child: Text(
-        title,
-        style: TextStyle(
-          fontSize: 9.5,
-          fontWeight: _monthly == monthly ? FontWeight.w600 : FontWeight.w400,
-          color: _monthly == monthly ? Colors.white : settingsMuted(context),
+        overlayColor: quietOverlay(context),
+        child: Center(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: _monthly == monthly
+                  ? AppTheme.lightSuccessColor
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(
+              title,
+              style: TextStyle(
+                fontSize: 9.5,
+                fontWeight: _monthly == monthly
+                    ? FontWeight.w600
+                    : FontWeight.w400,
+                color: _monthly == monthly
+                    ? Colors.white
+                    : settingsMuted(context),
+              ),
+            ),
+          ),
         ),
       ),
     ),
@@ -618,7 +646,11 @@ class _UsageStatisticsScreenState extends ConsumerState<UsageStatisticsScreen> {
                                     alignment: Alignment.bottomCenter,
                                     child: DecoratedBox(
                                       decoration: BoxDecoration(
-                                        color: AppTheme.successColor,
+                                        color: AppTheme.successForeground(
+                                          isDark:
+                                              Theme.of(context).brightness ==
+                                              Brightness.dark,
+                                        ),
                                         borderRadius:
                                             const BorderRadius.vertical(
                                               top: Radius.circular(2),
@@ -789,9 +821,15 @@ class _StatisticsLoadingStateState extends State<_StatisticsLoadingState>
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [bar(98, height: 28), bar(126, height: 28)],
+                        SizedBox(
+                          height: 48,
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              bar(98, height: 28),
+                              bar(126, height: 28),
+                            ],
+                          ),
                         ),
                         const SizedBox(height: 5),
                         bar(112, height: 12),

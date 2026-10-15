@@ -3,6 +3,14 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+bool shouldShowDesktopWindowAtLaunch({
+  required bool loginLaunch,
+  required TargetPlatform platform,
+}) =>
+    loginLaunch ||
+    platform == TargetPlatform.windows ||
+    platform == TargetPlatform.linux;
+
 enum StartupMode { off, open, connect }
 
 class StartupStatus {

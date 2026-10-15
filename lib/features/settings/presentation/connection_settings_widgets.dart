@@ -10,13 +10,10 @@ Color settingsMuted(BuildContext context) =>
     Theme.of(context).brightness == Brightness.dark
     ? AppTheme.foregroundMuted
     : AppTheme.lightForegroundMuted;
-final quietOverlay = WidgetStateProperty.resolveWith<Color?>(
-  (states) =>
-      states.contains(WidgetState.focused) &&
-          !states.contains(WidgetState.hovered)
-      ? Colors.white.withValues(alpha: .08)
-      : Colors.transparent,
-);
+WidgetStateProperty<Color?> quietOverlay(BuildContext context) =>
+    AppTheme.interactionOverlay(
+      isDark: Theme.of(context).brightness == Brightness.dark,
+    );
 
 class SettingsGroup extends StatelessWidget {
   const SettingsGroup({super.key, required this.children});
@@ -68,63 +65,70 @@ class SettingRow extends StatelessWidget {
   Widget build(BuildContext context) => InkWell(
     onTap: onTap,
     borderRadius: BorderRadius.circular(14),
-    overlayColor: quietOverlay,
+    overlayColor: quietOverlay(context),
     splashFactory: NoSplash.splashFactory,
-    child: Padding(
-      padding: EdgeInsets.symmetric(
-        horizontal: compact ? 13 : 16,
-        vertical: compact ? 10 : 12,
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: compact ? 12 : 13,
-                    height: compact ? 1.25 : null,
-                    fontWeight: compact ? FontWeight.w600 : FontWeight.w500,
-                  ).merge(titleStyle),
-                ),
-                if (subtitle != null) ...[
-                  const SizedBox(height: 3),
+    child: ConstrainedBox(
+      constraints: BoxConstraints(minHeight: onTap == null ? 0 : 48),
+      child: Padding(
+        padding: EdgeInsets.symmetric(
+          horizontal: compact ? 13 : 16,
+          vertical: compact ? (onTap == null ? 10 : 17) : 12,
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                   Text(
-                    subtitle!,
+                    title,
                     style: TextStyle(
-                      color: settingsMuted(context),
-                      fontSize: compact ? 10.5 : 11,
-                      height: 1.35,
-                    ),
+                      fontSize: compact ? 12 : 13,
+                      height: compact ? 1.25 : null,
+                      fontWeight: compact ? FontWeight.w600 : FontWeight.w500,
+                    ).merge(titleStyle),
                   ),
+                  if (subtitle != null) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle!,
+                      style: TextStyle(
+                        color: settingsMuted(context),
+                        fontSize: compact ? 10.5 : 11,
+                        height: 1.35,
+                      ),
+                    ),
+                  ],
                 ],
-              ],
-            ),
-          ),
-          if (value != null) ...[
-            const SizedBox(width: 12),
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 116),
-              child: Text(
-                value!,
-                textAlign: TextAlign.end,
-                style: TextStyle(
-                  color: settingsMuted(context),
-                  fontSize: 12,
-                  height: compact ? 1.25 : null,
-                ),
               ),
             ),
+            if (value != null) ...[
+              const SizedBox(width: 12),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 116),
+                child: Text(
+                  value!,
+                  textAlign: TextAlign.end,
+                  style: TextStyle(
+                    color: settingsMuted(context),
+                    fontSize: 12,
+                    height: compact ? 1.25 : null,
+                  ),
+                ),
+              ),
+            ],
+            if (trailing != null)
+              trailing!
+            else if (onTap != null) ...[
+              const SizedBox(width: 5),
+              Icon(
+                Icons.chevron_right,
+                size: 18,
+                color: settingsMuted(context),
+              ),
+            ],
           ],
-          if (trailing != null)
-            trailing!
-          else if (onTap != null) ...[
-            const SizedBox(width: 5),
-            Icon(Icons.chevron_right, size: 18, color: settingsMuted(context)),
-          ],
-        ],
+        ),
       ),
     ),
   );
@@ -309,10 +313,9 @@ class SettingsChoiceRow extends StatelessWidget {
   Widget build(BuildContext context) => TextButton(
     style: TextButton.styleFrom(
       minimumSize: Size.fromHeight(
-        (description == null ? 44 : 64) *
+        (description == null ? 48 : 64) *
             MediaQuery.textScalerOf(context).scale(1),
       ),
-      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       foregroundColor: Theme.of(context).brightness == Brightness.dark
           ? AppTheme.foreground
@@ -362,7 +365,11 @@ class SettingsChoiceRow extends StatelessWidget {
         Icon(
           Icons.check,
           size: 15,
-          color: selected ? AppTheme.successColor : Colors.transparent,
+          color: selected
+              ? AppTheme.successForeground(
+                  isDark: Theme.of(context).brightness == Brightness.dark,
+                )
+              : Colors.transparent,
         ),
       ],
     ),
@@ -555,7 +562,9 @@ class _SettingsRestoreButtonState extends State<SettingsRestoreButton> {
             color: _armed
                 ? AppTheme.warningColor
                 : _done
-                ? AppTheme.successColor
+                ? AppTheme.successForeground(
+                    isDark: Theme.of(context).brightness == Brightness.dark,
+                  )
                 : settingsMuted(context),
           ),
         ),

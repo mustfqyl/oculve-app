@@ -30,13 +30,13 @@ const assertion = AuthenticateResponseType(
   userHandle: '',
 );
 ClientPasskey service({
-  bool biometrics = true,
+  bool localAuthentication = true,
   bool supported = true,
   bool nativePlatform = true,
   Future<AuthenticateResponseType> Function(AuthenticateRequestType)? sign,
 }) => ClientPasskey(
   supportedPlatform: nativePlatform,
-  hasEnrolledBiometrics: () async => biometrics,
+  supportsLocalAuthentication: () async => localAuthentication,
   supportsPasskeys: () async => supported,
   authenticate: sign ?? (_) async => assertion,
   cancel: () async {},
@@ -82,7 +82,7 @@ void main() {
       final capability = Completer<bool>();
       final native = ClientPasskey(
         supportedPlatform: true,
-        hasEnrolledBiometrics: () => capability.future,
+        supportsLocalAuthentication: () => capability.future,
         supportsPasskeys: () async => true,
       );
       await tester.pumpWidget(
@@ -111,7 +111,7 @@ void main() {
     var cancelled = false;
     final native = ClientPasskey(
       supportedPlatform: true,
-      hasEnrolledBiometrics: () async => true,
+      supportsLocalAuthentication: () async => true,
       supportsPasskeys: () async => true,
       authenticate: (_) => signed.future,
       cancel: () async {
@@ -143,10 +143,10 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
     api.close();
   });
-  for (final biometrics in [false, true]) {
+  for (final localAuthentication in [false, true]) {
     for (final passkeyOnly in [false, true]) {
       testWidgets(
-        'button matches enrolled sensor, biometrics=$biometrics, passkeyOnly=$passkeyOnly',
+        'button matches local authentication, available=$localAuthentication, passkeyOnly=$passkeyOnly',
         (tester) async {
           final api = PasskeyApi()..passkeyOnly = passkeyOnly;
           await tester.pumpWidget(
@@ -154,7 +154,7 @@ void main() {
               overrides: [
                 apiProvider.overrideWithValue(api),
                 clientPasskeyProvider.overrideWithValue(
-                  service(biometrics: biometrics),
+                  service(localAuthentication: localAuthentication),
                 ),
               ],
               child: const MaterialApp(home: LoginScreen()),
@@ -165,13 +165,13 @@ void main() {
           await tester.pump(const Duration(seconds: 1));
           expect(
             find.text('Sign in with passkey'),
-            biometrics ? findsOneWidget : findsNothing,
+            localAuthentication ? findsOneWidget : findsNothing,
           );
           expect(
             find.byType(TextField),
             passkeyOnly ? findsNothing : findsOneWidget,
           );
-          if (passkeyOnly && !biometrics) {
+          if (passkeyOnly && !localAuthentication) {
             expect(
               find.textContaining('Set up an authenticator code'),
               findsOneWidget,
@@ -247,15 +247,15 @@ void main() {
     },
   );
   test(
-    'no enrolled sensor, unsupported OS and unsupported passkey implementation stay hidden',
+    'no local authentication, unsupported OS and unsupported passkey implementation stay hidden',
     () async {
-      expect(await service(biometrics: false).isAvailable(), isFalse);
+      expect(await service(localAuthentication: false).isAvailable(), isFalse);
       expect(await service(supported: false).isAvailable(), isFalse);
       expect(await service(nativePlatform: false).isAvailable(), isFalse);
       var signed = false;
       await expectLater(
         service(
-          biometrics: false,
+          localAuthentication: false,
           sign: (_) async {
             signed = true;
             return assertion;
@@ -269,7 +269,8 @@ void main() {
   test('capability failure is safe and never prompts', () async {
     final native = ClientPasskey(
       supportedPlatform: true,
-      hasEnrolledBiometrics: () async => throw StateError('sensor unavailable'),
+      supportsLocalAuthentication: () async =>
+          throw StateError('authentication unavailable'),
     );
     expect(await native.isAvailable(), isFalse);
   });

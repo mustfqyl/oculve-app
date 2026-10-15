@@ -114,31 +114,46 @@ class _HeaderActionState extends State<_HeaderAction> {
     return Semantics(
       label: widget.semanticLabel,
       button: true,
-      child: GestureDetector(
-        onTapDown: (_) => setState(() => _pressed = true),
-        onTapCancel: () => setState(() => _pressed = false),
-        onTapUp: (_) => setState(() => _pressed = false),
-        onTap: widget.onTap,
-        child: AnimatedScale(
-          scale: _pressed ? .975 : 1,
-          duration: const Duration(milliseconds: 120),
-          curve: const Cubic(.34, 1.56, .64, 1),
-          child: Container(
-            width: 38,
-            height: 38,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: dark
-                  ? Colors.white.withValues(alpha: .04)
-                  : Colors.black.withValues(alpha: .03),
-              border: Border.all(
-                color: dark
-                    ? Colors.white.withValues(alpha: .08)
-                    : Colors.black.withValues(alpha: .07),
+      onTap: widget.onTap,
+      child: ExcludeSemantics(
+        child: Material(
+          color: Colors.transparent,
+          shape: const CircleBorder(),
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            mouseCursor: SystemMouseCursors.click,
+            splashFactory: NoSplash.splashFactory,
+            overlayColor: AppTheme.interactionOverlay(isDark: dark),
+            onTapDown: (_) => setState(() => _pressed = true),
+            onTapCancel: () => setState(() => _pressed = false),
+            onTapUp: (_) => setState(() => _pressed = false),
+            onTap: widget.onTap,
+            child: SizedBox(
+              width: 48,
+              height: 48,
+              child: Center(
+                child: AnimatedScale(
+                  scale: _pressed ? .975 : 1,
+                  duration: const Duration(milliseconds: 120),
+                  curve: const Cubic(.34, 1.56, .64, 1),
+                  child: Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: dark
+                          ? Colors.white.withValues(alpha: .04)
+                          : Colors.black.withValues(alpha: .03),
+                      border: Border.all(
+                        color: dark
+                            ? Colors.white.withValues(alpha: .08)
+                            : Colors.black.withValues(alpha: .07),
+                      ),
+                    ),
+                    child: Icon(widget.icon, size: 19, color: foreground),
+                  ),
+                ),
               ),
-            ),
-            child: ExcludeSemantics(
-              child: Icon(widget.icon, size: 19, color: foreground),
             ),
           ),
         ),

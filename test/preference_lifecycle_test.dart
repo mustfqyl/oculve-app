@@ -36,4 +36,24 @@ void main() {
     await tester.pump();
     expect(tester.takeException(), isNull);
   });
+  testWidgets('invalid stored appearance types retain usable defaults', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({
+      'app_language': 42,
+      'app_theme_mode': false,
+    });
+    final locale = LocaleNotifier();
+    final theme = ThemeNotifier();
+    addTearDown(locale.dispose);
+    addTearDown(theme.dispose);
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    expect(locale.state, const Locale('en'));
+    expect(theme.state, AppThemeMode.system);
+    await locale.setLanguage('tr');
+    await theme.setTheme(AppThemeMode.dark);
+    expect(locale.state, const Locale('tr'));
+    expect(theme.state, AppThemeMode.dark);
+  });
 }

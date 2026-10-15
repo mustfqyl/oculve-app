@@ -56,7 +56,9 @@ foreach ($dll in $requiredRuntimeDlls) {
 @'
 Oculve Windows x64 test build
 
-Extract the entire ZIP to a folder, then run oculve.exe from that folder.
+Extract the entire ZIP to a folder, then run oculve.exe from that folder with
+Run as administrator. Windows requires elevation for the Wintun VPN adapter
+and Windows Filtering Platform traffic protection.
 Keep the xray subfolder and the DLL files beside oculve.exe.
 
 This is an unsigned test build, not a stable production release. A real
@@ -76,6 +78,9 @@ try {
   }
   if ($entries -notcontains 'oculve.exe') {
     throw 'Packaged ZIP is missing oculve.exe.'
+  }
+  if ($entries -notcontains 'xray/byedpi-LICENSE') {
+    throw 'Packaged ZIP is missing the ByeDPI license.'
   }
 }
 finally {

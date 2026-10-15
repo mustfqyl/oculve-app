@@ -51,6 +51,8 @@ void main() {
       'config': config,
       'blocked_apps': ['com.example.blocked'],
       'bypass_subnets': ['10.0.0.0/8'],
+      'dpi_bypass': false,
+      'dpi_profile': 0,
       'proxy_only': true,
       'notificationDisconnectButtonName': 'STOP',
     });
@@ -73,6 +75,8 @@ void main() {
       'config': config,
       'blocked_apps': null,
       'bypass_subnets': null,
+      'dpi_bypass': false,
+      'dpi_profile': 0,
       'proxy_only': false,
       'notificationDisconnectButtonName': 'STOP',
       'geo_assets_directory':

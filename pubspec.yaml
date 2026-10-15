@@ -94,6 +94,7 @@ flutter:
         - asset: assets/fonts/Outfit.ttf
   uses-material-design: true
   assets:
+    - assets/app_icon.png
     - assets/bg-neon-white.png
     - assets/oculve-logo.svg
     - assets/oculve-logo-light.svg

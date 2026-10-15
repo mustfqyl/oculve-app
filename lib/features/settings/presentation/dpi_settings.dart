@@ -106,7 +106,13 @@ class _DpiSettingsState extends ConsumerState<DpiSettings> {
           subtitle: 'Clears learned strategies. Reconnects if active.',
           onTap: _busy || transitioning ? null : _retry,
           trailing: _done
-              ? const Icon(Icons.check, color: AppTheme.successColor, size: 18)
+              ? Icon(
+                  Icons.check,
+                  color: AppTheme.successForeground(
+                    isDark: Theme.of(context).brightness == Brightness.dark,
+                  ),
+                  size: 18,
+                )
               : null,
         ),
       ],

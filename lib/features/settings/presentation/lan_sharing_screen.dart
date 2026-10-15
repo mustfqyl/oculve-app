@@ -130,11 +130,14 @@ class _LanSharingScreenState extends ConsumerState<LanSharingScreen> {
                       subtitle:
                           'HTTP and SOCKS5 proxy with password authentication.',
                       trailing: Switch(
-                        activeTrackColor: AppTheme.successColor,
+                        activeTrackColor: AppTheme.successForeground(
+                          isDark:
+                              Theme.of(context).brightness == Brightness.dark,
+                        ),
                         activeThumbColor: Colors.white,
                         value: _enabled,
                         onChanged: _busy || !Platform.isMacOS ? null : _save,
-                        overlayColor: quietOverlay,
+                        overlayColor: quietOverlay(context),
                       ),
                     ),
                   ],
@@ -190,7 +193,7 @@ class _LanSharingScreenState extends ConsumerState<LanSharingScreen> {
                               labelText: context.tr('Password'),
                               suffixIcon: IconButton(
                                 style: IconButton.styleFrom().copyWith(
-                                  overlayColor: quietOverlay,
+                                  overlayColor: quietOverlay(context),
                                 ),
                                 onPressed: () =>
                                     setState(() => _reveal = !_reveal),

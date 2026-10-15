@@ -242,6 +242,7 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen>
         : AppTheme.lightForegroundMuted;
     final screen = MediaQuery.sizeOf(context);
     final compact = screen.height < 620;
+    final veryCompact = screen.height < 440;
     return Scaffold(
       body: PremiumBackground(
         child: SafeArea(
@@ -254,8 +255,8 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen>
             ),
             child: Column(
               children: [
-                SizedBox(
-                  height: 38,
+                ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: 48),
                   child: Stack(
                     alignment: Alignment.center,
                     children: [
@@ -263,7 +264,7 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen>
                         Align(
                           alignment: Alignment.centerLeft,
                           child: SizedBox(
-                            width: 36,
+                            width: 48,
                             child: IconButton(
                               padding: EdgeInsets.zero,
                               onPressed: _creating || _saving ? null : _back,
@@ -313,9 +314,15 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen>
                     ),
                     onPageChanged: _onPageChanged,
                     children: [
-                      _scroll(context, _welcomePage(fg, muted, compact, dark)),
-                      _scroll(context, _accessCodePage(fg, muted, compact)),
-                      _scroll(context, _finishPage(fg, muted, compact)),
+                      _scroll(
+                        context,
+                        _welcomePage(fg, muted, compact, dark, veryCompact),
+                      ),
+                      _scroll(
+                        context,
+                        _accessCodePage(fg, muted, compact, dark),
+                      ),
+                      _scroll(context, _finishPage(fg, muted, compact, dark)),
                     ],
                   ),
                 ),
@@ -328,15 +335,28 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen>
     );
   }
 
-  Widget _welcomePage(Color fg, Color muted, bool compact, bool dark) => Column(
+  Widget _welcomePage(
+    Color fg,
+    Color muted,
+    bool compact,
+    bool dark,
+    bool veryCompact,
+  ) => Column(
     mainAxisSize: MainAxisSize.min,
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
+      if (!veryCompact)
+        SizedBox(
+          height: compact ? 176 : 218,
+          child: OculveVeilArtwork(progress: _welcomeAnimation, dark: dark),
+        ),
       SizedBox(
-        height: compact ? 176 : 218,
-        child: OculveVeilArtwork(progress: _welcomeAnimation, dark: dark),
+        height: veryCompact
+            ? 0
+            : compact
+            ? 2
+            : 10,
       ),
-      SizedBox(height: compact ? 2 : 10),
       Text(
         'SEE THE UNSEEN',
         textAlign: TextAlign.center,
@@ -353,7 +373,11 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen>
         textAlign: TextAlign.center,
         style: TextStyle(
           color: fg,
-          fontSize: compact ? 23 : 28,
+          fontSize: veryCompact
+              ? 20
+              : compact
+              ? 23
+              : 28,
           height: 1.12,
           fontWeight: FontWeight.w700,
           letterSpacing: -.8,
@@ -365,11 +389,22 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen>
         textAlign: TextAlign.center,
         style: TextStyle(color: muted, fontSize: 12.5, height: 1.55),
       ),
-      SizedBox(height: compact ? 30 : 46),
+      SizedBox(
+        height: veryCompact
+            ? 8
+            : compact
+            ? 30
+            : 46,
+      ),
     ],
   );
 
-  Widget _accessCodePage(Color fg, Color muted, bool compact) => Column(
+  Widget _accessCodePage(
+    Color fg,
+    Color muted,
+    bool compact,
+    bool dark,
+  ) => Column(
     mainAxisSize: MainAxisSize.min,
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
@@ -414,7 +449,7 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen>
                   borderRadius: BorderRadius.circular(15),
                   border: Border.all(
                     color: _copied
-                        ? AppTheme.successColor
+                        ? AppTheme.successForeground(isDark: dark)
                         : fg.withValues(alpha: .2),
                     width: _copied ? 1.5 : 1,
                   ),
@@ -440,7 +475,7 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen>
                             child: Text(
                               _copied ? 'Copied' : _code!,
                               style: TextStyle(
-                                color: _copied ? AppTheme.successColor : fg,
+                                color: fg,
                                 fontFamily: 'monospace',
                                 fontSize: 17,
                                 fontWeight: FontWeight.w700,
@@ -466,7 +501,7 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen>
     ],
   );
 
-  Widget _finishPage(Color fg, Color muted, bool compact) => Column(
+  Widget _finishPage(Color fg, Color muted, bool compact, bool dark) => Column(
     mainAxisSize: MainAxisSize.min,
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
@@ -499,9 +534,9 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen>
         ),
         child: Row(
           children: [
-            const Icon(
+            Icon(
               Icons.check_circle_outline_rounded,
-              color: AppTheme.successColor,
+              color: AppTheme.successForeground(isDark: dark),
               size: 20,
             ),
             const SizedBox(width: 10),
@@ -532,6 +567,7 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen>
       Center(
         child: Wrap(
           alignment: WrapAlignment.center,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             Text(
               'By continuing, you agree to the ',
@@ -539,12 +575,15 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen>
             ),
             InkWell(
               onTap: _openTerms,
-              child: Text(
-                'Terms of Service',
-                style: TextStyle(
-                  color: fg,
-                  fontSize: 10.5,
-                  decoration: TextDecoration.underline,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 18),
+                child: Text(
+                  'Terms of Service',
+                  style: TextStyle(
+                    color: fg,
+                    fontSize: 10.5,
+                    decoration: TextDecoration.underline,
+                  ),
                 ),
               ),
             ),
@@ -632,17 +671,33 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen>
                     onPressed: () =>
                         Navigator.push(context, appRoute(const LoginScreen())),
                     style: TextButton.styleFrom(
-                      minimumSize: const Size(0, 38),
+                      minimumSize: const Size(48, 48),
                       padding: const EdgeInsets.symmetric(horizontal: 7),
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       foregroundColor: fg,
                       textStyle: const TextStyle(
                         fontSize: 10.5,
                         fontWeight: FontWeight.w700,
                         decoration: TextDecoration.underline,
                       ),
+                      // The default hover fill is painted as a circle around
+                      // the whole 48px target, so it overlaps the action button
+                      // above this row. The pointer cursor carries the
+                      // affordance instead; focus and press stay visible.
+                    ).copyWith(
+                      mouseCursor: const WidgetStatePropertyAll(
+                        SystemMouseCursors.click,
+                      ),
+                      overlayColor: WidgetStateProperty.resolveWith((states) {
+                        if (states.contains(WidgetState.focused)) {
+                          return fg.withValues(alpha: .09);
+                        }
+                        if (states.contains(WidgetState.hovered)) {
+                          return Colors.transparent;
+                        }
+                        return fg.withValues(alpha: .07);
+                      }),
                     ),
-                    child: const Text('Sign in'),
+                    child: const Text('Sign in!'),
                   ),
                 ],
               ),

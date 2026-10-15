@@ -3,10 +3,12 @@ import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_vless/flutter_vless.dart';
+import '../models/user_facing_failure.dart';
 
 /// Linux uses Xray's native TUN inbound, supervised by a root-owned helper.
 /// The UI remains unprivileged; polkit requests authorization for the helper.
 class LinuxXrayPlatform extends VlessPlatform {
+  static const _tunnelHelper = '/usr/lib/oculve/oculve-tunnel';
   Process? _process;
   void Function(VlessStatus)? _status;
   final Queue<String> _events = Queue<String>();
@@ -29,8 +31,7 @@ class LinuxXrayPlatform extends VlessPlatform {
   }
 
   @override
-  Future<bool> requestPermission() async =>
-      File('/usr/lib/oculve/oculve-tunnel').existsSync();
+  Future<bool> requestPermission() async => File(_tunnelHelper).existsSync();
 
   @override
   Future<String> getCoreVersion() async {
@@ -71,10 +72,13 @@ class LinuxXrayPlatform extends VlessPlatform {
   }
 
   Future<void> _launch(Map<String, Object?> request) async {
+    if (!File(_tunnelHelper).existsSync()) {
+      throw StateError(UserFacingFailure.linuxSupportMissingMessage);
+    }
     final process = await Process.start('/usr/bin/pkexec', [
       '--action-id',
       'com.oculve.client.tunnel',
-      '/usr/lib/oculve/oculve-tunnel',
+      _tunnelHelper,
     ]);
     _process = process;
     process.stdout
@@ -189,11 +193,11 @@ class LinuxXrayPlatform extends VlessPlatform {
   Future<void> stopVless() async {
     final process = _process;
     if (process == null) {
-      if (File('/usr/lib/oculve/oculve-tunnel').existsSync()) {
+      if (File(_tunnelHelper).existsSync()) {
         final result = await Process.run('/usr/bin/pkexec', [
           '--action-id',
           'com.oculve.client.tunnel',
-          '/usr/lib/oculve/oculve-tunnel',
+          _tunnelHelper,
           '--disarm',
         ]);
         if (result.exitCode != 0) {

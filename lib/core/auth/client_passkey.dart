@@ -11,13 +11,14 @@ final clientPasskeyProvider = Provider((ref) => ClientPasskey());
 /// Native WebAuthn only. Availability checks never open an authentication UI.
 class ClientPasskey {
   ClientPasskey({
-    Future<bool> Function()? hasEnrolledBiometrics,
+    Future<bool> Function()? supportsLocalAuthentication,
     Future<bool> Function()? supportsPasskeys,
     Future<AuthenticateResponseType> Function(AuthenticateRequestType)?
     authenticate,
     Future<void> Function()? cancel,
     bool? supportedPlatform,
-  }) : _hasEnrolledBiometrics = hasEnrolledBiometrics ?? _deviceHasBiometrics,
+  }) : _supportsLocalAuthentication =
+           supportsLocalAuthentication ?? _deviceSupportsLocalAuthentication,
        _supportsPasskeys = supportsPasskeys ?? _deviceSupportsPasskeys,
        _authenticate = authenticate ?? _nativeAuthenticate,
        _cancel = cancel ?? _nativeCancel,
@@ -28,7 +29,7 @@ class ClientPasskey {
                Platform.isAndroid ||
                Platform.isWindows);
 
-  final Future<bool> Function() _hasEnrolledBiometrics;
+  final Future<bool> Function() _supportsLocalAuthentication;
   final Future<bool> Function() _supportsPasskeys;
   final Future<AuthenticateResponseType> Function(AuthenticateRequestType)
   _authenticate;
@@ -36,7 +37,7 @@ class ClientPasskey {
   final bool _supportedPlatform;
   static final _authenticator = PasskeyAuthenticator();
 
-  static Future<bool> _deviceHasBiometrics() async {
+  static Future<bool> _deviceSupportsLocalAuthentication() async {
     if (Platform.isWindows) {
       // local_auth's Windows check also accepts a PIN. Require actual enrolled
       // biometric factors for the current Windows user instead.
@@ -46,6 +47,11 @@ class ClientPasskey {
           false;
     }
     final auth = LocalAuthentication();
+    if (Platform.isIOS || Platform.isMacOS) {
+      // Apple passkey prompts can fall back to the device passcode or system
+      // password; biometrics-only capability checks hide valid users.
+      return await auth.isDeviceSupported();
+    }
     return await auth.canCheckBiometrics &&
         (await auth.getAvailableBiometrics()).isNotEmpty;
   }
@@ -53,7 +59,9 @@ class ClientPasskey {
   static Future<bool> _deviceSupportsPasskeys() async {
     final availability = _authenticator.getAvailability();
     if (Platform.isAndroid) {
-      return (await availability.android()).hasPasskeySupport;
+      final android = await availability.android();
+      return android.hasPasskeySupport &&
+          android.isUserVerifyingPlatformAuthenticatorAvailable == true;
     }
     if (Platform.isIOS || Platform.isMacOS) {
       return (await availability.iOS()).hasPasskeySupport;
@@ -73,7 +81,12 @@ class ClientPasskey {
   Future<bool> isAvailable() async {
     if (!_supportedPlatform) return false;
     try {
-      return await _hasEnrolledBiometrics() && await _supportsPasskeys();
+      final supportsPasskeys = await _supportsPasskeys();
+      if (!supportsPasskeys) return false;
+      // Android passkeys can verify with the device screen lock (PIN, pattern,
+      // or password), so biometric enrollment is not a passkey prerequisite.
+      if (Platform.isAndroid) return true;
+      return await _supportsLocalAuthentication();
     } catch (_) {
       // Missing plugins, unenrolled sensors and blocked system policy all hide
       // the option. A capability probe must never interfere with TOTP login.

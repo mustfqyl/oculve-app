@@ -114,13 +114,13 @@ class _InlineAccountDeleteState extends State<InlineAccountDelete>
         return KeyEventResult.ignored;
       },
       child: SizedBox(
-        height: 40,
+        height: 48,
         child: _stage == _DeleteStage.idle
             ? TextButton.icon(
                 key: const ValueKey('account-delete-start'),
                 style: TextButton.styleFrom(
                   foregroundColor: red,
-                  minimumSize: const Size.fromHeight(40),
+                  minimumSize: const Size.fromHeight(48),
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   visualDensity: VisualDensity.standard,
                   padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -167,7 +167,7 @@ class _InlineAccountDeleteState extends State<InlineAccountDelete>
                   isDense: true,
                   contentPadding: const EdgeInsets.symmetric(
                     horizontal: 12,
-                    // The outline should fill the same 40px slot as the idle
+                    // The outline should fill the same 48px slot as the idle
                     // and countdown buttons; the smaller padding made the
                     // focused field's painted border look vertically shorter.
                     vertical: 14,
@@ -215,7 +215,7 @@ class _InlineAccountDeleteState extends State<InlineAccountDelete>
                             ? _submit
                             : null,
                         style: OutlinedButton.styleFrom(
-                          minimumSize: const Size.fromHeight(40),
+                          minimumSize: const Size.fromHeight(48),
                           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                           visualDensity: VisualDensity.standard,
                           padding: const EdgeInsets.symmetric(horizontal: 12),

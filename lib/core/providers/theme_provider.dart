@@ -15,12 +15,15 @@ class ThemeNotifier extends StateNotifier<AppThemeMode> {
   }
 
   static const _key = 'app_theme_mode';
+  int _revision = 0;
+  Future<void> _writes = Future<void>.value();
 
   Future<void> _load() async {
+    final revision = _revision;
     final prefs = await SharedPreferences.getInstance();
-    if (!mounted) return;
-    final saved = prefs.getString(_key);
-    if (saved != null) {
+    if (!mounted || revision != _revision) return;
+    final saved = prefs.get(_key);
+    if (saved is String) {
       state = AppThemeMode.values.firstWhere(
         (e) => e.name == saved,
         orElse: () => AppThemeMode.system,
@@ -29,8 +32,13 @@ class ThemeNotifier extends StateNotifier<AppThemeMode> {
   }
 
   Future<void> setTheme(AppThemeMode mode) async {
+    _revision++;
     state = mode;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_key, mode.name);
+    final write = _writes.then((_) async {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_key, mode.name);
+    });
+    _writes = write.catchError((Object _) {});
+    await write;
   }
 }

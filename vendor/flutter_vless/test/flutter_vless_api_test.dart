@@ -89,10 +89,26 @@ void main() {
       'config': validConfig,
       'blocked_apps': ['com.blocked.app'],
       'bypass_subnets': ['172.16.0.0/12'],
+      'dpi_bypass': false,
+      'dpi_profile': 0,
       'proxy_only': false,
       'geo_assets_directory': '/private/app-group/geodata',
       'notificationDisconnectButtonName': 'STOP',
     });
+  });
+
+  test('startVless forwards the selected DPI bypass strategy', () async {
+    final plugin = FlutterVless(onStatusChanged: (_) {});
+    await plugin.startVless(
+      remark: 'DPI Bypass',
+      config: validConfig,
+      dpiBypass: true,
+      dpiProfile: 4,
+    );
+    expect(calls, hasLength(1));
+    expect(calls.single.method, 'startVless');
+    expect(calls.single.arguments['dpi_bypass'], isTrue);
+    expect(calls.single.arguments['dpi_profile'], 4);
   });
 
   test('P0 startVless normalizes Xray 26.x incompatible config fields',

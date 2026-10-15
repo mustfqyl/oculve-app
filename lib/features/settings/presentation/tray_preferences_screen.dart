@@ -125,9 +125,13 @@ class _TrayPreferencesScreenState extends ConsumerState<TrayPreferencesScreen> {
                             child: Switch(
                               key: const ValueKey('tray-hide-on-blur'),
                               value: preferences.hideOnBlur,
-                              activeTrackColor: AppTheme.successColor,
+                              activeTrackColor: AppTheme.successForeground(
+                                isDark:
+                                    Theme.of(context).brightness ==
+                                    Brightness.dark,
+                              ),
                               activeThumbColor: Colors.white,
-                              overlayColor: quietOverlay,
+                              overlayColor: quietOverlay(context),
                               onChanged: _busy
                                   ? null
                                   : (value) => _save(
@@ -210,7 +214,7 @@ class _TraySelector<T> extends StatelessWidget {
       key: ValueKey('tray-selector-$id'),
       onTap: enabled ? _cycle : null,
       borderRadius: BorderRadius.circular(14),
-      overlayColor: quietOverlay,
+      overlayColor: quietOverlay(context),
       splashFactory: NoSplash.splashFactory,
       child: SizedBox(
         height: 60 * MediaQuery.textScalerOf(context).scale(1),

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:oculve/core/network/device_hwid.dart';
 import 'package:oculve/core/network/oculve_api.dart';
@@ -76,6 +78,38 @@ void main() {
       'X-Ver-OS': '18.2.1',
       'X-Device-Model': 'iPhone15,3',
     });
+  });
+
+  test('starts independent subscription metadata reads together', () async {
+    final hwidResult = Completer<String?>();
+    final deviceInfoResult = Completer<Map<String, String>>();
+    final started = <String>{};
+    final api = OculveApi(
+      deviceHwid: DeviceHwid(
+        read: () {
+          started.add('hwid');
+          return hwidResult.future;
+        },
+      ),
+      deviceInfo: SubscriptionDeviceInfo(
+        read: () {
+          started.add('device-info');
+          return deviceInfoResult.future;
+        },
+      ),
+    );
+    addTearDown(api.close);
+
+    final headersFuture = api.subscriptionRequestHeaders();
+    await Future<void>.delayed(Duration.zero);
+    final bothStarted = started.containsAll({'hwid', 'device-info'});
+    hwidResult.complete('stable-hardware-id');
+    deviceInfoResult.complete({'X-Ver-OS': '18.2.1'});
+
+    final headers = await headersFuture;
+    expect(bothStarted, isTrue);
+    expect(headers['X-HWID'], 'stable-hardware-id');
+    expect(headers['X-Ver-OS'], '18.2.1');
   });
 
   test(

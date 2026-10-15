@@ -49,7 +49,6 @@ migrate_working_dir/
 /ios/Flutter/ephemeral/
 /ios/Pods/
 /ios/Runner/GeneratedPluginRegistrant.*
-/ios/Runner/Assets.xcassets/AppIcon.appiconset/Contents.json
 /macos/build/
 
 # Environment files

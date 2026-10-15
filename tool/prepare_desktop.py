@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import io
 import json
+import platform as host_platform
 from pathlib import Path
 import shutil
 import subprocess
@@ -16,8 +17,19 @@ lock = json.loads((root / 'tool/runtime-lock.json').read_text())
 parser = argparse.ArgumentParser()
 parser.add_argument('platform', choices=['windows', 'linux'])
 args = parser.parse_args()
+if args.platform == 'linux' and (
+    sys.platform != 'linux'
+    or host_platform.machine().lower() not in ('x86_64', 'amd64')
+):
+    raise SystemExit(
+        'Preparing the Linux VPN runtime requires a Linux x86_64 host; '
+        'ByeDPI is built with the host compiler.'
+    )
 out = root / args.platform / 'xray'
 out.mkdir(parents=True, exist_ok=True)
+byedpi_license = root / 'vendor' / 'byedpi' / 'upstream' / 'LICENSE'
+if not byedpi_license.is_file(): raise SystemExit('ByeDPI license file is missing')
+shutil.copy2(byedpi_license, out / 'byedpi-LICENSE')
 artifacts = ['xray-' + args.platform] + (['tun2socks-windows', 'wintun'] if args.platform == 'windows' else [])
 for name in artifacts:
     item = lock[name]

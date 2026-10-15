@@ -54,7 +54,7 @@ Asıl `ios/Runner.xcworkspace` kullanılmalıdır; test kopyasını üretim sür
 
 Network Extension (Packet Tunnel) ve App Groups yetkileri/profilleri iki target ile uyumlu olmalıdır. Passkey için Associated Domains ve sunucudaki apple-app-site-association uygulama kimliği doğrulanmalıdır.
 
-İncelemede ayrıca VPN ortak Keychain grubunun eşleştirilmesi gerektiği görüldü: Dart şu anda `group.com.oculve.app` geçirirken iOS entitlements `$(AppIdentifierPrefix)com.oculve.app` tanımlıyor. Native `TunnelSecretStore` erişim grubunu doğrudan Security API'ye geçiriyor. Gerçek VPN etkinleştirilmeden önce iki target'ın imzalı ortak Keychain grubu ile runtime değeri aynı yapılmalı ve cihazda doğrulanmalıdır. Bu çalışma üretim VPN kodunu değiştirmedi.
+Önceki incelemede VPN ortak Keychain grubu uyumsuzluğu görüldü: Dart App Group `group.com.oculve.app` değerini Keychain grubu olarak geçiriyordu; native `TunnelSecretStore` bu değeri doğrudan Security API'ye iletiyor. 15 Ekim 2026'da düzeltildi: Dart artık yanlış değeri geçmiyor; Runner Info.plist `$(AppIdentifierPrefix)com.oculve.app` değerini Flutter Vless plugin'ine veriyor ve her iki target entitlement'ı bu grupla eşleşiyor. Gerçek imzalı cihazda Xcode'un prefix'i genişlettiği ve VPN extension'ın erişebildiği ayrıca doğrulanmalı; bu makinedeki simülatör derlemesi bu kanıtı sağlamaz.
 
 Sonrasında gerçek cihazda tünel açılışı, internet/DNS, bağlantı kesme ve yeniden bağlanma ayrı olarak test edilmelidir; arayüz testinin başarılı olması VPN'in çalıştığını kanıtlamaz.
 

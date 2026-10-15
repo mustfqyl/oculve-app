@@ -152,10 +152,15 @@ class OculveApi {
 
   Future<Map<String, String>> subscriptionRequestHeaders() async {
     try {
+      final values = await Future.wait<Object>([
+        _userAgent(),
+        _subscriptionHwid.get(),
+        _subscriptionDeviceInfo.headers(),
+      ]);
       return {
-        HttpHeaders.userAgentHeader: await _userAgent(),
-        'X-HWID': await _subscriptionHwid.get(),
-        ...await _subscriptionDeviceInfo.headers(),
+        HttpHeaders.userAgentHeader: values[0] as String,
+        'X-HWID': values[1] as String,
+        ...(values[2] as Map<String, String>),
       };
     } on DeviceHwidUnavailable {
       throw const ApiFailure(

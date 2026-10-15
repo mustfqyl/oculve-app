@@ -16,17 +16,17 @@ there, and the native client intentionally does not forward a session through a 
 | Android | Xray + Android VPN service | Android SDK and a signed release key |
 | iOS | Xray Packet Tunnel extension | Paid Apple Developer membership, an App ID with Network Extension and App Groups |
 | macOS | Xray Packet Tunnel extension | Apple signing plus the same capabilities |
-| Windows | `flutter_vless` Xray/Wintun backend | Run `python3 tool/prepare_desktop.py windows` before building |
-| Linux | Root-owned native Xray TUN helper | Run `python3 tool/prepare_desktop.py linux` then `sudo native/linux/install.sh` |
+| Windows x64 | `flutter_vless` Xray/Wintun backend | Run Oculve as administrator for VPN/WFP access; prepare runtime before building |
+| Linux x86_64 | Root-owned native Xray TUN helper | Run `python3 tool/prepare_desktop.py linux` then `sudo native/linux/install.sh` |
 
 ## Build from source
 
 Install the Flutter stable SDK first. Platform builds also need their native toolchains:
 
 - Android: Android SDK and JDK 17.
-- Windows: Windows 10/11, Visual Studio 2022 with the Desktop development with C++ workload, and CMake.
+- Windows: Windows 10/11, Visual Studio 2022 with the Desktop development with C++ workload, and CMake. Launch Oculve with **Run as administrator** to grant Wintun and Windows Filtering Platform access for VPN connections.
 - macOS/iOS: Xcode and CocoaPods. A signed device VPN additionally needs Apple Developer provisioning for Network Extensions and App Groups.
-- Linux: GTK development packages, CMake, and Polkit for the managed TUN helper.
+- Linux x86_64: GTK development packages, CMake, and Polkit for the managed TUN helper. The prepared Linux VPN runtime currently targets x86_64.
 
 From the project root, fetch Flutter dependencies:
 
@@ -55,10 +55,19 @@ macOS packet-tunnel setup:
 
 The app bundle ID is **com.oculve.app**; the packet-tunnel extension uses **com.oculve.app.XrayTunnel**, and both use the **group.com.oculve.app** App Group. Set matching identifiers and capabilities in the Apple Developer portal before signing a device build.
 
-Linux runtime setup:
+Linux x86_64 runtime and test package:
 
     python3 tool/prepare_desktop.py linux
+    flutter build linux --release
+    sh tool/package_linux.sh
+
+This creates `dist/Oculve-Linux-Test.tar.gz`. For a source checkout, install the system helper with:
+
     sudo native/linux/install.sh
+
+The Linux test package contains the release app bundle and prepared runtimes.
+Run `./app/oculve` from the extracted package, then install its system helper
+once with `sudo ./native/linux/install.sh` before connecting.
 
 The downloaded Windows and Linux runtime artifacts are intentionally excluded from Git and can be reproduced from the pinned checksums in tool/runtime-lock.json.
 

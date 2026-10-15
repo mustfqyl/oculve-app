@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:oculve/core/models/vpn_state.dart';
+import 'package:oculve/core/models/user_facing_failure.dart';
 import 'package:flutter_vless/flutter_vless.dart';
 import 'package:oculve/core/providers/vpn_provider.dart';
 import 'vpn_state_test.dart' show TestPlatform;
@@ -59,6 +61,98 @@ void main() {
     container = ProviderContainer();
   });
   tearDown(() => container.dispose());
+  test(
+    'Windows always checks elevation before automatic or manual connect',
+    () {
+      expect(
+        shouldRequestVpnPermission(
+          isWindows: true,
+          automatic: true,
+          replacing: false,
+        ),
+        isTrue,
+      );
+      expect(
+        shouldRequestVpnPermission(
+          isWindows: true,
+          automatic: false,
+          replacing: true,
+        ),
+        isTrue,
+      );
+      expect(
+        shouldRequestVpnPermission(
+          isWindows: false,
+          automatic: true,
+          replacing: false,
+        ),
+        isFalse,
+      );
+      expect(
+        shouldRequestVpnPermission(
+          isWindows: false,
+          automatic: false,
+          replacing: true,
+        ),
+        isFalse,
+      );
+      expect(
+        shouldRequestVpnPermission(
+          isWindows: false,
+          automatic: false,
+          replacing: false,
+        ),
+        isTrue,
+      );
+    },
+  );
+
+  test(
+    'Windows automatic connection explains elevation and skips native start',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      platform.initializeGate.complete();
+      platform.permission = false;
+      container.read(selectedServerProvider.notifier).state = dpiBypassServerId;
+
+      await container.read(vpnProvider.notifier).connect(automatic: true);
+
+      expect(platform.starts, 0);
+      expect(platform.stops, 1);
+      expect(
+        container.read(vpnErrorProvider),
+        UserFacingFailure.windowsAdministratorRequiredMessage,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 3200));
+      expect(platform.stops, 1, reason: 'elevation failure must not retry');
+    },
+    skip: !Platform.isWindows,
+  );
+
+  test(
+    'Linux automatic connection does not retry before helper setup',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      platform.initializeGate.complete();
+      platform.startFailure = StateError(
+        UserFacingFailure.linuxSupportMissingMessage,
+      );
+      container.read(selectedServerProvider.notifier).state = dpiBypassServerId;
+
+      await container.read(vpnProvider.notifier).connect(automatic: true);
+
+      expect(platform.starts, 1);
+      expect(platform.stops, 1);
+      expect(
+        container.read(vpnErrorProvider),
+        UserFacingFailure.linuxSupportMissingMessage,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 3200));
+      expect(platform.starts, 1, reason: 'missing helper must not retry');
+    },
+    skip: !Platform.isLinux,
+  );
+
   test(
     'simultaneous diagnostics and connect initialize native events once',
     () async {
@@ -291,7 +385,7 @@ void main() {
       container.read(selectedServerProvider.notifier).state = dpiBypassServerId;
       await notifier.initialize();
       final connecting = notifier.connect();
-    await tester.pump();
+      await tester.pump();
       try {
         expect(native.starts, 1);
         native.emit(VlessStatus(state: 'PERMISSION_REQUIRED'));

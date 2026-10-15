@@ -27,6 +27,10 @@ class AppStrings {
         'No se pudieron guardar los ajustes de la bandeja. Inténtalo de nuevo.',
     'Connection error': 'Error de conexión',
     'Loading statistics': 'Cargando estadísticas',
+    'Loading': 'Cargando',
+    'Preparing your account and servers…':
+        'Preparando tu cuenta y tus servidores…',
+    'Saving…': 'Guardando…',
 
     'macOS tunnel uses IPv4.': 'El túnel macOS utiliza IPv4.',
     'Retry interrupted sessions. Manual Disconnect cancels retries.':
@@ -78,6 +82,10 @@ class AppStrings {
         'La protección continúa durante la recuperación. Desconectar manualmente termina la sesión y su protección. macOS excluye cierto tráfico esencial del sistema.',
     'Traffic protection depends on your platform. System-level verification is required before this feature can be enabled.':
         'La protección depende de la plataforma. Requiere verificación a nivel del sistema antes de activarse.',
+    'Windows installs system traffic protection before the VPN starts. It stays active during tunnel recovery and ends when you disconnect.':
+        'Windows activa la protección de tráfico del sistema antes de iniciar la VPN. Se mantiene durante la recuperación del túnel y termina al desconectarte.',
+    'Linux installs a firewall guard before VPN routing starts. It stays active during recovery and is removed when you stop the VPN.':
+        'Linux activa un cortafuegos antes de iniciar el enrutamiento VPN. Se mantiene durante la recuperación y se retira al detener la VPN.',
     'TLS fragmentation': 'Fragmentación TLS',
     'For compatible connections': 'Para conexiones compatibles',
     'Available for VLESS Reality over TCP.':
@@ -396,6 +404,10 @@ class AppStrings {
     'No compatible servers are available.':
         'No hay servidores compatibles disponibles.',
     'VPN permission was not granted.': 'No se concedió el permiso de VPN.',
+    'Linux VPN support is not installed. Finish the Linux setup steps before connecting.':
+        'El soporte VPN de Linux no está instalado. Completa los pasos de configuración de Linux antes de conectar.',
+    'Windows needs administrator permission to create the VPN tunnel. Close Oculve and reopen it with Run as administrator.':
+        'Windows necesita permisos de administrador para crear el túnel VPN. Cierra Oculve y vuelve a abrirlo con “Ejecutar como administrador”.',
     'Connection timed out. Please try another location.':
         'Se agotó el tiempo de conexión. Prueba otra ubicación.',
     'Could not establish the VPN. Check your account, VPN permission and server availability.':
@@ -519,6 +531,7 @@ class AppStrings {
     'Servers': 'Servidores',
     'Settings': 'Ajustes',
     'Sign in': 'Iniciar sesión',
+    'Sign in!': '¡Iniciar sesión!',
     'Sign up': 'Crear cuenta',
     'Sites outside the VPN': 'Sitios fuera de la VPN',
     'Sort': 'Ordenar',
@@ -1099,6 +1112,10 @@ class AppStrings {
         'Tepsi ayarları kaydedilemedi. Yeniden deneyin.',
     'Connection error': 'Bağlantı hatası',
     'Loading statistics': 'İstatistikler yükleniyor',
+    'Loading': 'Yükleniyor',
+    'Preparing your account and servers…':
+        'Hesabın ve sunucuların hazırlanıyor…',
+    'Saving…': 'Kaydediliyor…',
 
     'macOS tunnel uses IPv4.': 'macOS tüneli IPv4 kullanır.',
     'Retry interrupted sessions. Manual Disconnect cancels retries.':
@@ -1152,6 +1169,10 @@ class AppStrings {
         'Tünel yeniden kurulurken koruma devam eder. Elle bağlantıyı kesmek VPN oturumunu ve korumasını sonlandırır. macOS bazı temel sistem trafiğini hariç tutar.',
     'Traffic protection depends on your platform. System-level verification is required before this feature can be enabled.':
         'Koruma platforma bağlıdır. Etkinleştirilmeden önce sistem düzeyinde doğrulanmalıdır.',
+    'Windows installs system traffic protection before the VPN starts. It stays active during tunnel recovery and ends when you disconnect.':
+        'Windows, VPN başlamadan önce sistem trafik korumasını kurar. Tünel kurtarılırken koruma sürer ve bağlantıyı kestiğinizde kaldırılır.',
+    'Linux installs a firewall guard before VPN routing starts. It stays active during recovery and is removed when you stop the VPN.':
+        'Linux, VPN yönlendirmesi başlamadan önce güvenlik duvarı korumasını kurar. Kurtarma sırasında sürer ve VPN’i durdurduğunuzda kaldırılır.',
     'TLS fragmentation': 'TLS parçalama',
     'For compatible connections': 'Uyumlu bağlantılar için',
     'Available for VLESS Reality over TCP.':
@@ -1462,6 +1483,10 @@ class AppStrings {
     'Your subscription is not active.': 'Aboneliğiniz etkin değil.',
     'No compatible servers are available.': 'Uygun sunucu bulunamadı.',
     'VPN permission was not granted.': 'VPN izni verilmedi.',
+    'Linux VPN support is not installed. Finish the Linux setup steps before connecting.':
+        'Linux VPN desteği yüklü değil. Bağlanmadan önce Linux kurulum adımlarını tamamlayın.',
+    'Windows needs administrator permission to create the VPN tunnel. Close Oculve and reopen it with Run as administrator.':
+        'Windows’ta VPN tüneli için yönetici izni gerekir. Oculve’yi kapatıp “Yönetici olarak çalıştır” seçeneğiyle yeniden aç.',
     'Connection timed out. Please try another location.':
         'Bağlantı zaman aşımına uğradı. Başka bir konum deneyin.',
     'Could not establish the VPN. Check your account, VPN permission and server availability.':
@@ -1587,6 +1612,7 @@ class AppStrings {
     'Session resumption': 'Oturum devam ettirme',
     'Settings': 'Ayarlar',
     'Sign in': 'Giriş yap',
+    'Sign in!': 'Giriş Yap!',
     'Sign up': 'Kayıt ol',
     'Sites outside the VPN': 'VPN dışındaki siteler',
     'Sort': 'Sırala',
@@ -2153,6 +2179,16 @@ extension AppStringsContext on BuildContext {
       'es' => count == 1 ? '1 día restante' : '$count días restantes',
       'tr' => '$count gün kaldı',
       _ => '$count d remaining',
+    };
+  }
+
+  String saveApps(int count) {
+    final language = Localizations.localeOf(this).languageCode;
+    return switch (language) {
+      'es' =>
+        count == 1 ? 'Guardar 1 aplicación' : 'Guardar $count aplicaciones',
+      'tr' => '$count uygulamayı kaydet',
+      _ => count == 1 ? 'Save 1 app' : 'Save $count apps',
     };
   }
 }

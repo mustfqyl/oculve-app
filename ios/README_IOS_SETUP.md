@@ -23,6 +23,8 @@ Use these identifiers:
 - Packet Tunnel: **com.oculve.app.XrayTunnel**
 - App Group: **group.com.oculve.app**
 
+The shared Keychain group is **$(AppIdentifierPrefix)com.oculve.app**, not the App Group. Runner's Info.plist passes this signing-expanded value to the Flutter Vless iOS plugin; both Runner and XrayTunnel entitlements must keep the same Keychain group. A simulator build does not verify that the signed device entitlements match.
+
 A device VPN build requires a paid Apple Developer membership and matching provisioning profiles. Enable the Network Extension capability with Packet Tunnel for the XrayTunnel target. Enable the App Groups capability for both Runner and XrayTunnel, using the App Group above. Keep the bundle IDs and entitlements consistent with the project files.
 
 ## Build

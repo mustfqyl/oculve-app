@@ -50,6 +50,7 @@ class TrayClickPreferencesNotifier extends StateNotifier<TrayClickPreferences> {
     _loaded = _load();
   }
   late final Future<void> _loaded;
+  Future<void> _writes = Future<void>.value();
   Future<void> get ready => _loaded;
   static const _leftKey = 'tray.left_click_action.v1';
   static const _rightKey = 'tray.right_click_action.v1';
@@ -104,7 +105,7 @@ class TrayClickPreferencesNotifier extends StateNotifier<TrayClickPreferences> {
     Object value,
     TrayClickPreferences Function(TrayClickPreferences) update, {
     bool Function(TrayClickPreferences)? isValid,
-  }) async {
+  }) => _enqueue(() async {
     await _loaded;
     if (isValid != null && !isValid(state)) {
       throw StateError('Each tray click must have a different action.');
@@ -117,6 +118,13 @@ class TrayClickPreferencesNotifier extends StateNotifier<TrayClickPreferences> {
       throw StateError('Could not save tray settings. Please try again.');
     }
     if (mounted) state = update(state);
+  });
+
+  // Validate against the preceding committed edit, including reset operations.
+  Future<void> _enqueue(Future<void> Function() write) {
+    final operation = _writes.then((_) => write());
+    _writes = operation.catchError((Object _) {});
+    return operation;
   }
 
   Future<void> setLeft(TrayClickAction action) => _save(
@@ -137,7 +145,7 @@ class TrayClickPreferencesNotifier extends StateNotifier<TrayClickPreferences> {
       _save(_closeKey, value.name, (p) => p.copyWith(closeAction: value));
   Future<void> setIndicator(TrayStatusIndicator value) =>
       _save(_indicatorKey, value.name, (p) => p.copyWith(indicator: value));
-  Future<void> reset() async {
+  Future<void> reset() => _enqueue(() async {
     await _loaded;
     final p = await SharedPreferences.getInstance();
     for (final key in [
@@ -152,7 +160,7 @@ class TrayClickPreferencesNotifier extends StateNotifier<TrayClickPreferences> {
       }
     }
     if (mounted) state = const TrayClickPreferences();
-  }
+  });
 
   static T _parse<T extends Enum>(String? value, List<T> values, T fallback) =>
       values.firstWhere((item) => item.name == value, orElse: () => fallback);

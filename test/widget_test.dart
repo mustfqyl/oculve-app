@@ -139,6 +139,19 @@ class _LoginFlowSession extends _OnboardingSession {
   }
 }
 
+class _TwoFactorSession extends _OnboardingSession {
+  @override
+  Future<void> login(String code, {String? challenge}) async {
+    if (challenge == null) {
+      throw const SecondFactorRequired(
+        'test-challenge',
+        totp: true,
+        passkey: false,
+      );
+    }
+  }
+}
+
 class _VlessSession extends SessionController {
   _VlessSession(VpnProfile profile) : super(OculveApi()) {
     state = AsyncValue.data(Account({'status': 'active'}, [profile]));
@@ -146,6 +159,29 @@ class _VlessSession extends SessionController {
 }
 
 void main() {
+  testWidgets('two-factor code supports platform one-time-code autofill', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [sessionProvider.overrideWith((ref) => _TwoFactorSession())],
+        child: MaterialApp(
+          theme: AppTheme.darkTheme,
+          home: const LoginScreen(),
+        ),
+      ),
+    );
+
+    await tester.enterText(find.byType(TextField).first, 'ABCD-EFGH-IJKL');
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    final codeField = tester.widget<TextField>(find.byType(TextField).first);
+    expect(codeField.autofillHints, [AutofillHints.oneTimeCode]);
+    expect(codeField.decoration?.hintText, 'VERIFICATION CODE');
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('sign in returns to the session gate after a valid code', (
     tester,
   ) async {
@@ -200,7 +236,7 @@ void main() {
     expect(session.codeRequests, 0);
     expect(find.text('1 / 3'), findsNothing);
     expect(find.text('Already have an account?'), findsOneWidget);
-    expect(find.text('Sign in'), findsOneWidget);
+    expect(find.text('Sign in!'), findsOneWidget);
     expect(find.byKey(const ValueKey('signup-step-0-action')), findsOneWidget);
     expect(find.text('Get my access code'), findsNothing);
     await tester.tap(find.text('Continue setup'));
@@ -359,11 +395,16 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           theme: theme,
-          home: Scaffold(body: OculveWordmark(color: color)),
+          home: Scaffold(
+            body: Row(children: [OculveWordmark(color: color)]),
+          ),
         ),
       );
       final mark = find.byType(OculveWordmark);
-      expect(tester.getSize(mark), const Size(108, 24));
+      expect(
+        tester.getSize(mark).width,
+        tester.getSize(find.text('oculve')).width,
+      );
       final wordmark = tester.widget<Text>(find.text('oculve'));
       expect(wordmark.style?.color, color);
       expect(wordmark.style?.fontSize, 22.8);
@@ -419,7 +460,7 @@ void main() {
       expect(codeButton.tooltip, isNull);
       expect(
         codeButton.style!.overlayColor!.resolve({WidgetState.hovered}),
-        Colors.transparent,
+        Colors.white.withValues(alpha: .055),
       );
       expect(
         tester
@@ -495,7 +536,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(seconds: 2));
   });
-  testWidgets('sign-in asks for existing account code, not subscription URL', (
+  testWidgets('sign-in gives the access code field a localized hint', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -504,7 +545,9 @@ void main() {
       ),
     );
     await tester.pump(const Duration(seconds: 1));
-    expect(find.text('ACCESS CODE'), findsNothing);
+    final accessCodeField = tester.widget<TextField>(find.byType(TextField));
+    expect(accessCodeField.decoration?.hintText, 'ACCESS CODE');
+    expect(accessCodeField.decoration?.hintStyle?.color, Colors.transparent);
     expect(find.text('Continue'), findsNothing);
     expect(find.text('CONNECTED'), findsNothing);
   });
@@ -549,6 +592,7 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
     expect(find.text('Your sign-in key'), findsOneWidget);
     expect(find.text('Continue'), findsOneWidget);
+    expect(tester.getSize(find.byType(IconButton)), const Size(48, 48));
     expect(
       find.text(
         'This is your access code. Tap it to copy; continuing saves it to your device.',
@@ -863,9 +907,14 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets(
-    'every page fits the Mullvad-sized desktop window and a narrow phone',
-    (tester) async {
+  for (final platform in [
+    TargetPlatform.windows,
+    TargetPlatform.linux,
+    TargetPlatform.macOS,
+  ]) {
+    testWidgets('every page fits the $platform window and a narrow phone', (
+      tester,
+    ) async {
       SharedPreferences.setMockInitialValues({});
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
@@ -899,9 +948,7 @@ void main() {
                   locale: locale,
                   supportedLocales: locales,
                   localizationsDelegates: GlobalMaterialLocalizations.delegates,
-                  theme: AppTheme.darkTheme.copyWith(
-                    platform: TargetPlatform.macOS,
-                  ),
+                  theme: AppTheme.darkTheme.copyWith(platform: platform),
                   scrollBehavior: const AppScrollBehavior(),
                   home: screen,
                 ),
@@ -926,8 +973,8 @@ void main() {
           }
         }
       }
-    },
-  );
+    });
+  }
 
   testWidgets('Xray settings expose supported user controls only', (
     tester,
