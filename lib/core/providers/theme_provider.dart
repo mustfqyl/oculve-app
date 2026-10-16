@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -56,6 +58,17 @@ class ThemeNotifier extends StateNotifier<AppThemeMode> {
     final write = _writes.then((_) async {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_key, mode.name);
+      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+        try {
+          await const MethodChannel(
+            'com.oculve/launch_theme',
+          ).invokeMethod<void>('sync');
+        } on MissingPluginException {
+          // The stored choice still works on engines without the Android host.
+        } on PlatformException {
+          // Retry from persisted preferences on the next native launch.
+        }
+      }
     });
     _writes = write.catchError((Object _) {});
     await write;

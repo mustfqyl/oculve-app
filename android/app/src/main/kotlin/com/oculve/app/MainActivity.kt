@@ -5,26 +5,81 @@ import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.os.Bundle
 import android.os.SystemClock
 import android.provider.Settings
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.Drawable
+import android.view.View
+import android.view.ViewGroup
+import android.widget.FrameLayout
 import java.io.ByteArrayOutputStream
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.util.concurrent.Executors
+import io.flutter.embedding.android.FlutterFragment
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.embedding.engine.renderer.FlutterUiDisplayListener
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterFragmentActivity() {
     private val latencyExecutor = Executors.newFixedThreadPool(3)
     private val appCatalogExecutor = Executors.newSingleThreadExecutor()
+    private var launchView: View? = null
+    private var flutterUiDisplayed = false
+    private val launchListener = object : FlutterUiDisplayListener {
+        override fun onFlutterUiDisplayed() {
+            flutterUiDisplayed = true
+            launchView?.let { (it.parent as? ViewGroup)?.removeView(it) }
+            launchView = null
+        }
+
+        override fun onFlutterUiNoLongerDisplayed() {}
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        if (!flutterUiDisplayed) {
+            launchView = View(this).also {
+                it.background = LaunchScreenDrawable(
+                    this,
+                    (application as OculveApplication).isDarkLaunchTheme(),
+                )
+                it.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                addContentView(
+                    it,
+                    FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                    ),
+                )
+            }
+        }
+    }
+
+    override fun createFlutterFragment(): FlutterFragment =
+        super.createFlutterFragment().also {
+            // Draw the native loading view while the surface waits for Flutter.
+            it.arguments?.putBoolean("should_delay_first_android_view_draw", false)
+        }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        flutterEngine.renderer.addIsDisplayingFlutterUiListener(launchListener)
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "com.oculve/launch_theme",
+        ).setMethodCallHandler { call, result ->
+            if (call.method == "sync") {
+                (application as OculveApplication).syncLaunchTheme()
+                result.success(null)
+            } else {
+                result.notImplemented()
+            }
+        }
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "com.oculve/device_identity",
@@ -102,9 +157,15 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     override fun onDestroy() {
+        launchView = null
         appCatalogExecutor.shutdownNow()
         latencyExecutor.shutdownNow()
         super.onDestroy()
+    }
+
+    override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        flutterEngine.renderer.removeIsDisplayingFlutterUiListener(launchListener)
+        super.cleanUpFlutterEngine(flutterEngine)
     }
 
     private fun measureTcpConnect(host: String, port: Int, timeoutMs: Int): TcpConnectSample? {

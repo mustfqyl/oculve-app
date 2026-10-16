@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:oculve/core/providers/locale_provider.dart';
@@ -7,12 +9,62 @@ import 'package:oculve/features/splash/presentation/loading_screen.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  setUp(
-    () => SharedPreferences.setMockInitialValues({
+  const launchThemeChannel = MethodChannel('com.oculve/launch_theme');
+
+  test(
+    'Android launch appearance follows each persisted theme choice',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      final savedModes = <String?>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(launchThemeChannel, (call) async {
+            expect(call.method, 'sync');
+            final prefs = await SharedPreferences.getInstance();
+            savedModes.add(prefs.getString('app_theme_mode'));
+            return null;
+          });
+      addTearDown(() {
+        debugDefaultTargetPlatformOverride = null;
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(launchThemeChannel, null);
+      });
+      final notifier = ThemeNotifier(restorePreferences: false);
+      addTearDown(notifier.dispose);
+      await Future.wait([
+        notifier.setTheme(AppThemeMode.light),
+        notifier.setTheme(AppThemeMode.dark),
+        notifier.setTheme(AppThemeMode.auto),
+      ]);
+      expect(savedModes, ['light', 'dark', 'auto']);
+    },
+  );
+
+  setUp(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(launchThemeChannel, (_) async => null);
+    SharedPreferences.setMockInitialValues({
       'app_language': 'es',
       'app_theme_mode': 'dark',
-    }),
-  );
+    });
+  });
+  tearDown(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(launchThemeChannel, null);
+  });
+
+  test('native appearance failure does not lose the saved theme', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(launchThemeChannel, (_) async {
+          throw PlatformException(code: 'unavailable');
+        });
+    final notifier = ThemeNotifier(restorePreferences: false);
+    addTearDown(notifier.dispose);
+    await notifier.setTheme(AppThemeMode.light);
+    expect(notifier.state, AppThemeMode.light);
+    expect(await ThemeNotifier.loadInitialMode(), AppThemeMode.light);
+  });
   for (final (mode, brightness) in [
     (AppThemeMode.light, Brightness.light),
     (AppThemeMode.dark, Brightness.dark),

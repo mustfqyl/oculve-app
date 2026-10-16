@@ -123,6 +123,7 @@ void main() {
       tester.view.physicalSize = size;
       await tester.pumpWidget(
         MaterialApp(
+          key: ValueKey((locale, theme.brightness, size, reduceMotion)),
           locale: locale,
           supportedLocales: const [Locale('en'), Locale('es'), Locale('tr')],
           localizationsDelegates: GlobalMaterialLocalizations.delegates,
@@ -152,14 +153,20 @@ void main() {
       expect(find.byKey(const ValueKey('loading-dots')), findsNothing);
       expect(find.bySemanticsLabel(expectedLabel), findsOneWidget);
       final artwork = find.byType(OculveVeilArtwork);
-      expect(tester.widget<OculveVeilArtwork>(artwork).progress.value, .5);
+      final initialProgress = tester
+          .widget<OculveVeilArtwork>(artwork)
+          .progress
+          .value;
       if (reduceMotion) {
         await tester.pump(const Duration(milliseconds: 600));
         expect(tester.widget<OculveVeilArtwork>(artwork).progress.value, .5);
       } else {
         await tester.pump(const Duration(milliseconds: 600));
         expect(find.byKey(const ValueKey('loading-dots')), findsNothing);
-        expect(tester.widget<OculveVeilArtwork>(artwork).progress.value, .5);
+        expect(
+          tester.widget<OculveVeilArtwork>(artwork).progress.value,
+          isNot(initialProgress),
+        );
       }
       expect(tester.takeException(), isNull);
 
@@ -183,5 +190,42 @@ void main() {
         });
       }
     }
+  });
+
+  testWidgets('loading uses the welcome motion and stops for reduced motion', (
+    tester,
+  ) async {
+    Future<void> showLoading({required bool reduceMotion}) => tester.pumpWidget(
+      MaterialApp(
+        home: MediaQuery(
+          data: MediaQueryData(disableAnimations: reduceMotion),
+          child: const LoadingScreen(),
+        ),
+      ),
+    );
+    double progress() => tester
+        .widget<OculveVeilArtwork>(find.byType(OculveVeilArtwork))
+        .progress
+        .value;
+
+    await showLoading(reduceMotion: false);
+    expect(progress(), .5);
+    await tester.pump(const Duration(seconds: 2));
+    expect(progress(), closeTo(.75, .001));
+    await tester.pump(const Duration(seconds: 4));
+    expect(progress(), closeTo(.75, .001));
+    await tester.pump(const Duration(seconds: 1));
+    expect(progress(), closeTo(.625, .001));
+
+    await showLoading(reduceMotion: true);
+    expect(progress(), .5);
+    await tester.pump(const Duration(seconds: 2));
+    expect(progress(), .5);
+    await showLoading(reduceMotion: false);
+    await tester.pump(const Duration(seconds: 1));
+    expect(progress(), isNot(.5));
+
+    await tester.pumpWidget(const SizedBox());
+    expect(tester.takeException(), isNull);
   });
 }

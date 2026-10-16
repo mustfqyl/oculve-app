@@ -2,8 +2,8 @@
 <resources>
     <style name="LaunchTheme" parent="@android:style/Theme.Black.NoTitleBar">
         <item name="android:windowBackground">@drawable/launch_background</item>
-        <item name="android:windowSplashScreenBackground">?android:colorBackground</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/launch_veil_splash</item>
+        <item name="android:windowSplashScreenBackground">#252525</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@android:color/transparent</item>
         <item name="android:windowSplashScreenIconBackgroundColor">@android:color/transparent</item>
     </style>
 </resources>

@@ -14,15 +14,15 @@ class LoadingScreen extends StatefulWidget {
 
 class _LoadingScreenState extends State<LoadingScreen>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _breathing;
+  late final AnimationController _artworkAnimation;
 
   @override
   void initState() {
     super.initState();
-    _breathing = AnimationController(
+    _artworkAnimation = AnimationController(
       vsync: this,
-      value: 0,
-      duration: const Duration(milliseconds: 1400),
+      value: .5,
+      duration: const Duration(seconds: 8),
     );
   }
 
@@ -30,16 +30,16 @@ class _LoadingScreenState extends State<LoadingScreen>
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (MediaQuery.disableAnimationsOf(context)) {
-      _breathing.stop();
-      _breathing.value = .5;
-    } else if (!_breathing.isAnimating) {
-      _breathing.repeat(reverse: true);
+      _artworkAnimation.stop();
+      _artworkAnimation.value = .5;
+    } else if (!_artworkAnimation.isAnimating) {
+      _artworkAnimation.repeat(reverse: true);
     }
   }
 
   @override
   void dispose() {
-    _breathing.dispose();
+    _artworkAnimation.dispose();
     super.dispose();
   }
 
@@ -97,15 +97,14 @@ class _LoadingScreenState extends State<LoadingScreen>
                                 ? const AlwaysStoppedAnimation<double>(1)
                                 : Tween<double>(begin: .94, end: 1).animate(
                                     CurvedAnimation(
-                                      parent: _breathing,
+                                      parent: _artworkAnimation,
                                       curve: Curves.easeInOut,
                                     ),
                                   ),
                             child: OculveVeilArtwork(
-                              // Keep every line and fold in the welcome mark fixed.
-                              progress: const AlwaysStoppedAnimation<double>(
-                                .5,
-                              ),
+                              progress: reduceMotion
+                                  ? const AlwaysStoppedAnimation<double>(.5)
+                                  : _artworkAnimation,
                               dark: isDark,
                             ),
                           ),
