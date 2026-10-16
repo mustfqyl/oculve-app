@@ -236,7 +236,7 @@ void main() {
     expect(session.codeRequests, 0);
     expect(find.text('1 / 3'), findsNothing);
     expect(find.text('Already have an account?'), findsOneWidget);
-    expect(find.text('Sign in!'), findsOneWidget);
+    expect(find.text('Sign in'), findsOneWidget);
     expect(find.byKey(const ValueKey('signup-step-0-action')), findsOneWidget);
     expect(find.text('Get my access code'), findsNothing);
     await tester.tap(find.text('Continue setup'));
@@ -380,7 +380,7 @@ void main() {
     );
     await tester.pump();
     expect(
-      tester.getTopLeft(find.text('System')).dy,
+      tester.getTopLeft(find.text('Auto')).dy,
       lessThan(tester.getTopLeft(find.text('Language')).dy),
     );
   });
@@ -452,8 +452,8 @@ void main() {
       );
       expect(find.text('SUBSCRIPTION'), findsNothing);
       expect(find.text('Created on'), findsOneWidget);
-      expect(find.text('22.09.2026'), findsOneWidget);
-      expect(find.text('22.10.2026'), findsNothing);
+      expect(find.text('09/22/2026'), findsOneWidget);
+      expect(find.text('10/22/2026'), findsNothing);
       final codeButton = tester.widget<IconButton>(
         find.byKey(const ValueKey('account-code-visibility')),
       );
@@ -873,7 +873,7 @@ void main() {
       expect(tester.getSize(connectControl).height, lessThanOrEqualTo(300));
       expect(find.byIcon(Icons.power_settings_new_rounded), findsNothing);
       expect(find.text('CONNECTED'), findsNothing);
-      expect(find.text('Choose location'), findsOneWidget);
+      expect(find.text('Optimal'), findsOneWidget);
     }
   });
 

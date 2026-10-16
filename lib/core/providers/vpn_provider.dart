@@ -14,9 +14,9 @@ import '../vpn/server_latency.dart';
 import '../vpn/profile.dart';
 import '../../features/auth/data/auth_repository.dart';
 
-final selectedServerProvider = StateProvider<String?>((ref) => null);
 const optimalServerId = '__oculve_optimal__';
 const dpiBypassServerId = '__oculve_dpi_bypass__';
+final selectedServerProvider = StateProvider<String?>((ref) => optimalServerId);
 final optimalServerProfileProvider = StateProvider<String?>((ref) => null);
 final vpnErrorProvider = StateProvider<String?>((ref) => null);
 
@@ -211,6 +211,7 @@ class VpnNotifier extends StateNotifier<VpnState> {
     _runtimeErrorHandled = false;
     dismissError();
     state = VpnState.connecting;
+    _record('connection preparation started');
     try {
       final selected = ref.read(selectedServerProvider);
       final dpiBypass = selected == dpiBypassServerId;
@@ -221,7 +222,14 @@ class VpnNotifier extends StateNotifier<VpnState> {
       if (!dpiBypass) {
         // Revalidate account status without downloading the subscription again.
         // DPI Bypass is client-side and does not depend on a selected Oculve node.
-        await ref.read(sessionProvider.notifier).refreshAccount();
+        final refreshTimer = Stopwatch()..start();
+        try {
+          await ref.read(sessionProvider.notifier).refreshAccount();
+        } finally {
+          _record(
+            'account refresh finished in ${refreshTimer.elapsedMilliseconds}ms',
+          );
+        }
         if (cancelled()) return;
         final account = ref.read(sessionProvider).valueOrNull;
         if (account == null || !account.canConnect) {
@@ -230,12 +238,21 @@ class VpnNotifier extends StateNotifier<VpnState> {
         if (account.profiles.isEmpty) {
           throw StateError('No compatible servers are available.');
         }
-        profile = selected == optimalServerId
-            ? await _chooseOptimalProfile(account.profiles, cancelled)
-            : account.profiles.firstWhere(
-                (p) => p.id == selected,
-                orElse: () => account.profiles.first,
-              );
+        if (selected == optimalServerId) {
+          final selectionTimer = Stopwatch()..start();
+          try {
+            profile = await _chooseOptimalProfile(account.profiles, cancelled);
+          } finally {
+            _record(
+              'Optimal server selection completed in ${selectionTimer.elapsedMilliseconds}ms',
+            );
+          }
+        } else {
+          profile = account.profiles.firstWhere(
+            (p) => p.id == selected,
+            orElse: () => account.profiles.first,
+          );
+        }
       }
       if (cancelled()) return;
       await initialize();
@@ -310,19 +327,26 @@ class VpnNotifier extends StateNotifier<VpnState> {
       if (cancelled()) return;
       ref.read(vpnTunnelMayBeActiveProvider.notifier).state = true;
       final start = replacing ? _engine.replaceVless : _engine.startVless;
-      await start(
-        remark: dpiBypass ? 'DPI Bypass' : profile!.name,
-        config: config,
-        dpiBypass: dpiBypass,
-        dpiProfile: dpiStrategy.engineProfile,
-        androidDnsPolicy: Platform.isAndroid
-            ? AndroidDnsPolicy.proxy
-            : AndroidDnsPolicy.config,
-        androidDnsProxyOutboundTag: Platform.isAndroid
-            ? (dpiBypass ? 'byedpi' : 'proxy')
-            : null,
-        blockedApps: blockedApps,
-      );
+      final nativeStartTimer = Stopwatch()..start();
+      try {
+        await start(
+          remark: dpiBypass ? 'DPI Bypass' : profile!.name,
+          config: config,
+          dpiBypass: dpiBypass,
+          dpiProfile: dpiStrategy.engineProfile,
+          androidDnsPolicy: Platform.isAndroid
+              ? AndroidDnsPolicy.proxy
+              : AndroidDnsPolicy.config,
+          androidDnsProxyOutboundTag: Platform.isAndroid
+              ? (dpiBypass ? 'byedpi' : 'proxy')
+              : null,
+          blockedApps: blockedApps,
+        );
+      } finally {
+        _record(
+          'native start request finished in ${nativeStartTimer.elapsedMilliseconds}ms',
+        );
+      }
       _switchAwaitingNative = false;
       if (cancelled()) {
         try {
@@ -512,21 +536,43 @@ class VpnNotifier extends StateNotifier<VpnState> {
     final probe = ref.read(serverLatencyProbeProvider);
     // Do not launch direct endpoint probes during a protected switch.
     final cached = ref.read(serverLatencyLastKnownProvider);
+    final measuredAt = ref.read(serverLatencyLastMeasuredAtProvider);
+    final now = DateTime.now();
+    final tunnelMayBeActive = ref.read(vpnTunnelMayBeActiveProvider);
+    final freshSamples = <String, int?>{
+      for (final profile in profiles)
+        profile.id:
+            hasFreshServerLatencySample(
+              cached[profile.id],
+              measuredAt[profile.id],
+              now: now,
+            )
+            ? cached[profile.id]
+            : null,
+    };
     final cancellation = Completer<void>();
     _optimalProbeCancellation = cancellation;
     late final List<int?> samples;
     try {
-      samples = ref.read(vpnTunnelMayBeActiveProvider)
-          ? profiles.map((profile) => cached[profile.id]).toList()
-          : await Future.wait(
-              profiles.map(
-                (profile) => probe.measure(
-                  profile,
-                  shouldContinue: () => !cancelled(),
-                  cancellation: cancellation.future,
-                ),
-              ),
+      if (tunnelMayBeActive) {
+        samples = profiles.map((profile) => cached[profile.id]).toList();
+      } else {
+        samples = await Future.wait(
+          profiles.map((profile) async {
+            final known = freshSamples[profile.id];
+            if (known != null) return known;
+            final measured = await probe.measure(
+              profile,
+              shouldContinue: () => !cancelled(),
+              cancellation: cancellation.future,
             );
+            if (!cancelled() && measured != null && measured > 0) {
+              rememberServerLatency(ref, profile.id, measured);
+            }
+            return measured;
+          }),
+        );
+      }
     } finally {
       if (identical(_optimalProbeCancellation, cancellation)) {
         _optimalProbeCancellation = null;

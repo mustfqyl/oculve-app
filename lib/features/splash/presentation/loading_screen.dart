@@ -110,24 +110,6 @@ class _LoadingScreenState extends State<LoadingScreen>
                             ),
                           ),
                         ),
-                        Positioned(
-                          top: math.min(
-                            constraints.maxHeight / 2 + artworkHeight / 2 + 14,
-                            constraints.maxHeight - 5,
-                          ),
-                          left: 0,
-                          right: 0,
-                          child: Center(
-                            child: _LoadingDots(
-                              progress: reduceMotion
-                                  ? const AlwaysStoppedAnimation<double>(.5)
-                                  : _breathing,
-                              color: isDark
-                                  ? const Color(0xFFDCE8F2)
-                                  : const Color(0xFF64748B),
-                            ),
-                          ),
-                        ),
                       ],
                     ),
                   );
@@ -139,37 +121,4 @@ class _LoadingScreenState extends State<LoadingScreen>
       ),
     );
   }
-}
-
-class _LoadingDots extends StatelessWidget {
-  const _LoadingDots({required this.progress, required this.color});
-
-  final Animation<double> progress;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) => AnimatedBuilder(
-    animation: progress,
-    builder: (context, _) => Row(
-      key: const ValueKey('loading-dots'),
-      mainAxisSize: MainAxisSize.min,
-      children: List.generate(3, (index) {
-        final phase = (progress.value + 1 - index / 3) % 1;
-        final intensity = .2 + .8 * (1 - (2 * phase - 1).abs());
-        return Padding(
-          padding: EdgeInsets.only(right: index == 2 ? 0 : 8),
-          child: Opacity(
-            opacity: intensity,
-            child: Transform.scale(
-              scale: .72 + intensity * .28,
-              child: DecoratedBox(
-                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-                child: const SizedBox.square(dimension: 5),
-              ),
-            ),
-          ),
-        );
-      }),
-    ),
-  );
 }

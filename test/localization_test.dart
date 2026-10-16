@@ -142,7 +142,7 @@ void main() {
 
     for (final (locale, expected) in [
       (const Locale('en'), 'Connection Settings'),
-      (const Locale('es'), 'Ajustes de Conexión'),
+      (const Locale('es'), 'Ajustes de conexión'),
       (const Locale('tr'), 'Bağlantı Ayarları'),
     ]) {
       await tester.pumpWidget(

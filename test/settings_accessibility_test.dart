@@ -113,14 +113,14 @@ void main() {
         Tristate.isTrue,
       );
 
-      final systemTheme = tester.getSemantics(find.bySemanticsLabel('System'));
+      final autoTheme = tester.getSemantics(find.bySemanticsLabel('Auto'));
       expect(
-        systemTheme.getSemanticsData().flagsCollection.isSelected,
+        autoTheme.getSemanticsData().flagsCollection.isSelected,
         Tristate.isTrue,
       );
-      expect(systemTheme.getSemanticsData().flagsCollection.isButton, isTrue);
-      expect(systemTheme.rect.width, greaterThanOrEqualTo(48));
-      expect(systemTheme.rect.height, greaterThanOrEqualTo(48));
+      expect(autoTheme.getSemanticsData().flagsCollection.isButton, isTrue);
+      expect(autoTheme.rect.width, greaterThanOrEqualTo(48));
+      expect(autoTheme.rect.height, greaterThanOrEqualTo(48));
 
       await tester.tap(find.bySemanticsLabel('Light'));
       await tester.pump();
@@ -159,14 +159,14 @@ void main() {
           ),
         );
 
-        final systemOption = find.descendant(
-          of: find.bySemanticsLabel('System'),
+        final autoOption = find.descendant(
+          of: find.bySemanticsLabel('Auto'),
           matching: find.byType(InkWell),
         );
-        final systemInkWell = tester.widget<InkWell>(systemOption);
-        expect(systemInkWell.mouseCursor, SystemMouseCursors.click);
+        final autoInkWell = tester.widget<InkWell>(autoOption);
+        expect(autoInkWell.mouseCursor, SystemMouseCursors.click);
         expect(
-          systemInkWell.overlayColor!.resolve({WidgetState.hovered}),
+          autoInkWell.overlayColor!.resolve({WidgetState.hovered}),
           isNot(Colors.transparent),
         );
 

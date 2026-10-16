@@ -184,6 +184,21 @@ void main() {
         await tester.pump(const Duration(milliseconds: 350));
         expect(tester.takeException(), isNull);
         expect(
+          find.text(switch (locale) {
+            'en' => '04/05/2026',
+            'es' => '05/04/2026',
+            _ => '05.04.2026',
+          }),
+          findsOneWidget,
+        );
+        expect(
+          find.text(switch (locale) {
+            'en' => '1371.96 GB',
+            _ => '1371,96 GB',
+          }),
+          findsOneWidget,
+        );
+        expect(
           tester
               .widget<Icon>(find.byKey(const ValueKey('account-status-dot')))
               .size,

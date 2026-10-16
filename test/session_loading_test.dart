@@ -86,15 +86,41 @@ void main() {
   testWidgets('loading screen is icon-only and respects reduced motion', (
     tester,
   ) async {
-    tester.view.physicalSize = const Size(393, 852);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    for (final (locale, theme, expectedLabel, reduceMotion) in [
-      (const Locale('tr'), AppTheme.darkTheme, 'Yükleniyor', false),
-      (const Locale('es'), AppTheme.lightTheme, 'Cargando', true),
+    for (final (locale, theme, expectedLabel, reduceMotion, size) in [
+      (
+        const Locale('tr'),
+        AppTheme.darkTheme,
+        'Yükleniyor',
+        false,
+        const Size(393, 852),
+      ),
+      (
+        const Locale('es'),
+        AppTheme.lightTheme,
+        'Cargando',
+        true,
+        const Size(393, 852),
+      ),
+      (
+        const Locale('tr'),
+        AppTheme.darkTheme,
+        'Yükleniyor',
+        false,
+        const Size(320, 568),
+      ),
+      (
+        const Locale('es'),
+        AppTheme.lightTheme,
+        'Cargando',
+        true,
+        const Size(320, 568),
+      ),
     ]) {
+      tester.view.physicalSize = size;
       await tester.pumpWidget(
         MaterialApp(
           locale: locale,
@@ -108,7 +134,7 @@ void main() {
             key: const ValueKey('loading-preview'),
             child: MediaQuery(
               data: MediaQueryData(
-                size: Size(393, 852),
+                size: size,
                 textScaler: TextScaler.noScaling,
                 disableAnimations: reduceMotion,
               ),
@@ -123,7 +149,7 @@ void main() {
       expect(find.byType(OculveVeilArtwork), findsOneWidget);
       expect(find.byType(Image), findsNothing);
       expect(find.byType(CircularProgressIndicator), findsNothing);
-      expect(find.byKey(const ValueKey('loading-dots')), findsOneWidget);
+      expect(find.byKey(const ValueKey('loading-dots')), findsNothing);
       expect(find.bySemanticsLabel(expectedLabel), findsOneWidget);
       final artwork = find.byType(OculveVeilArtwork);
       expect(tester.widget<OculveVeilArtwork>(artwork).progress.value, .5);
@@ -131,19 +157,8 @@ void main() {
         await tester.pump(const Duration(milliseconds: 600));
         expect(tester.widget<OculveVeilArtwork>(artwork).progress.value, .5);
       } else {
-        final dots = find.byKey(const ValueKey('loading-dots'));
-        final initialDotOpacity = tester
-            .widget<Opacity>(
-              find.descendant(of: dots, matching: find.byType(Opacity)).first,
-            )
-            .opacity;
         await tester.pump(const Duration(milliseconds: 600));
-        final currentDotOpacity = tester
-            .widget<Opacity>(
-              find.descendant(of: dots, matching: find.byType(Opacity)).first,
-            )
-            .opacity;
-        expect(currentDotOpacity, isNot(initialDotOpacity));
+        expect(find.byKey(const ValueKey('loading-dots')), findsNothing);
         expect(tester.widget<OculveVeilArtwork>(artwork).progress.value, .5);
       }
       expect(tester.takeException(), isNull);
@@ -162,7 +177,7 @@ void main() {
           final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
           Directory(directory).createSync(recursive: true);
           await File(
-            '$directory/loading-${locale.languageCode}.png',
+            '$directory/loading-${locale.languageCode}-${size.width.toInt()}x${size.height.toInt()}.png',
           ).writeAsBytes(bytes!.buffer.asUint8List());
           image.dispose();
         });

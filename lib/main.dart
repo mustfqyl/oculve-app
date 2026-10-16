@@ -23,10 +23,12 @@ import 'core/vpn/linux_platform.dart';
 import 'features/auth/data/auth_repository.dart';
 import 'features/auth/presentation/signup_screen.dart';
 import 'features/home/presentation/home_screen.dart';
+import 'features/settings/providers/statistics_provider.dart';
 import 'features/splash/presentation/loading_screen.dart';
 
 void main(List<String> arguments) async {
   WidgetsFlutterBinding.ensureInitialized();
+  final initialThemeMode = await ThemeNotifier.loadInitialMode();
   if (Platform.isLinux) VlessPlatform.instance = LinuxXrayPlatform();
   var loginLaunch = false;
   if (Platform.isMacOS || Platform.isWindows || Platform.isLinux) {
@@ -37,7 +39,15 @@ void main(List<String> arguments) async {
     }
   }
   final container = ProviderContainer(
-    overrides: [loginLaunchProvider.overrideWithValue(loginLaunch)],
+    overrides: [
+      loginLaunchProvider.overrideWithValue(loginLaunch),
+      themeProvider.overrideWith(
+        (ref) => ThemeNotifier(
+          initialMode: initialThemeMode,
+          restorePreferences: false,
+        ),
+      ),
+    ],
   );
 
   if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
@@ -100,13 +110,37 @@ Future<void> _lockPhonesToPortrait() async {
   ]);
 }
 
-class MyApp extends ConsumerWidget {
+class MyApp extends ConsumerStatefulWidget {
   const MyApp({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends ConsumerState<MyApp> {
+  late final Timer _themeClock;
+
+  @override
+  void initState() {
+    super.initState();
+    _themeClock = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted && ref.read(themeProvider) == AppThemeMode.auto) {
+        setState(() {});
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _themeClock.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final themeMode = ref.watch(themeProvider);
     final locale = ref.watch(localeProvider);
+    final resolvedThemeMode = resolveThemeMode(themeMode, DateTime.now());
 
     return MaterialApp(
       navigatorKey: appNavigatorKey,
@@ -119,11 +153,9 @@ class MyApp extends ConsumerWidget {
       scrollBehavior: const AppScrollBehavior().copyWith(scrollbars: false),
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
-      themeMode: switch (themeMode) {
-        AppThemeMode.system => ThemeMode.system,
-        AppThemeMode.light => ThemeMode.light,
-        AppThemeMode.dark => ThemeMode.dark,
-      },
+      themeMode: resolvedThemeMode == AppThemeMode.dark
+          ? ThemeMode.dark
+          : ThemeMode.light,
       builder: (context, child) {
         final systemDisablesAnimations = MediaQuery.disableAnimationsOf(
           context,
@@ -147,12 +179,41 @@ class SessionGate extends ConsumerStatefulWidget {
 }
 
 class _SessionGateState extends ConsumerState<SessionGate> {
+  bool _statisticsSessionActive = false;
+
+  void _syncStatisticsPrefetch(bool authenticated) {
+    if (!authenticated) {
+      if (_statisticsSessionActive) {
+        _statisticsSessionActive = false;
+        ref.invalidate(statisticsProvider);
+      }
+      return;
+    }
+    if (_statisticsSessionActive) return;
+    _statisticsSessionActive = true;
+    ref.invalidate(statisticsProvider);
+    unawaited(_prefetchStatistics());
+  }
+
+  Future<void> _prefetchStatistics() async {
+    try {
+      await ref.read(statisticsProvider.future);
+    } catch (_) {
+      // Keep the provider error available so Statistics can show its retry.
+    }
+  }
+
   @override
   void initState() {
     super.initState();
+    ref.listenManual(sessionProvider, (previous, next) {
+      _syncStatisticsPrefetch(next.valueOrNull != null);
+    });
     Future.microtask(() async {
       await ref.read(sessionProvider.notifier).restore();
-      if (!mounted || !ref.read(loginLaunchProvider)) return;
+      if (!mounted) return;
+      _syncStatisticsPrefetch(ref.read(sessionProvider).valueOrNull != null);
+      if (!ref.read(loginLaunchProvider)) return;
       try {
         await ref
             .read(startupServiceProvider)

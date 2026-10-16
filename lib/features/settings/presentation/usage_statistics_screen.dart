@@ -7,8 +7,21 @@ import 'package:oculve/core/providers/vpn_provider.dart';
 import 'package:oculve/core/theme/app_theme.dart';
 import 'package:oculve/core/widgets/app_page.dart';
 import 'package:oculve/core/widgets/app_feedback.dart';
-import 'package:oculve/features/auth/data/auth_repository.dart';
+import 'package:oculve/features/settings/providers/statistics_provider.dart';
 import 'connection_settings_widgets.dart';
+
+const _byteUnits = ['B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB'];
+const _maxDisplayBytes = 1023.94 * 1024 * 1024 * 1024 * 1024 * 1024 * 1024;
+
+Color _statisticsInk(BuildContext context) =>
+    Theme.of(context).brightness == Brightness.dark
+    ? AppTheme.foreground
+    : AppTheme.lightForeground;
+
+Color _statisticsInkForeground(BuildContext context) =>
+    Theme.of(context).brightness == Brightness.dark
+    ? AppTheme.backgroundColor
+    : Colors.white;
 
 class UsageStatisticsScreen extends ConsumerStatefulWidget {
   const UsageStatisticsScreen({super.key});
@@ -18,22 +31,25 @@ class UsageStatisticsScreen extends ConsumerStatefulWidget {
 }
 
 class _UsageStatisticsScreenState extends ConsumerState<UsageStatisticsScreen> {
-  late Future<Map<String, dynamic>> _statistics;
   bool _monthly = false, _allServers = false;
-  @override
-  void initState() {
-    super.initState();
-    _reload();
-  }
-
-  void _reload() {
-    _statistics = ref.read(apiProvider).request('/api/user/statistics');
-  }
 
   double _bytes(Object? value) =>
       value is num && value.isFinite ? math.max(0, value.toDouble()) : 0;
-  String _gb(Object? value) =>
-      '${(_bytes(value) / 1073741824).toStringAsFixed(2)} GB';
+  String _formatBytes(Object? value) {
+    final bytes = math.min(_bytes(value), _maxDisplayBytes).toDouble();
+    if (bytes == 0) return '0 B';
+    var scaled = bytes;
+    var unitIndex = 0;
+    while (scaled >= 1024 && unitIndex < _byteUnits.length - 1) {
+      scaled /= 1024;
+      unitIndex++;
+    }
+    if (unitIndex == _byteUnits.length - 1) {
+      scaled = math.min(scaled, 1023.94);
+    }
+    return '${scaled.toStringAsFixed(2)} ${_byteUnits[unitIndex]}';
+  }
+
   List<Map> _points(Object? value) =>
       value is List ? value.whereType<Map>().toList() : [];
 
@@ -41,6 +57,7 @@ class _UsageStatisticsScreenState extends ConsumerState<UsageStatisticsScreen> {
   Widget build(BuildContext context) {
     final muted = settingsMuted(context);
     final traffic = ref.watch(trafficProvider);
+    final statistics = ref.watch(statisticsProvider);
     return AppPage(
       title: 'Statistics',
       headerHeight: 52,
@@ -50,27 +67,21 @@ class _UsageStatisticsScreenState extends ConsumerState<UsageStatisticsScreen> {
           size: 22,
           semanticLabel: context.tr('Refresh statistics'),
         ),
-        onPressed: () => setState(_reload),
+        onPressed: () => ref.invalidate(statisticsProvider),
       ),
-      child: FutureBuilder<Map<String, dynamic>>(
-        future: _statistics,
-        builder: (context, snapshot) {
-          if (!snapshot.hasData && !snapshot.hasError) {
-            return const _StatisticsLoadingState();
-          }
-          if (snapshot.hasError) {
-            return AppErrorState(
-              title: 'Statistics unavailable',
-              message: AppFeedback.errorMessage(
-                snapshot.error!,
-                fallback:
-                    'Statistics are currently unavailable. Try again shortly.',
-              ),
-              primaryLabel: 'Try again',
-              onPrimary: () => setState(_reload),
-            );
-          }
-          final response = snapshot.data!;
+      child: statistics.when(
+        loading: () => const SizedBox.expand(),
+        error: (error, stackTrace) => AppErrorState(
+          title: 'Statistics unavailable',
+          message: AppFeedback.errorMessage(
+            error,
+            fallback:
+                'Statistics are currently unavailable. Try again shortly.',
+          ),
+          primaryLabel: 'Try again',
+          onPrimary: () => ref.invalidate(statisticsProvider),
+        ),
+        data: (response) {
           final summary = response['summary'] is Map
               ? response['summary'] as Map
               : <String, dynamic>{};
@@ -85,323 +96,344 @@ class _UsageStatisticsScreenState extends ConsumerState<UsageStatisticsScreen> {
                 b['trackedLifetimeBytes'],
               ).compareTo(_bytes(a['trackedLifetimeBytes'])),
             );
-          final maxNode = nodes.fold<double>(
-            0,
-            (max, node) => math.max(max, _bytes(node['trackedLifetimeBytes'])),
-          );
-          return SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(12, 7, 12, 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _card(
-                  context,
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      _caption('ACCOUNT USAGE', muted),
-                      const SizedBox(height: 6),
-                      IntrinsicHeight(
-                        child: Row(
-                          children: [
-                            Expanded(
-                              flex: 64,
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  FittedBox(
-                                    fit: BoxFit.scaleDown,
-                                    alignment: Alignment.centerLeft,
-                                    child: Text(
-                                      _gb(summary['currentUsedBytes']),
-                                      style: const TextStyle(
-                                        fontSize: 24,
-                                        height: 1.2,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    'Current period',
-                                    style: TextStyle(
-                                      color: muted,
-                                      fontSize: 10.5,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            VerticalDivider(
-                              width: 22,
-                              thickness: .5,
-                              color: muted.withValues(alpha: .25),
-                            ),
-                            Expanded(
-                              flex: 36,
-                              child: Padding(
-                                padding: const EdgeInsets.only(left: 18),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Text(
-                                      '${_bytes(usage['activeDays']).toInt()}',
-                                      style: const TextStyle(
-                                        fontSize: 17,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                    Text(
-                                      context.tr('Active days').toLowerCase(),
-                                      textAlign: TextAlign.start,
-                                      style: TextStyle(
-                                        color: muted,
-                                        fontSize: 10,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      if (summary['isUnlimited'] == false) ...[
-                        const SizedBox(height: 6),
-                        Text(
-                          '${context.tr('Remaining')}: ${_gb(summary['remainingBytes'])}',
-                          style: TextStyle(color: muted, fontSize: 10),
-                        ),
-                      ],
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 8),
-                        child: Divider(
-                          height: 1,
-                          thickness: .5,
-                          color: muted.withValues(alpha: .25),
-                        ),
-                      ),
-                      _caption('CURRENT SESSION', muted),
-                      const SizedBox(height: 8),
-                      IntrinsicHeight(
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: _transfer(
-                                context,
-                                Icons.arrow_downward,
-                                traffic?.download ?? 0,
-                                'Downloaded',
-                              ),
-                            ),
-                            VerticalDivider(
-                              width: 20,
-                              thickness: .5,
-                              color: muted.withValues(alpha: .25),
-                            ),
-                            Expanded(
-                              child: _transfer(
-                                context,
-                                Icons.arrow_upward,
-                                traffic?.upload ?? 0,
-                                'Uploaded',
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  key: const ValueKey('statistics-card-account'),
+          return LayoutBuilder(
+            builder: (context, constraints) {
+              final compact = constraints.maxWidth <= 350;
+              return SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(
+                  compact ? 10 : 12,
+                  compact ? 1 : 7,
+                  compact ? 10 : 12,
+                  compact ? 4 : 12,
                 ),
-                const SizedBox(height: 9),
-                _card(
-                  context,
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Row(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _card(
+                      context,
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          Expanded(
-                            child: Text(
-                              'Usage history',
-                              style: const TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                          DecoratedBox(
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(
-                                color: muted.withValues(alpha: .18),
-                              ),
-                            ),
+                          IntrinsicHeight(
                             child: Row(
-                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.end,
                               children: [
-                                _period('30 days', false),
-                                _period('12 months', true),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    mainAxisAlignment: MainAxisAlignment.end,
+                                    children: [
+                                      Tooltip(
+                                        message: context.tr(
+                                          'Data used in the current account period.',
+                                        ),
+                                        child: _caption('DATA USED', muted),
+                                      ),
+                                      SizedBox(height: compact ? 5 : 8),
+                                      FittedBox(
+                                        fit: BoxFit.scaleDown,
+                                        alignment: Alignment.centerLeft,
+                                        child: Text(
+                                          _formatBytes(
+                                            summary['currentUsedBytes'],
+                                          ),
+                                          style: TextStyle(
+                                            fontSize: compact ? 22 : 24,
+                                            height: 1.2,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                VerticalDivider(
+                                  width: 20,
+                                  thickness: .5,
+                                  indent: 3,
+                                  endIndent: 3,
+                                  color: muted.withValues(alpha: .25),
+                                ),
+                                Expanded(
+                                  child: Padding(
+                                    padding: EdgeInsets.zero,
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      mainAxisAlignment: MainAxisAlignment.end,
+                                      children: [
+                                        Text(
+                                          'Active days (all time)',
+                                          style: TextStyle(
+                                            color: muted,
+                                            fontSize: 9.5,
+                                            height: 1.2,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                        SizedBox(height: compact ? 5 : 8),
+                                        Text(
+                                          '${_bytes(usage['activeDays']).toInt()}',
+                                          style: TextStyle(
+                                            fontSize: compact ? 22 : 24,
+                                            height: 1.2,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
                               ],
                             ),
                           ),
+                          if (summary['isUnlimited'] == false) ...[
+                            SizedBox(height: compact ? 3 : 6),
+                            Text(
+                              '${context.tr('Remaining')}: ${_formatBytes(summary['remainingBytes'])}',
+                              style: TextStyle(color: muted, fontSize: 10),
+                            ),
+                          ],
+                          Padding(
+                            padding: EdgeInsets.symmetric(
+                              vertical: compact ? 4 : 8,
+                            ),
+                            child: Divider(
+                              height: 1,
+                              thickness: .5,
+                              color: muted.withValues(alpha: .25),
+                            ),
+                          ),
+                          _caption('CURRENT SESSION', muted),
+                          SizedBox(height: compact ? 4 : 8),
+                          IntrinsicHeight(
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: _transfer(
+                                    context,
+                                    Icons.arrow_downward,
+                                    traffic?.download,
+                                    'Downloaded',
+                                    compact: compact,
+                                  ),
+                                ),
+                                VerticalDivider(
+                                  width: 20,
+                                  thickness: .5,
+                                  color: muted.withValues(alpha: .25),
+                                ),
+                                Expanded(
+                                  child: _transfer(
+                                    context,
+                                    Icons.arrow_upward,
+                                    traffic?.upload,
+                                    'Uploaded',
+                                    compact: compact,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (traffic == null) ...[
+                            const SizedBox(height: 6),
+                            Text(
+                              'Session data not received yet.',
+                              style: TextStyle(color: muted, fontSize: 9.5),
+                            ),
+                          ],
                         ],
                       ),
-                      const SizedBox(height: 5),
-                      Text(
-                        _monthly ? 'Monthly data usage' : 'Daily data usage',
-                        style: TextStyle(color: muted, fontSize: 10),
-                      ),
-                      const SizedBox(height: 10),
-                      _chart(
-                        context,
-                        _monthly ? monthly : daily,
-                        _monthly ? 'month' : 'date',
-                      ),
-                    ],
-                  ),
-                  key: const ValueKey('statistics-card-history'),
-                ),
-                const SizedBox(height: 9),
-                _card(
-                  context,
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      const Text(
-                        'Server usage',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      if (nodes.isEmpty)
-                        Text(
-                          'No server usage yet.',
-                          style: TextStyle(color: muted, fontSize: 10),
-                        ),
-                      for (final node
-                          in _allServers ? nodes : nodes.take(3)) ...[
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 7),
-                          child: Column(
+                      key: const ValueKey('statistics-card-account'),
+                      compact: compact,
+                    ),
+                    SizedBox(height: compact ? 5 : 9),
+                    _card(
+                      context,
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Row(
                             children: [
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      node['nodeName']?.toString() ??
-                                          context.tr('Server'),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        color: muted,
-                                      ),
-                                    ),
+                              Expanded(
+                                child: Text(
+                                  'Usage history',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: compact ? 12 : 13,
+                                    fontWeight: FontWeight.w600,
                                   ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    _gb(node['trackedLifetimeBytes']),
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      color: muted,
-                                    ),
-                                  ),
-                                ],
+                                ),
                               ),
-                              const SizedBox(height: 5),
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(3),
-                                child: LinearProgressIndicator(
-                                  value: maxNode > 0
-                                      ? (_bytes(node['trackedLifetimeBytes']) /
-                                                maxNode)
-                                            .clamp(0, 1)
-                                      : 0,
-                                  minHeight: 4,
-                                  color: AppTheme.successForeground(
-                                    isDark:
-                                        Theme.of(context).brightness ==
-                                        Brightness.dark,
-                                  ),
-                                  backgroundColor: muted.withValues(alpha: .22),
+                              const SizedBox(width: 4),
+                              DecoratedBox(
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    _period('30d', false, compact: compact),
+                                    _period('12m', true, compact: compact),
+                                  ],
                                 ),
                               ),
                             ],
                           ),
-                        ),
-                        if (node != (_allServers ? nodes : nodes.take(3)).last)
-                          Divider(
-                            height: 1,
-                            thickness: .5,
-                            color: muted.withValues(alpha: .25),
+                          SizedBox(height: compact ? 3 : 5),
+                          _chart(
+                            context,
+                            _monthly ? monthly : daily,
+                            _monthly ? 'month' : 'date',
+                            compact: compact,
+                            plotHeight:
+                                (constraints.maxHeight -
+                                        (compact ? 371 : 438) -
+                                        (summary['isUnlimited'] == false
+                                            ? (compact ? 16 : 19)
+                                            : 0) +
+                                        (traffic != null ? 18 : 0))
+                                    .clamp(
+                                      compact ? 74.0 : 100.0,
+                                      double.infinity,
+                                    ),
                           ),
-                      ],
-                      if (nodes.length > 3) ...[
-                        Divider(
-                          height: 1,
-                          thickness: .5,
-                          color: muted.withValues(alpha: .25),
-                        ),
-                        InkWell(
-                          key: const ValueKey('statistics-servers'),
-                          onTap: () =>
-                              setState(() => _allServers = !_allServers),
-                          overlayColor: quietOverlay(context),
-                          child: ConstrainedBox(
-                            constraints: const BoxConstraints(minHeight: 48),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 7),
-                              child: Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      _allServers
-                                          ? 'Show fewer servers'
-                                          : 'View all servers',
-                                      style: TextStyle(
-                                        color: muted,
-                                        fontSize: 10,
+                        ],
+                      ),
+                      key: const ValueKey('statistics-card-history'),
+                      compact: compact,
+                    ),
+                    SizedBox(height: compact ? 5 : 9),
+                    _card(
+                      context,
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  'Server usage',
+                                  style: TextStyle(
+                                    fontSize: compact ? 12 : 13,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                              if (nodes.length > 3)
+                                IconButton(
+                                  key: const ValueKey('statistics-servers'),
+                                  style: ButtonStyle(
+                                    overlayColor:
+                                        WidgetStateProperty.resolveWith(
+                                          (states) =>
+                                              states.contains(
+                                                WidgetState.focused,
+                                              )
+                                              ? _statisticsInk(
+                                                  context,
+                                                ).withValues(alpha: .09)
+                                              : Colors.transparent,
+                                        ),
+                                    splashFactory: NoSplash.splashFactory,
+                                  ),
+                                  onPressed: () => setState(
+                                    () => _allServers = !_allServers,
+                                  ),
+                                  icon: AnimatedRotation(
+                                    turns: _allServers ? .5 : 0,
+                                    duration:
+                                        MediaQuery.disableAnimationsOf(context)
+                                        ? Duration.zero
+                                        : const Duration(milliseconds: 180),
+                                    child: Icon(
+                                      Icons.expand_more,
+                                      semanticLabel: context.tr(
+                                        _allServers
+                                            ? 'Show fewer servers'
+                                            : 'View all servers',
                                       ),
+                                      color: muted,
+                                      size: 20,
                                     ),
                                   ),
-                                  Icon(
-                                    _allServers
-                                        ? Icons.expand_less
-                                        : Icons.chevron_right,
-                                    color: muted,
-                                    size: 18,
+                                ),
+                            ],
+                          ),
+                          if (nodes.isEmpty)
+                            Text(
+                              'No server usage yet.',
+                              style: TextStyle(color: muted, fontSize: 10),
+                            ),
+                          for (final node
+                              in _allServers ? nodes : nodes.take(3)) ...[
+                            Padding(
+                              padding: EdgeInsets.only(
+                                top: node == nodes.first ? 0 : 9,
+                                bottom: 9,
+                              ),
+                              child: Column(
+                                children: [
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          node['nodeName']?.toString() ??
+                                              context.tr('Server'),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            fontSize: compact ? 9.5 : 10,
+                                            color: muted,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        _formatBytes(
+                                          node['trackedLifetimeBytes'],
+                                        ),
+                                        style: TextStyle(
+                                          fontSize: compact ? 9.5 : 10,
+                                          color: muted,
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ],
                               ),
                             ),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                  key: const ValueKey('statistics-card-servers'),
+                          ],
+                        ],
+                      ),
+                      key: const ValueKey('statistics-card-servers'),
+                      compact: compact,
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              );
+            },
           );
         },
       ),
     );
   }
 
-  Widget _card(BuildContext context, Widget child, {Key? key}) => FrostedCard(
+  Widget _card(
+    BuildContext context,
+    Widget child, {
+    Key? key,
+    bool compact = false,
+  }) => FrostedCard(
     key: key,
-    padding: const EdgeInsets.all(11),
+    padding: EdgeInsets.all(compact ? 8 : 11),
     borderRadius: 13,
     color: Theme.of(context).brightness == Brightness.dark
-        ? Colors.white.withValues(alpha: .055)
-        : null,
+        ? Colors.white.withValues(alpha: .035)
+        : Colors.white.withValues(alpha: .45),
+    borderColor: _statisticsInk(context).withValues(alpha: .06),
     child: DefaultTextStyle.merge(
       style: const TextStyle(
         height: 1.25,
@@ -424,19 +456,18 @@ class _UsageStatisticsScreenState extends ConsumerState<UsageStatisticsScreen> {
   Widget _transfer(
     BuildContext context,
     IconData icon,
-    num bytes,
-    String label,
-  ) => Row(
+    Object? bytes,
+    String label, {
+    bool compact = false,
+  }) => Row(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       Padding(
         padding: const EdgeInsets.only(top: 2),
         child: Icon(
           icon,
-          color: AppTheme.successForeground(
-            isDark: Theme.of(context).brightness == Brightness.dark,
-          ),
-          size: 18,
+          color: _statisticsInk(context),
+          size: compact ? 17 : 18,
         ),
       ),
       const SizedBox(width: 6),
@@ -447,58 +478,82 @@ class _UsageStatisticsScreenState extends ConsumerState<UsageStatisticsScreen> {
             FittedBox(
               fit: BoxFit.scaleDown,
               child: Text(
-                '${(_bytes(bytes) / 1048576).toStringAsFixed(2)} MB',
-                style: const TextStyle(
-                  fontSize: 14,
+                bytes == null ? '—' : _formatBytes(bytes),
+                style: TextStyle(
+                  fontSize: compact ? 13 : 14,
                   fontWeight: FontWeight.w600,
                 ),
               ),
             ),
-            Text(
-              label,
-              style: TextStyle(fontSize: 10, color: settingsMuted(context)),
+            Tooltip(
+              message: bytes == null
+                  ? context.tr(
+                      'Session totals are unavailable until connection data is received.',
+                    )
+                  : context.tr(label),
+              child: Text(
+                label,
+                semanticsLabel: bytes == null
+                    ? '${context.tr(label)}. ${context.tr('Session totals are unavailable until connection data is received.')}'
+                    : null,
+                style: TextStyle(
+                  fontSize: compact ? 9.5 : 10,
+                  color: settingsMuted(context),
+                ),
+              ),
             ),
           ],
         ),
       ),
     ],
   );
-  Widget _period(String title, bool monthly) => Semantics(
-    button: true,
-    selected: _monthly == monthly,
-    child: SizedBox(
-      height: 48,
-      child: InkWell(
-        key: ValueKey('statistics-period-$monthly'),
-        onTap: () => setState(() => _monthly = monthly),
-        borderRadius: BorderRadius.circular(20),
-        overlayColor: quietOverlay(context),
-        child: Center(
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: _monthly == monthly
-                  ? AppTheme.lightSuccessColor
+  Widget _period(String title, bool monthly, {bool compact = false}) =>
+      Semantics(
+        button: true,
+        selected: _monthly == monthly,
+        child: SizedBox(
+          height: 48,
+          width: 48,
+          child: InkWell(
+            key: ValueKey('statistics-period-$monthly'),
+            onTap: () => setState(() => _monthly = monthly),
+            borderRadius: BorderRadius.circular(20),
+            overlayColor: WidgetStateProperty.resolveWith(
+              (states) => states.contains(WidgetState.focused)
+                  ? _statisticsInk(context).withValues(alpha: .09)
                   : Colors.transparent,
-              borderRadius: BorderRadius.circular(20),
             ),
-            child: Text(
-              title,
-              style: TextStyle(
-                fontSize: 9.5,
-                fontWeight: _monthly == monthly
-                    ? FontWeight.w600
-                    : FontWeight.w400,
-                color: _monthly == monthly
-                    ? Colors.white
-                    : settingsMuted(context),
+            splashFactory: NoSplash.splashFactory,
+            child: Center(
+              child: Container(
+                padding: EdgeInsets.symmetric(
+                  horizontal: compact ? 7 : 10,
+                  vertical: 3,
+                ),
+                decoration: BoxDecoration(
+                  color: _monthly == monthly
+                      ? _statisticsInk(context)
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  title,
+                  semanticsLabel: context.tr(monthly ? '12 months' : '30 days'),
+                  style: TextStyle(
+                    fontSize: compact ? 9 : 9.5,
+                    fontWeight: _monthly == monthly
+                        ? FontWeight.w600
+                        : FontWeight.w400,
+                    color: _monthly == monthly
+                        ? _statisticsInkForeground(context)
+                        : settingsMuted(context),
+                  ),
+                ),
               ),
             ),
           ),
         ),
-      ),
-    ),
-  );
+      );
 
   String _pointLabel(BuildContext context, Object? value) {
     final date = DateTime.tryParse(
@@ -554,11 +609,17 @@ class _UsageStatisticsScreenState extends ConsumerState<UsageStatisticsScreen> {
     return _monthly ? '$month ${date.year}' : '${date.day} $month';
   }
 
-  Widget _chart(BuildContext context, List<Map> points, String dateKey) {
+  Widget _chart(
+    BuildContext context,
+    List<Map> points,
+    String dateKey, {
+    bool compact = false,
+    double? plotHeight,
+  }) {
     final muted = settingsMuted(context);
     if (points.isEmpty) {
       return SizedBox(
-        height: 82,
+        height: compact ? 62 : 82,
         child: Center(
           child: Text(
             'No usage recorded for this period.',
@@ -576,10 +637,16 @@ class _UsageStatisticsScreenState extends ConsumerState<UsageStatisticsScreen> {
         .toDouble();
     final normalized = max / power;
     final ceiling =
-        (normalized <= 2
+        (normalized <= 1.5
+            ? 1.5
+            : normalized <= 2
             ? 2
-            : normalized <= 4
-            ? 4
+            : normalized <= 3
+            ? 3
+            : normalized <= 5
+            ? 5
+            : normalized <= 7.5
+            ? 7.5
             : 10) *
         power;
     String tick(double value) => value >= 1000
@@ -588,12 +655,12 @@ class _UsageStatisticsScreenState extends ConsumerState<UsageStatisticsScreen> {
     return Column(
       children: [
         SizedBox(
-          height: 66,
+          height: plotHeight ?? (compact ? 74 : 100),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               SizedBox(
-                width: 28,
+                width: 42,
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -603,10 +670,13 @@ class _UsageStatisticsScreenState extends ConsumerState<UsageStatisticsScreen> {
                       style: TextStyle(fontSize: 8, color: muted),
                     ),
                     Text(
-                      tick(ceiling / 2),
+                      '${tick(ceiling / 2)} GB',
                       style: TextStyle(fontSize: 8, color: muted),
                     ),
-                    Text('0', style: TextStyle(fontSize: 8, color: muted)),
+                    Text(
+                      '${tick(0)} GB',
+                      style: TextStyle(fontSize: 8, color: muted),
+                    ),
                   ],
                 ),
               ),
@@ -636,7 +706,7 @@ class _UsageStatisticsScreenState extends ConsumerState<UsageStatisticsScreen> {
                                 ),
                                 child: Tooltip(
                                   message:
-                                      '${point[dateKey]}: ${_gb(point['usedBytes'])}',
+                                      '${point[dateKey]}: ${_formatBytes(point['usedBytes'])}',
                                   child: FractionallySizedBox(
                                     heightFactor:
                                         (_bytes(point['usedBytes']) /
@@ -646,11 +716,7 @@ class _UsageStatisticsScreenState extends ConsumerState<UsageStatisticsScreen> {
                                     alignment: Alignment.bottomCenter,
                                     child: DecoratedBox(
                                       decoration: BoxDecoration(
-                                        color: AppTheme.successForeground(
-                                          isDark:
-                                              Theme.of(context).brightness ==
-                                              Brightness.dark,
-                                        ),
+                                        color: _statisticsInk(context),
                                         borderRadius:
                                             const BorderRadius.vertical(
                                               top: Radius.circular(2),
@@ -670,9 +736,9 @@ class _UsageStatisticsScreenState extends ConsumerState<UsageStatisticsScreen> {
             ],
           ),
         ),
-        const SizedBox(height: 4),
+        SizedBox(height: compact ? 2 : 4),
         Padding(
-          padding: const EdgeInsets.only(left: 28),
+          padding: const EdgeInsets.only(left: 42),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -691,211 +757,4 @@ class _UsageStatisticsScreenState extends ConsumerState<UsageStatisticsScreen> {
       ],
     );
   }
-}
-
-class _StatisticsLoadingState extends StatefulWidget {
-  const _StatisticsLoadingState();
-
-  @override
-  State<_StatisticsLoadingState> createState() =>
-      _StatisticsLoadingStateState();
-}
-
-class _StatisticsLoadingStateState extends State<_StatisticsLoadingState>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _pulse = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 1100),
-  );
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (MediaQuery.disableAnimationsOf(context)) {
-      _pulse.stop();
-    } else if (!_pulse.isAnimating) {
-      _pulse.repeat(reverse: true);
-    }
-  }
-
-  @override
-  void dispose() {
-    _pulse.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final foreground = Theme.of(context).brightness == Brightness.dark
-        ? AppTheme.foreground
-        : AppTheme.lightForeground;
-    return Semantics(
-      key: const ValueKey('statistics-loading-state'),
-      label: context.tr('Loading statistics'),
-      liveRegion: true,
-      child: ExcludeSemantics(
-        child: AnimatedBuilder(
-          animation: _pulse,
-          builder: (context, _) {
-            final color = foreground.withValues(
-              alpha: .055 + (_pulse.value * .045),
-            );
-            Widget bar(double width, {double height = 11}) => Container(
-              width: width,
-              height: height,
-              decoration: BoxDecoration(
-                color: color,
-                borderRadius: BorderRadius.circular(height / 2),
-              ),
-            );
-
-            return SingleChildScrollView(
-              key: const ValueKey('statistics-loading-skeleton'),
-              padding: const EdgeInsets.fromLTRB(12, 7, 12, 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  FrostedCard(
-                    key: const ValueKey('statistics-card-account'),
-                    padding: const EdgeInsets.all(11),
-                    borderRadius: 13,
-                    color: Theme.of(context).brightness == Brightness.dark
-                        ? Colors.white.withValues(alpha: .055)
-                        : null,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        bar(104, height: 10),
-                        const SizedBox(height: 6),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  bar(132, height: 25),
-                                  const SizedBox(height: 2),
-                                  bar(88, height: 11),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(width: 18),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  bar(74, height: 25),
-                                  bar(66, height: 13),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          child: Divider(
-                            color: foreground.withValues(alpha: .08),
-                            height: 1,
-                          ),
-                        ),
-                        bar(112, height: 11),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Expanded(child: _transferPlaceholder(bar)),
-                            const SizedBox(width: 12),
-                            Expanded(child: _transferPlaceholder(bar)),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 9),
-                  FrostedCard(
-                    key: const ValueKey('statistics-card-history'),
-                    padding: const EdgeInsets.all(11),
-                    borderRadius: 13,
-                    color: Theme.of(context).brightness == Brightness.dark
-                        ? Colors.white.withValues(alpha: .055)
-                        : null,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        SizedBox(
-                          height: 48,
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              bar(98, height: 28),
-                              bar(126, height: 28),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 5),
-                        bar(112, height: 12),
-                        const SizedBox(height: 10),
-                        SizedBox(
-                          height: 66,
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              for (var i = 0; i < 3; i++)
-                                bar(double.infinity, height: 1),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            bar(36, height: 10),
-                            bar(36, height: 10),
-                            bar(36, height: 10),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 9),
-                  FrostedCard(
-                    key: const ValueKey('statistics-card-servers'),
-                    padding: const EdgeInsets.all(11),
-                    borderRadius: 13,
-                    color: Theme.of(context).brightness == Brightness.dark
-                        ? Colors.white.withValues(alpha: .055)
-                        : null,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        bar(94, height: 16),
-                        const SizedBox(height: 4),
-                        bar(188, height: 13),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-        ),
-      ),
-    );
-  }
-
-  Widget _transferPlaceholder(Widget Function(double, {double height}) bar) =>
-      Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          bar(18, height: 18),
-          const SizedBox(width: 6),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              bar(82, height: 18),
-              const SizedBox(height: 1),
-              bar(62, height: 12),
-            ],
-          ),
-        ],
-      );
 }

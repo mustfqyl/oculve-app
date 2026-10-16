@@ -315,9 +315,15 @@ class XrayVPNService : VpnService() {
                 current.V2RAY_FULL_JSON_CONFIG = dns.configJson
                 current.DPI_PROFILE = profile
                 val runtime = XrayCoreManager.buildRuntimeConfigJson(current, noBackupFilesDir, secret)
-                if (!XrayCoreManager.startCore(this, current, runtime, protector, owner) { generation, code ->
+                val pathProbe = if (current.BLOCKED_APPS.contains(packageName)) null else
+                    SessionReadinessProbe(SessionReadinessProbe.selectHost(runtime))
+                readinessProbe = pathProbe
+                val runtimeWithPathProbe = pathProbe?.configure(runtime) ?: runtime
+                if (!XrayCoreManager.startCore(this, current, runtimeWithPathProbe, protector, owner) { generation, code ->
                     runtimeLease.post { if (recovery.owns(generation)) { event(Event.WORKER_EXIT, code.toLong()); recover(Event.WORKER_EXIT) } }
                 }) {
+                    pathProbe?.close()
+                    readinessProbe = null
                     runCatching { dpiEngine.stop() }
                     continue
                 }
@@ -331,8 +337,11 @@ class XrayVPNService : VpnService() {
                 }
                 if (AuthenticatedSocksClient.checkConnectivity(current.LOCAL_SOCKS5_PORT, secret)) {
                     if (!recovery.owns(owner)) return
+                    if (pathProbe != null) {
+                        try { pathProbe.verify() } catch (_: Exception) { recover(Event.PATH_PROBE_FAILED); return }
+                    }
                     current.V2RAY_FULL_JSON_CONFIG = source.V2RAY_FULL_JSON_CONFIG
-                    prepared = runtime
+                    prepared = runtimeWithPathProbe
                     recovery.recovered()
                     connectedAt = System.nanoTime()
                     event(Event.CONNECTED)
@@ -343,7 +352,9 @@ class XrayVPNService : VpnService() {
                 }
             } catch (_: Exception) {
                 // Profile-specific details and destination hosts stay out of diagnostics.
+                readinessProbe?.close(); readinessProbe = null
             }
+            readinessProbe?.close(); readinessProbe = null
             XrayCoreManager.stopWorkers()
             runCatching { dpiEngine.stop() }
         }
@@ -434,7 +445,7 @@ class XrayVPNService : VpnService() {
                         }
                     } else probeAuthenticatedPath()
                 } catch (_: Exception) { recover(Event.AUTH_PROBE_FAILED); return@schedule }
-                if (config?.DPI_BYPASS != true && config?.BLOCKED_APPS?.contains(packageName) == false) {
+                if (config?.BLOCKED_APPS?.contains(packageName) == false) {
                     try { requireNotNull(readinessProbe).verify() }
                     catch (_: Exception) { recover(Event.PATH_PROBE_FAILED); return@schedule }
                 }

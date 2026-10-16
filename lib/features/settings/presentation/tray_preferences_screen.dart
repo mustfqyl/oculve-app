@@ -175,14 +175,14 @@ class _TrayPreferencesScreenState extends ConsumerState<TrayPreferencesScreen> {
                     ),
                   ],
                 ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(0, 12, 0, 0),
+                  child: SettingsRestoreButton(
+                    enabled: !_busy,
+                    onRestore: () => _save(notifier.reset),
+                  ),
+                ),
               ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
-            child: SettingsRestoreButton(
-              enabled: !_busy,
-              onRestore: () => _save(notifier.reset),
             ),
           ),
         ],

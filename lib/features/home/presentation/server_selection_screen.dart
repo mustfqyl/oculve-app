@@ -67,8 +67,8 @@ class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
         ? AppTheme.foreground
         : AppTheme.lightForeground;
     final sortHint = _sort == ServerSort.latency
-        ? context.tr('Sorted by ping. Tap to sort alphabetically.')
-        : context.tr('Sorted alphabetically. Tap to sort by ping.');
+        ? context.tr('Sort alphabetically')
+        : context.tr('Sort by ping');
     final rawLatencies = {
       for (final profile in profiles)
         profile.id: ref.watch(serverLatencyProvider(profile.id)),
@@ -171,6 +171,7 @@ class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
       title: context.tr('Locations'),
       action: IconButton(
         key: const ValueKey('server-sort-toggle'),
+        tooltip: sortHint,
         splashRadius: 20,
         icon: AnimatedSwitcher(
           duration: const Duration(milliseconds: 200),
@@ -183,8 +184,8 @@ class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
           ),
           child: Icon(
             _sort == ServerSort.latency
-                ? Icons.bolt_rounded
-                : Icons.sort_by_alpha_rounded,
+                ? Icons.sort_by_alpha_rounded
+                : Icons.bolt_rounded,
             key: ValueKey(_sort),
             size: 21,
             color: sortForeground,

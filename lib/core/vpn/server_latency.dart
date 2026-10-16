@@ -43,6 +43,34 @@ final serverLatencyLastKnownProvider = StateProvider<Map<String, int>>(
   (ref) => const {},
 );
 
+final serverLatencyLastMeasuredAtProvider =
+    StateProvider<Map<String, DateTime>>((ref) => const {});
+
+// Network and CDN routing changes make older RTT rankings unreliable.
+const optimalServerLatencyCacheMaxAge = Duration(minutes: 5);
+
+bool hasFreshServerLatencySample(
+  int? latencyMs,
+  DateTime? measuredAt, {
+  DateTime? now,
+}) {
+  if (latencyMs == null || latencyMs <= 0 || measuredAt == null) return false;
+  final age = (now ?? DateTime.now()).difference(measuredAt);
+  return !age.isNegative && age <= optimalServerLatencyCacheMaxAge;
+}
+
+void rememberServerLatency(Ref ref, String id, int latencyMs) {
+  if (latencyMs <= 0) return;
+  ref.read(serverLatencyLastKnownProvider.notifier).state = {
+    ...ref.read(serverLatencyLastKnownProvider),
+    id: latencyMs,
+  };
+  ref.read(serverLatencyLastMeasuredAtProvider.notifier).state = {
+    ...ref.read(serverLatencyLastMeasuredAtProvider),
+    id: DateTime.now(),
+  };
+}
+
 final serverLatencyProvider = FutureProvider.autoDispose.family<int?, String>((
   ref,
   id,
@@ -77,8 +105,7 @@ final serverLatencyProvider = FutureProvider.autoDispose.family<int?, String>((
       // Refreshing or leaving the screen disposes this provider while the
       // native/socket probe can still finish. Never publish its obsolete RTT.
       if (active && measured != null && measured > 0) {
-        final cache = ref.read(serverLatencyLastKnownProvider.notifier);
-        cache.state = {...cache.state, id: measured};
+        rememberServerLatency(ref, id, measured);
         return measured;
       }
       return lastKnown;

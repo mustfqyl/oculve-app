@@ -97,10 +97,30 @@ class _ClientLogsScreenState extends ConsumerState<ClientLogsScreen> {
       child: ListView(
         padding: const EdgeInsets.all(24),
         children: [
-          OutlinedButton.icon(
-            onPressed: _exporting ? null : _export,
-            icon: const Icon(Icons.download_outlined, size: 18),
-            label: const Text('Export troubleshooting report'),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton(
+              onPressed: _exporting ? null : _export,
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size.fromHeight(48),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.download_outlined, size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Export troubleshooting report',
+                      softWrap: true,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
           const SizedBox(height: 16),
           const Text(

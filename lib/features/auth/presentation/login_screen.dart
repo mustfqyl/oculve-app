@@ -296,23 +296,27 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                       ),
                     ),
                   ],
-                  if (!_isAccessCode)
-                    TextButton(
-                      onPressed: _busy
-                          ? null
-                          : () => setState(() {
-                              _challenge = null;
-                              _passkeyAttempt++;
-                              unawaited(_activePasskey?.cancel());
-                              _passkeyBusy = false;
-                              _hasPasskey = false;
-                              _passkeyOptions = null;
-                              _hasTotp = true;
-                              _code.clear();
-                              _lastAutoSubmitted = null;
-                            }),
-                      child: const CompactLabel('Back to sign in'),
+                  if (!_isAccessCode) ...[
+                    const SizedBox(height: 12),
+                    Align(
+                      child: TextButton(
+                        onPressed: _busy
+                            ? null
+                            : () => setState(() {
+                                _challenge = null;
+                                _passkeyAttempt++;
+                                unawaited(_activePasskey?.cancel());
+                                _passkeyBusy = false;
+                                _hasPasskey = false;
+                                _passkeyOptions = null;
+                                _hasTotp = true;
+                                _code.clear();
+                                _lastAutoSubmitted = null;
+                              }),
+                        child: const CompactLabel('Back to sign in'),
+                      ),
                     ),
+                  ],
                   if (_isAccessCode) ...[
                     const SizedBox(height: 20),
                     TextButton(

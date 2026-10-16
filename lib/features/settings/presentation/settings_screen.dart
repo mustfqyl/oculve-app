@@ -263,7 +263,7 @@ class _ThemeSelector extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final themes = [
-      (AppThemeMode.system, Icons.smartphone_rounded, 'System'),
+      (AppThemeMode.auto, Icons.schedule_rounded, 'Auto'),
       (AppThemeMode.light, Icons.light_mode_rounded, 'Light'),
       (AppThemeMode.dark, Icons.dark_mode_rounded, 'Dark'),
     ];

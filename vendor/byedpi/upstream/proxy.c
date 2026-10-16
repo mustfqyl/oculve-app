@@ -41,6 +41,7 @@
     #endif
 #endif
 
+#define AUTO_RESPONSE_TIMEOUT_MS 5000
 
 int server_fd;
 
@@ -666,13 +667,27 @@ static int on_accept(struct poolhd *pool, struct eval *val, int et)
 }
 
 
+static void arm_auto_response_timeout(struct poolhd *pool, struct eval *remote)
+{
+    if (!params.auto_reconnect || remote->flag != FLAG_CONN || !remote->pair ||
+            !remote->pair->mark || remote->recv_count ||
+            remote->waiting_for_response) {
+        return;
+    }
+    remote->waiting_for_response = 1;
+    remove_timer(pool, remote);
+    set_timer(pool, remote, AUTO_RESPONSE_TIMEOUT_MS);
+}
+
+
 int on_tunnel(struct poolhd *pool, struct eval *val, int etype)
 {
     ssize_t n = 0;
     bool wait = false;
     struct eval *pair = val->pair;
     
-    if (etype == POLLTIMEOUT && !pair->buff && val->round_count) {
+    if (etype == POLLTIMEOUT && !pair->buff &&
+            (val->round_count || val->waiting_for_response)) {
         LOG(LOG_S, "timeout (%u) (fd=%d)\n", val->to_count, val->fd);
         return on_timeout(pool, val);
     }
@@ -692,6 +707,7 @@ int on_tunnel(struct poolhd *pool, struct eval *val, int etype)
             val->buff->offset += sn;
             return 0;
         }
+        arm_auto_response_timeout(pool, pair);
         buff_push(pool, val->buff);
         val->buff = 0;
         
@@ -732,6 +748,7 @@ int on_tunnel(struct poolhd *pool, struct eval *val, int etype)
             }
             return 0;
         }
+        arm_auto_response_timeout(pool, pair);
     } while (n == (ssize_t )buff->size);
     buff_push(pool, val->buff);
     val->buff = 0;
@@ -985,7 +1002,7 @@ int on_connect(struct poolhd *pool, struct eval *val, int et)
         case ECONNRESET:
         case ECONNREFUSED:
         case ETIMEDOUT:
-        //case EHOSTUNREACH:
+        case EHOSTUNREACH:
             if (on_connerr(pool, val) == 0) {
                 return 0;
             }

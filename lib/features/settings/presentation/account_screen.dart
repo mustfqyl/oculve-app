@@ -82,7 +82,22 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
     final date = DateTime.tryParse(value ?? '');
     if (date == null) return '—';
     final local = date.toLocal();
-    return '${local.day.toString().padLeft(2, '0')}.${local.month.toString().padLeft(2, '0')}.${local.year}';
+    final day = local.day.toString().padLeft(2, '0');
+    final month = local.month.toString().padLeft(2, '0');
+    final year = local.year.toString();
+    return switch (Localizations.localeOf(context).languageCode) {
+      'en' => '$month/$day/$year',
+      'es' => '$day/$month/$year',
+      _ => '$day.$month.$year',
+    };
+  }
+
+  String _decimal(num value) {
+    final formatted = value.toStringAsFixed(2);
+    return switch (Localizations.localeOf(context).languageCode) {
+      'es' || 'tr' => formatted.replaceFirst('.', ','),
+      _ => formatted,
+    };
   }
 
   String _lastActive(String? value) {
@@ -1031,14 +1046,14 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
     final usage = account?.usage ?? const <String, dynamic>{};
     final usedValue = (usage['usedGB'] as num?)?.toDouble() ?? 0;
     final limitValue = (usage['limitGB'] as num?)?.toDouble();
-    final used = usedValue.toStringAsFixed(2);
-    final limit = limitValue?.toStringAsFixed(2);
+    final used = _decimal(usedValue);
+    final limit = limitValue == null ? null : _decimal(limitValue);
     final usageFraction = limitValue == null || limitValue <= 0
         ? 0.0
         : (usedValue / limitValue).clamp(0.0, 1.0);
     final remaining = limitValue == null
         ? context.tr('Unlimited')
-        : '${(limitValue - usedValue).clamp(0, double.infinity).toStringAsFixed(2)} ${context.tr('GB left')}';
+        : '${_decimal((limitValue - usedValue).clamp(0, double.infinity))} ${context.tr('GB left')}';
     final devices = account?.devices ?? const <Map<String, dynamic>>[];
     final statusLabel = switch (status) {
       'active' => context.tr('Active'),
@@ -1250,7 +1265,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
                               if (account?.billing['balanceEur'] is num) ...[
                                 const SizedBox(height: 8),
                                 Text(
-                                  '${context.tr('Balance')} €${(account!.billing['balanceEur'] as num).toStringAsFixed(2)}',
+                                  '${context.tr('Balance')} €${_decimal(account!.billing['balanceEur'] as num)}',
                                   style: TextStyle(color: _muted, fontSize: 10),
                                 ),
                               ],

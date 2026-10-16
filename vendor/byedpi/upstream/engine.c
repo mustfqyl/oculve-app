@@ -70,6 +70,10 @@ static void *run_engine(void *unused) {
     static char interface_option[] = "--interface";
     static char split_option[] = "--split";
     static char disorder_option[] = "--disorder";
+    static char fake_option[] = "--fake";
+    static char fake_position[] = "-1";
+    static char ttl_option[] = "--ttl";
+    static char fake_ttl[] = "8";
     static char split_first[] = "1+s";
     static char disorder_later[] = "3+s";
     static char disorder_first[] = "1+s";
@@ -101,11 +105,15 @@ static void *run_engine(void *unused) {
         argv[argc++] = interface_name;
     }
     static char auto_option[] = "--auto";
-    static char triggers[] = "torst,ssl_err";
+    static char triggers[] = "torst,ssl_err,conn";
     if (active_profile == 4) {
-        // First try the actual destination unchanged, then retry that connection
-        // with successive strategies on reset/timeout/TLS failure. ByeDPI's own
-        // destination cache records the working group, never a generic probe.
+        // Try a low-TTL fake ClientHello before the real one, then retry the same
+        // destination with packet strategies after reset/timeout/connect/TLS failure.
+        // ByeDPI's cache records the working group, never a generic probe.
+        argv[argc++] = fake_option;
+        argv[argc++] = fake_position;
+        argv[argc++] = ttl_option;
+        argv[argc++] = fake_ttl;
         for (int preset = 0; preset < 4; ++preset) {
             argv[argc++] = auto_option;
             argv[argc++] = triggers;

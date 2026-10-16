@@ -98,7 +98,11 @@ class ServerCard extends ConsumerWidget {
                     Expanded(
                       child: profile == null
                           ? CompactLabel(
-                              isDpiBypass ? 'DPI Bypass' : 'Choose location',
+                              isDpiBypass
+                                  ? 'DPI Bypass'
+                                  : isOptimal
+                                  ? 'Optimal'
+                                  : 'Choose location',
                               textAlign: TextAlign.start,
                               alignment: Alignment.centerLeft,
                               style: const TextStyle(

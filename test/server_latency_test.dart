@@ -228,6 +228,7 @@ void main() {
       probe.gates['fast']!.complete(180);
       await Future<void>.delayed(Duration.zero);
       expect(container.read(serverLatencyLastKnownProvider), isEmpty);
+      expect(container.read(serverLatencyLastMeasuredAtProvider), isEmpty);
     },
   );
 
@@ -254,6 +255,10 @@ void main() {
     oldGate.complete(180);
     await Future<void>.delayed(Duration.zero);
     expect(container.read(serverLatencyLastKnownProvider)['fast'], 25);
+    expect(
+      container.read(serverLatencyLastMeasuredAtProvider)['fast'],
+      isNotNull,
+    );
   });
 
   test('last successful ping stays visible while another probe is pending', () {
@@ -270,6 +275,40 @@ void main() {
       isNull,
     );
   });
+
+  test(
+    'Optimal latency cache freshness is bounded and rejects future times',
+    () {
+      final now = DateTime(2026, 10, 16, 12);
+      expect(
+        hasFreshServerLatencySample(
+          24,
+          now.subtract(optimalServerLatencyCacheMaxAge),
+          now: now,
+        ),
+        isTrue,
+      );
+      expect(
+        hasFreshServerLatencySample(
+          24,
+          now.subtract(
+            optimalServerLatencyCacheMaxAge + const Duration(milliseconds: 1),
+          ),
+          now: now,
+        ),
+        isFalse,
+      );
+      expect(
+        hasFreshServerLatencySample(
+          24,
+          now.add(const Duration(seconds: 1)),
+          now: now,
+        ),
+        isFalse,
+      );
+      expect(hasFreshServerLatencySample(0, now, now: now), isFalse);
+    },
+  );
 
   TestWidgetsFlutterBinding.ensureInitialized();
   SharedPreferences.setMockInitialValues({});
@@ -313,6 +352,10 @@ void main() {
 
       expect(await container.read(serverLatencyProvider('fast').future), 25);
       expect(container.read(serverLatencyLastKnownProvider)['fast'], 25);
+      expect(
+        container.read(serverLatencyLastMeasuredAtProvider)['fast'],
+        isNotNull,
+      );
     },
   );
 
@@ -885,14 +928,11 @@ void main() {
       lessThan(tester.getTopLeft(find.text('Amsterdam')).dy),
     );
     expect(tester.takeException(), isNull);
-    expect(
-      find.byTooltip('Sorted by ping. Tap to sort alphabetically.'),
-      findsNothing,
-    );
+    expect(find.byTooltip('Sort alphabetically'), findsOneWidget);
     expect(
       find.descendant(
         of: find.byKey(const ValueKey('server-sort-toggle')),
-        matching: find.byIcon(Icons.bolt_rounded),
+        matching: find.byIcon(Icons.sort_by_alpha_rounded),
       ),
       findsOneWidget,
     );
@@ -900,14 +940,32 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
     await tester.pump(const Duration(milliseconds: 350));
     expect(find.byType(PopupMenuButton<ServerSort>), findsNothing);
+    expect(find.byTooltip('Sort by ping'), findsOneWidget);
     expect(
-      find.byTooltip('Sorted alphabetically. Tap to sort by ping.'),
-      findsNothing,
+      find.descendant(
+        of: find.byKey(const ValueKey('server-sort-toggle')),
+        matching: find.byIcon(Icons.bolt_rounded),
+      ),
+      findsOneWidget,
     );
-    expect(find.byIcon(Icons.sort_by_alpha_rounded), findsOneWidget);
     expect(
       tester.getTopLeft(find.text('Amsterdam')).dy,
       lessThan(tester.getTopLeft(find.text('Zurich')).dy),
+    );
+    await tester.tap(find.byKey(const ValueKey('server-sort-toggle')));
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(find.byTooltip('Sort alphabetically'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('server-sort-toggle')),
+        matching: find.byIcon(Icons.sort_by_alpha_rounded),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      tester.getTopLeft(find.text('Zurich')).dy,
+      lessThan(tester.getTopLeft(find.text('Amsterdam')).dy),
     );
     await tester.pumpWidget(const SizedBox.shrink());
     semantics.dispose();

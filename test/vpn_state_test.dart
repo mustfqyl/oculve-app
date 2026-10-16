@@ -230,6 +230,12 @@ void main() {
     'optimal switch avoids direct probes and runtime failure retains protection',
     () async {
       final controller = container.read(vpnProvider.notifier);
+      final profile = container
+          .read(sessionProvider)
+          .valueOrNull!
+          .profiles
+          .first;
+      container.read(selectedServerProvider.notifier).state = profile.id;
       await controller.connect();
       platform.emit(VlessStatus(state: 'CONNECTED'));
       await controller.selectServer(optimalServerId);
@@ -388,6 +394,94 @@ void main() {
       expect(outbound['settings']['vnext'][0]['port'], 444);
     },
   );
+  test('Optimal reuses fresh latency for the current profiles', () async {
+    final slow = VpnProfile.parseSubscription(
+      testLink.replaceFirst('#Test%20location', '#Slow%20route'),
+    ).single;
+    final fast = VpnProfile.parseSubscription(
+      testLink
+          .replaceFirst('127.0.0.1:443', '127.0.0.1:444')
+          .replaceFirst('#Test%20location', '#Fast%20route'),
+    ).single;
+    container.read(sessionProvider.notifier).state = AsyncValue.data(
+      Account({'status': 'active'}, [slow, fast]),
+    );
+    container.read(selectedServerProvider.notifier).state = optimalServerId;
+    container.read(serverLatencyLastKnownProvider.notifier).state = {
+      slow.id: 160,
+      fast.id: 23,
+    };
+    final now = DateTime.now();
+    container.read(serverLatencyLastMeasuredAtProvider.notifier).state = {
+      slow.id: now,
+      fast.id: now,
+    };
+
+    await container.read(vpnProvider.notifier).connect();
+
+    expect(probe.checkedNames, isEmpty);
+    expect(platform.lastRemark, 'Fast route');
+    expect(container.read(optimalServerProfileProvider), fast.id);
+  });
+  test('Optimal probes only profiles without fresh latency', () async {
+    final slow = VpnProfile.parseSubscription(
+      testLink.replaceFirst('#Test%20location', '#Slow%20route'),
+    ).single;
+    final fast = VpnProfile.parseSubscription(
+      testLink
+          .replaceFirst('127.0.0.1:443', '127.0.0.1:444')
+          .replaceFirst('#Test%20location', '#Fast%20route'),
+    ).single;
+    container.read(sessionProvider.notifier).state = AsyncValue.data(
+      Account({'status': 'active'}, [slow, fast]),
+    );
+    container.read(selectedServerProvider.notifier).state = optimalServerId;
+    container.read(serverLatencyLastKnownProvider.notifier).state = {
+      fast.id: 22,
+    };
+    container.read(serverLatencyLastMeasuredAtProvider.notifier).state = {
+      fast.id: DateTime.now(),
+    };
+
+    await container.read(vpnProvider.notifier).connect();
+
+    expect(probe.checkedNames, ['Slow route']);
+    expect(platform.lastRemark, 'Fast route');
+  });
+  test('Optimal refreshes expired latency before selecting a server', () async {
+    final slow = VpnProfile.parseSubscription(
+      testLink.replaceFirst('#Test%20location', '#Slow%20route'),
+    ).single;
+    final fast = VpnProfile.parseSubscription(
+      testLink
+          .replaceFirst('127.0.0.1:443', '127.0.0.1:444')
+          .replaceFirst('#Test%20location', '#Fast%20route'),
+    ).single;
+    container.read(sessionProvider.notifier).state = AsyncValue.data(
+      Account({'status': 'active'}, [slow, fast]),
+    );
+    container.read(selectedServerProvider.notifier).state = optimalServerId;
+    container.read(serverLatencyLastKnownProvider.notifier).state = {
+      slow.id: 1,
+      fast.id: 2,
+    };
+    final expired = DateTime.now().subtract(
+      optimalServerLatencyCacheMaxAge + const Duration(milliseconds: 1),
+    );
+    container.read(serverLatencyLastMeasuredAtProvider.notifier).state = {
+      slow.id: expired,
+      fast.id: expired,
+    };
+
+    await container.read(vpnProvider.notifier).connect();
+
+    expect(probe.checkedNames, ['Slow route', 'Fast route']);
+    expect(platform.lastRemark, 'Fast route');
+    expect(
+      container.read(serverLatencyLastMeasuredAtProvider)[slow.id],
+      isNot(expired),
+    );
+  });
   test(
     'cancelling Optimal skips queued probes and does not select a server',
     () async {

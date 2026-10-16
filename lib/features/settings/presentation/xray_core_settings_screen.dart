@@ -414,14 +414,9 @@ class _XrayCoreSettingsScreenState
                   children: [
                     SettingRow(
                       key: const ValueKey('split-tunneling-domains-row'),
-                      title: 'Website routing',
-                      value: context.tr(
-                        _vpnOnlyDomains
-                            ? 'Only selected domains'
-                            : 'Except selected domains',
-                      ),
+                      title: 'Domain routing',
                       subtitle: _domains.isEmpty
-                          ? 'Choose which domains use the VPN.'
+                          ? 'Choose domains for VPN routing.'
                           : '${_domains.length} ${context.tr('domains')}',
                       onTap: () async {
                         await Navigator.push(
@@ -578,11 +573,6 @@ class _XrayCoreSettingsScreenState
                   ],
                 ),
                 const SizedBox(height: 16),
-                Text(
-                  'Changes apply after reconnecting.',
-                  style: TextStyle(color: settingsMuted(context), fontSize: 11),
-                ),
-                const SizedBox(height: 16),
                 SettingsRestoreButton(enabled: !_busy, onRestore: _reset),
               ],
             ),
@@ -670,31 +660,15 @@ class _SplitTunnelingScreenState extends State<SplitTunnelingScreen> {
     child: ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        Text(
-          context.tr(
-            _vpnOnlyDomains
-                ? (_domains.isEmpty
-                      ? 'Add at least one domain. Until then, all traffic stays on the VPN.'
-                      : 'Only selected domains use the VPN. All other traffic goes directly to the internet. Changes apply after reconnecting.')
-                : 'Selected domains bypass the VPN. All other traffic uses the VPN. Changes apply after reconnecting.',
-          ),
-          style: TextStyle(color: settingsMuted(context), fontSize: 12),
-        ),
-        const SizedBox(height: 16),
         SettingsGroup(
           children: [
             SettingsCycleRow(
               key: const ValueKey('split-tunneling-mode-row'),
-              title: 'Route these domains',
+              title: 'Route domains',
               label: context.tr(
-                _vpnOnlyDomains
-                    ? 'Only selected domains'
-                    : 'Except selected domains',
+                _vpnOnlyDomains ? 'Only selected' : 'Except selected',
               ),
-              options: const [
-                'Except selected domains',
-                'Only selected domains',
-              ],
+              options: const ['Except selected', 'Only selected'],
               onTap: _busy ? null : _toggleMode,
             ),
           ],
@@ -706,7 +680,7 @@ class _SplitTunnelingScreenState extends State<SplitTunnelingScreen> {
           autocorrect: false,
           enableSuggestions: false,
           decoration: InputDecoration(
-            labelText: context.tr('Website domain'),
+            labelText: context.tr('Domain'),
             hintText: 'example.com',
           ),
           onSubmitted: _busy ? null : (_) => _save([..._domains, _input.text]),

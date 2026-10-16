@@ -16,6 +16,9 @@
 
 #include <string.h>
 #include <assert.h>
+#ifdef ANDROID_APP
+#include <android/log.h>
+#endif
 #if defined(__APPLE__)
 #include <net/if.h>
 #endif
@@ -436,7 +439,13 @@ int on_trigger(int type, struct poolhd *pool, struct eval *val, bool client_aliv
     cache->dp = dp;
     
     if (!(next->auto_level & AUTO_NORECONN) && can_reconn) {
-        return reconnect(pool, val);
+        int result = reconnect(pool, val);
+#ifdef ANDROID_APP
+        if (result == 0 && params.engine_mode && params.auto_reconnect) {
+            __android_log_print(ANDROID_LOG_INFO, "OculveDpi", "fallback_group_selected=%d", next->id);
+        }
+#endif
+        return result;
     }
     return -1;
 }
@@ -773,6 +782,10 @@ ssize_t tcp_recv_hook(struct poolhd *pool,
         }
         uniperror("recv");
         return handle_err(pool, val, get_e());
+    }
+    if (val->flag == FLAG_CONN && val->waiting_for_response) {
+        val->waiting_for_response = 0;
+        remove_timer(pool, val);
     }
     val->recv_count += n;
     

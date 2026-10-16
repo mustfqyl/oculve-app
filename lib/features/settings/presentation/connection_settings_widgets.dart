@@ -53,13 +53,14 @@ class SettingRow extends StatelessWidget {
     this.trailing,
     this.onTap,
     this.compact = false,
+    this.dense = false,
     this.titleStyle,
   });
   final String title;
   final String? subtitle, value;
   final Widget? trailing;
   final VoidCallback? onTap;
-  final bool compact;
+  final bool compact, dense;
   final TextStyle? titleStyle;
   @override
   Widget build(BuildContext context) => InkWell(
@@ -68,11 +69,21 @@ class SettingRow extends StatelessWidget {
     overlayColor: quietOverlay(context),
     splashFactory: NoSplash.splashFactory,
     child: ConstrainedBox(
-      constraints: BoxConstraints(minHeight: onTap == null ? 0 : 48),
+      constraints: BoxConstraints(
+        minHeight: onTap == null
+            ? 0
+            : dense
+            ? 44
+            : 48,
+      ),
       child: Padding(
         padding: EdgeInsets.symmetric(
           horizontal: compact ? 13 : 16,
-          vertical: compact ? (onTap == null ? 10 : 17) : 12,
+          vertical: dense
+              ? 12
+              : compact
+              ? (onTap == null ? 10 : 17)
+              : 12,
         ),
         child: Row(
           children: [
@@ -544,6 +555,7 @@ class _SettingsRestoreButtonState extends State<SettingsRestoreButton> {
     children: [
       SettingRow(
         compact: true,
+        dense: true,
         title: 'Restore defaults',
         titleStyle: TextStyle(
           color: settingsMuted(context),

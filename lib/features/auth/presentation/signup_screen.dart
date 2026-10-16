@@ -670,34 +670,37 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen>
                     key: const ValueKey('welcome-sign-in'),
                     onPressed: () =>
                         Navigator.push(context, appRoute(const LoginScreen())),
-                    style: TextButton.styleFrom(
-                      minimumSize: const Size(48, 48),
-                      padding: const EdgeInsets.symmetric(horizontal: 7),
-                      foregroundColor: fg,
-                      textStyle: const TextStyle(
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.w700,
-                        decoration: TextDecoration.underline,
-                      ),
-                      // The default hover fill is painted as a circle around
-                      // the whole 48px target, so it overlaps the action button
-                      // above this row. The pointer cursor carries the
-                      // affordance instead; focus and press stay visible.
-                    ).copyWith(
-                      mouseCursor: const WidgetStatePropertyAll(
-                        SystemMouseCursors.click,
-                      ),
-                      overlayColor: WidgetStateProperty.resolveWith((states) {
-                        if (states.contains(WidgetState.focused)) {
-                          return fg.withValues(alpha: .09);
-                        }
-                        if (states.contains(WidgetState.hovered)) {
-                          return Colors.transparent;
-                        }
-                        return fg.withValues(alpha: .07);
-                      }),
-                    ),
-                    child: const Text('Sign in!'),
+                    style:
+                        TextButton.styleFrom(
+                          minimumSize: const Size(48, 48),
+                          padding: const EdgeInsets.symmetric(horizontal: 7),
+                          foregroundColor: fg,
+                          textStyle: const TextStyle(
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w700,
+                            decoration: TextDecoration.underline,
+                          ),
+                          // The default hover fill is painted as a circle around
+                          // the whole 48px target, so it overlaps the action button
+                          // above this row. The pointer cursor carries the
+                          // affordance instead; focus and press stay visible.
+                        ).copyWith(
+                          mouseCursor: const WidgetStatePropertyAll(
+                            SystemMouseCursors.click,
+                          ),
+                          overlayColor: WidgetStateProperty.resolveWith((
+                            states,
+                          ) {
+                            if (states.contains(WidgetState.focused)) {
+                              return fg.withValues(alpha: .09);
+                            }
+                            if (states.contains(WidgetState.hovered)) {
+                              return Colors.transparent;
+                            }
+                            return fg.withValues(alpha: .07);
+                          }),
+                        ),
+                    child: const Text('Sign in'),
                   ),
                 ],
               ),

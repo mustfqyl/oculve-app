@@ -119,7 +119,7 @@ class _VeilPainter extends CustomPainter {
           end: Alignment.bottomRight,
           colors: dark
               ? const [Color(0xFF161A1F), Color(0xFF030405), Color(0xFF11161A)]
-              : const [Color(0xFF4B5560), Color(0xFF101317), Color(0xFF323A42)],
+              : const [Color(0xFF737D87), Color(0xFF454D56), Color(0xFF626C76)],
         ).createShader(portalRect),
     );
     canvas.drawRRect(

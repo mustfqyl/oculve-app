@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:oculve/core/providers/locale_provider.dart';
 import 'package:oculve/core/providers/theme_provider.dart';
+import 'package:oculve/features/splash/presentation/loading_screen.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -12,6 +13,36 @@ void main() {
       'app_theme_mode': 'dark',
     }),
   );
+  for (final (mode, brightness) in [
+    (AppThemeMode.light, Brightness.light),
+    (AppThemeMode.dark, Brightness.dark),
+  ]) {
+    testWidgets('first loading frame uses stored ${mode.name} theme', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({'app_theme_mode': mode.name});
+      final initialMode = await ThemeNotifier.loadInitialMode();
+      final notifier = ThemeNotifier(
+        initialMode: initialMode,
+        restorePreferences: false,
+      );
+      addTearDown(notifier.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData.light(),
+          darkTheme: ThemeData.dark(),
+          themeMode: notifier.state == AppThemeMode.dark
+              ? ThemeMode.dark
+              : ThemeMode.light,
+          home: const LoadingScreen(),
+        ),
+      );
+      expect(
+        Theme.of(tester.element(find.byType(LoadingScreen))).brightness,
+        brightness,
+      );
+    });
+  }
   test('a new language choice wins over an older pending restore', () async {
     final notifier = LocaleNotifier();
     addTearDown(notifier.dispose);
@@ -50,10 +81,32 @@ void main() {
     await tester.pump();
     expect(tester.takeException(), isNull);
     expect(locale.state, const Locale('en'));
-    expect(theme.state, AppThemeMode.system);
+    expect(theme.state, AppThemeMode.auto);
     await locale.setLanguage('tr');
     await theme.setTheme(AppThemeMode.dark);
     expect(locale.state, const Locale('tr'));
     expect(theme.state, AppThemeMode.dark);
   });
+
+  test(
+    'auto theme follows local clock with evening and morning boundaries',
+    () {
+      expect(
+        resolveThemeMode(AppThemeMode.auto, DateTime(2026, 1, 1, 5, 59)),
+        AppThemeMode.dark,
+      );
+      expect(
+        resolveThemeMode(AppThemeMode.auto, DateTime(2026, 1, 1, 6)),
+        AppThemeMode.light,
+      );
+      expect(
+        resolveThemeMode(AppThemeMode.auto, DateTime(2026, 1, 1, 17, 59)),
+        AppThemeMode.light,
+      );
+      expect(
+        resolveThemeMode(AppThemeMode.auto, DateTime(2026, 1, 1, 18)),
+        AppThemeMode.dark,
+      );
+    },
+  );
 }

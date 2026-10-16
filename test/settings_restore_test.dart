@@ -19,6 +19,7 @@ void main() {
         ),
       ),
     );
+    expect(tester.getSize(find.byType(SettingRow)).height, 44);
     await tester.tap(find.text('Restore defaults'));
     await tester.pump(const Duration(milliseconds: 200));
     expect(calls, 0);

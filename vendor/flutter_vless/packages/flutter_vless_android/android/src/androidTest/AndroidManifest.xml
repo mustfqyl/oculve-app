@@ -1,4 +1,5 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
     <!-- The runtime is an executable launched by ProcessBuilder. -->
     <application android:extractNativeLibs="true" />
 </manifest>
