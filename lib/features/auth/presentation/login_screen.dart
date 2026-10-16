@@ -327,7 +327,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                         }
                       },
                       child: const CompactLabel(
-                        'New to Oculve? Create account',
+                        'New to Oculve? Create account!',
                       ),
                     ),
                   ],

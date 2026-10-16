@@ -1085,9 +1085,6 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         _accountCard(
-                          color: Theme.of(context).brightness == Brightness.dark
-                              ? Colors.white.withValues(alpha: .055)
-                              : null,
                           padding: const EdgeInsets.symmetric(
                             horizontal: 16,
                             vertical: 12,
@@ -1266,9 +1263,6 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
                           child: _label(context.tr('ACCESS CODE')),
                         ),
                         _accountCard(
-                          color: Theme.of(context).brightness == Brightness.dark
-                              ? Colors.white.withValues(alpha: .055)
-                              : null,
                           padding: const EdgeInsets.symmetric(
                             horizontal: 12,
                             vertical: 2,
@@ -1369,9 +1363,6 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
                           child: _label(context.tr('ACCOUNT SETTINGS')),
                         ),
                         _accountCard(
-                          color: Theme.of(context).brightness == Brightness.dark
-                              ? Colors.white.withValues(alpha: .055)
-                              : null,
                           padding: EdgeInsets.zero,
                           borderRadius: 14,
                           child: Column(
@@ -1464,34 +1455,17 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
 
   Widget _accountCard({
     required Widget child,
-    Color? color,
     required EdgeInsetsGeometry padding,
     required double borderRadius,
   }) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
     return FrostedCard(
-      color: dark ? Colors.transparent : color,
       padding: EdgeInsets.zero,
       borderRadius: borderRadius,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: dark
-              ? LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    const Color(0xFF30343A).withValues(alpha: .66),
-                    const Color(0xFF222B38).withValues(alpha: .65),
-                  ],
-                )
-              : null,
-        ),
-        child: Padding(
-          padding: padding,
-          child: DefaultTextStyle.merge(
-            style: const TextStyle(height: 1.25, letterSpacing: 0),
-            child: child,
-          ),
+      child: Padding(
+        padding: padding,
+        child: DefaultTextStyle.merge(
+          style: const TextStyle(height: 1.25, letterSpacing: 0),
+          child: child,
         ),
       ),
     );

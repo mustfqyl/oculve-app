@@ -502,7 +502,7 @@ class AppStrings {
     'Mode': 'Modo',
     'Mux and XUDP': 'Mux y XUDP',
     'Network behavior': 'Comportamiento de red',
-    'New to Oculve? Create account': '¿Nuevo en Oculve? Crea una cuenta',
+    'New to Oculve? Create account!': '¿Nuevo en Oculve? Crea una cuenta!',
     'No servers available. Check your subscription.':
         'No hay servidores disponibles. Revisa tu suscripción.',
     'Optimal': 'Óptimo',
@@ -1582,7 +1582,7 @@ class AppStrings {
     'Mode': 'Mod',
     'Mux and XUDP': 'Mux ve XUDP',
     'Network behavior': 'Ağ davranışı',
-    'New to Oculve? Create account': 'Oculve’de yeni misin? Hesap oluştur',
+    'New to Oculve? Create account!': 'Oculve’de yeni misin? Hesap oluştur!',
     'No servers available. Check your subscription.':
         'Kullanılabilir sunucu yok. Aboneliğini kontrol et.',
     'Optimal': 'En uygun',

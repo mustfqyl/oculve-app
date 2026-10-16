@@ -11,6 +11,11 @@ there, and the native client intentionally does not forward a session through a 
 
 ## Current platform status
 
+Active product development targets Android, iOS, and macOS. Windows and Linux
+support is paused; their code, CI checks, and build notes are retained for a
+possible later return, but those desktop platforms are not actively maintained
+or offered as supported releases.
+
 | Platform | Runtime path | Release prerequisite |
 | --- | --- | --- |
 | Android | Xray + Android VPN service | Android SDK and a signed release key |

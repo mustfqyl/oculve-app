@@ -38,7 +38,3 @@ render_icon connected_10 3.10 '#48d6a0' 0.74 5.50 0.21
 render_icon connected_11 2.88 '#48d6a0' 0.67 5.13 0.17
 render_icon error 3.50 '#f04452' 1.00 6.00 0.30
 
-# Copy platform specific icons
-cp "$repo_root/assets/tray_icon_idle.png" "$repo_root/assets/tray_icon_macos.png"
-cp "$repo_root/assets/tray_icon_idle.png" "$repo_root/assets/tray_icon_linux.png"
-
