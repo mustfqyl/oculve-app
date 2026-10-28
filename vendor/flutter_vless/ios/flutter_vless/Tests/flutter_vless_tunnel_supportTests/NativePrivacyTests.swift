@@ -109,4 +109,71 @@ final class NativePrivacyTests: XCTestCase {
         XCTAssertFalse(try String(contentsOf: target).contains(secret))
         XCTAssertNotEqual(NativeLogPrivacy.snapshotCommand, "xray_debug")
     }
+
+    func testRestartFailureExportsFixedStageCodesOnly() {
+        let secrets = ["server.example.invalid:443", "secret-token", "10.0.0.7"]
+        func assertStage(_ error: NSError, _ expected: String, file: StaticString = #filePath, line: UInt = #line) {
+            let text = NativeLogPrivacy.restartFailure(error).text
+            XCTAssertEqual(text, expected, file: file, line: line)
+            for secret in secrets {
+                XCTAssertFalse(text.contains(secret), file: file, line: line)
+            }
+        }
+        assertStage(
+            NSError(domain: "flutter_vless.packet_tunnel", code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "Physical network interface is unavailable"]),
+            "Native restart failed at DPI interface stage; protected traffic remains blocked"
+        )
+        assertStage(
+            NSError(domain: "flutter_vless.packet_tunnel", code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "Xray could not locate the NetworkExtension TUN interface"]),
+            "Native restart failed at TUN descriptor stage; protected traffic remains blocked"
+        )
+        assertStage(
+            NSError(domain: "flutter_vless.packet_tunnel", code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "Invalid DPI strategy"]),
+            "Native restart failed at DPI profile stage; protected traffic remains blocked"
+        )
+        assertStage(
+            NSError(domain: "flutter_vless.packet_tunnel", code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "DPI Bypass could not establish verified Internet connectivity"]),
+            "Native restart failed at DPI connectivity stage; protected traffic remains blocked"
+        )
+        assertStage(
+            NSError(domain: "flutter_vless.packet_tunnel", code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "Xray geo asset directory must not be empty"]),
+            "Native restart failed at Xray asset stage; protected traffic remains blocked"
+        )
+        assertStage(
+            NSError(domain: "flutter_vless.packet_tunnel", code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for HEV startup"]),
+            "Native restart failed at HEV startup stage; protected traffic remains blocked"
+        )
+        assertStage(
+            NSError(domain: "flutter_vless.packet_tunnel", code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "HEV exited during startup with code 2"]),
+            "Native restart failed at HEV startup stage (code 2); protected traffic remains blocked"
+        )
+        assertStage(
+            NSError(domain: "flutter_vless.native", code: 12,
+                    userInfo: [NSLocalizedDescriptionKey: "Xray startup failed: start core"]),
+            "Native restart failed at Xray startup stage; protected traffic remains blocked"
+        )
+        assertStage(
+            NSError(domain: "flutter_vless.native", code: 9,
+                    userInfo: [NSLocalizedDescriptionKey: "Xray diagnostic details omitted"]),
+            "Native restart failed at Xray stage; protected traffic remains blocked"
+        )
+        assertStage(
+            NSError(domain: "flutter_vless.native", code: 7,
+                    userInfo: [NSLocalizedDescriptionKey: "Native operation failed (code 7)"]),
+            "Native restart failed at native stage (code 7); protected traffic remains blocked"
+        )
+        // Unknown descriptions never reach diagnostics verbatim.
+        assertStage(
+            NSError(domain: "flutter_vless.packet_tunnel", code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: secrets[0]]),
+            "Native restart failed at native stage; protected traffic remains blocked"
+        )
+    }
 }

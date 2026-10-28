@@ -16,19 +16,34 @@ public enum TunnelDNSPolicy {
 
     static func apply(
         to config: inout [String: Any],
-        resolveIPv4: (String) -> String?
+        resolveIPv4: (String) -> String?,
+        failure: (TunnelXrayConfigPreparer.StartupFailure) -> Void = { _ in }
     ) -> [String]? {
-        guard let resolver = configuredResolver(config) else { return nil }
+        guard let resolver = configuredResolver(config) else {
+            failure(.dnsResolverUnsupported)
+            return nil
+        }
+        // Mirror the macOS policy: a single https:// DoH endpoint is a valid
+        // user configuration. The relay rewrites to Xray's protected DoH
+        // module on loopback, so the plaintext tcp relay never leaves the
+        // process and the DoH hostname still bootstraps through the proxy.
+        let encrypted = resolver.hasPrefix("https://")
         guard var outbounds = config["outbounds"] as? [[String: Any]],
               let primary = outbounds.firstIndex(where: {
                   ($0["tag"] as? String) == "proxy" && endpointProtocols.contains(($0["protocol"] as? String ?? "").lowercased())
               }) ?? outbounds.firstIndex(where: {
                   endpointProtocols.contains(($0["protocol"] as? String ?? "").lowercased())
-              }) else { return nil }
+              }) else {
+            failure(.noProxyEndpoint)
+            return nil
+        }
         let tags = outbounds.compactMap { $0["tag"] as? String }
         let inboundTags = (config["inbounds"] as? [[String: Any]] ?? []).compactMap { $0["tag"] as? String }
         guard Set(tags).count == tags.count,
-              Set(tags + inboundTags).isDisjoint(with: [relayTag, upstreamTag, proxyTag]) else { return nil }
+              Set(tags + inboundTags).isDisjoint(with: [relayTag, upstreamTag, proxyTag]) else {
+            failure(.tagCollision)
+            return nil
+        }
         if (outbounds[primary]["tag"] as? String ?? "").isEmpty {
             outbounds[primary]["tag"] = proxyTag
         }
@@ -38,7 +53,10 @@ public enum TunnelDNSPolicy {
         for index in outbounds.indices {
             let proto = (outbounds[index]["protocol"] as? String ?? "").lowercased()
             guard endpointProtocols.contains(proto) else { continue }
-            guard let settings = outbounds[index]["settings"] as? [String: Any] else { return nil }
+            guard let settings = outbounds[index]["settings"] as? [String: Any] else {
+                failure(.noProxyEndpoint)
+                return nil
+            }
             let entries: [[String: Any]]
             if proto == "wireguard" {
                 entries = settings["peers"] as? [[String: Any]] ?? []
@@ -48,36 +66,71 @@ public enum TunnelDNSPolicy {
                 let legacyKey = proto == "vless" || proto == "vmess" ? "vnext" : "servers"
                 entries = settings[legacyKey] as? [[String: Any]] ?? []
             }
-            guard !entries.isEmpty else { return nil }
+            guard !entries.isEmpty else {
+                failure(.noProxyEndpoint)
+                return nil
+            }
             for entry in entries {
                 guard let host = (entry["address"] as? String)
-                    ?? endpointHost(entry["endpoint"] as? String), !host.isEmpty else { return nil }
+                    ?? endpointHost(entry["endpoint"] as? String), !host.isEmpty else {
+                    failure(.noProxyEndpoint)
+                    return nil
+                }
                 if isLiteral(host) {
                     addresses.insert(host)
                 } else {
-                    guard let ip = hosts[hostKey(host)] ?? resolveIPv4(host), isLiteral(ip) else { return nil }
+                    guard let ip = hosts[hostKey(host)] ?? resolveIPv4(host), isLiteral(ip) else {
+                        failure(.endpointUnresolved)
+                        return nil
+                    }
                     hosts[hostKey(host)] = ip
                     addresses.insert(ip)
                 }
             }
             var stream = outbounds[index]["streamSettings"] as? [String: Any] ?? [:]
-            guard prepareStream(&stream, hosts: &hosts, addresses: &addresses, resolveIPv4: resolveIPv4) else { return nil }
+            guard prepareStream(&stream, hosts: &hosts, addresses: &addresses,
+                resolveIPv4: resolveIPv4, failure: failure) else { return nil }
             outbounds[index]["streamSettings"] = stream
         }
+        if encrypted {
+            guard let dohHost = URL(string: resolver)?.host, !dohHost.isEmpty else {
+                failure(.dnsResolverUnsupported)
+                return nil
+            }
+            if !isLiteral(dohHost) {
+                let known = ["cloudflare-dns.com": "1.1.1.1", "dns.google": "8.8.8.8", "dns.quad9.net": "9.9.9.9"]
+                guard let ip = hosts[hostKey(dohHost)] ?? known[hostKey(dohHost)] ?? resolveIPv4(dohHost),
+                      isLiteral(ip) else {
+                    failure(.endpointUnresolved)
+                    return nil
+                }
+                hosts[hostKey(dohHost)] = ip
+                addresses.insert(ip)
+            }
+        }
+        // A/AAAA use Xray's protected DoH module on the encrypted path. Other
+        // record types receive an empty response, never a plaintext or
+        // system-resolver fallback.
+        let queryRules: [[String: Any]] = encrypted ? [
+            ["action": "return", "qType": "28", "rCode": 0],
+            ["action": "hijack", "qType": "1"],
+            ["action": "return", "rCode": 0]
+        ] : [
+            ["action": "return", "qType": "28", "rCode": 0],
+            // Relay all other query types through the proxy dialer.
+            ["action": "direct"]
+        ]
         outbounds.append([
             "tag": relayTag,
             "protocol": "dns",
             "settings": [
-                "rewriteNetwork": "tcp", "rewriteAddress": resolver, "rewritePort": 53,
+                "rewriteNetwork": "tcp",
+                "rewriteAddress": encrypted ? "127.0.0.1" : resolver, "rewritePort": 53,
                 // queryStrategy only affects Xray's own lookups, not raw DNS
                 // relay. Do not advertise IPv6 that TunnelIPv6Policy blocks:
                 // a local TCP handshake can succeed before Xray closes it,
                 // preventing clients from falling back to IPv4 during TLS.
-                "rules": [
-                    ["action": "return", "qType": "28", "rCode": 0],
-                    // Relay all other query types through the proxy dialer.
-                    ["action": "direct"]
-                ]
+                "rules": queryRules
             ],
             "streamSettings": ["sockopt": ["dialerProxy": selectedTag]]
         ])
@@ -85,7 +138,8 @@ public enum TunnelDNSPolicy {
         // The sample owns system DNS, as before. Never use tcp+local/local or
         // an OS-resolver fallback once the tunnel routes have been installed.
         config["dns"] = [
-            "hosts": hosts, "servers": ["tcp://\(resolver)"], "tag": upstreamTag,
+            "hosts": hosts,
+            "servers": [encrypted ? resolver : "tcp://\(resolver)"], "tag": upstreamTag,
             "queryStrategy": "UseIPv4", "disableFallback": true
         ]
         var routing = config["routing"] as? [String: Any] ?? [:]
@@ -116,18 +170,25 @@ public enum TunnelDNSPolicy {
 
     private static func prepareStream(
         _ stream: inout [String: Any], hosts: inout [String: String],
-        addresses: inout Set<String>, resolveIPv4: (String) -> String?
+        addresses: inout Set<String>, resolveIPv4: (String) -> String?,
+        failure: (TunnelXrayConfigPreparer.StartupFailure) -> Void
     ) -> Bool {
         var sockopt = stream["sockopt"] as? [String: Any] ?? [:]
         // SRV/TXT overrides use the system resolver independently of hosts.
-        guard (sockopt["addressPortStrategy"] as? String ?? "none").lowercased() == "none" else { return false }
+        guard (sockopt["addressPortStrategy"] as? String ?? "none").lowercased() == "none" else {
+            failure(.addressPortStrategyUnsupported)
+            return false
+        }
         sockopt["domainStrategy"] = "ForceIP"
         stream["sockopt"] = sockopt
         if let host = stream["address"] as? String, !host.isEmpty {
             if isLiteral(host) {
                 addresses.insert(host)
             } else {
-                guard let ip = hosts[hostKey(host)] ?? resolveIPv4(host), isLiteral(ip) else { return false }
+                guard let ip = hosts[hostKey(host)] ?? resolveIPv4(host), isLiteral(ip) else {
+                    failure(.endpointUnresolved)
+                    return false
+                }
                 hosts[hostKey(host)] = ip
                 addresses.insert(ip)
             }
@@ -136,12 +197,14 @@ public enum TunnelDNSPolicy {
             guard var settings = stream[key] as? [String: Any] else { continue }
             // Xray extra replaces the outer download settings entirely.
             if settings["extra"] == nil, var download = settings["downloadSettings"] as? [String: Any] {
-                guard prepareStream(&download, hosts: &hosts, addresses: &addresses, resolveIPv4: resolveIPv4) else { return false }
+                guard prepareStream(&download, hosts: &hosts, addresses: &addresses,
+                    resolveIPv4: resolveIPv4, failure: failure) else { return false }
                 settings["downloadSettings"] = download
             }
             if var extra = settings["extra"] as? [String: Any],
                var download = extra["downloadSettings"] as? [String: Any] {
-                guard prepareStream(&download, hosts: &hosts, addresses: &addresses, resolveIPv4: resolveIPv4) else { return false }
+                guard prepareStream(&download, hosts: &hosts, addresses: &addresses,
+                    resolveIPv4: resolveIPv4, failure: failure) else { return false }
                 extra["downloadSettings"] = download
                 settings["extra"] = extra
             }
@@ -161,11 +224,20 @@ public enum TunnelDNSPolicy {
         guard let rawDNS = config["dns"] else { return "1.1.1.1" }
         guard let dns = rawDNS as? [String: Any] else { return nil }
         guard let rawServers = dns["servers"] else { return "1.1.1.1" }
-        guard let servers = rawServers as? [String], servers.count == 1,
-              servers[0].hasPrefix("tcp://") else { return nil }
-        let address = String(servers[0].dropFirst("tcp://".count))
+        guard let servers = rawServers as? [String], servers.count == 1 else { return nil }
+        let endpoint = servers[0]
+        if endpoint.hasPrefix("https://") {
+            guard endpoint.count <= 2048, let url = URL(string: endpoint),
+                  url.scheme == "https", let host = url.host, !host.isEmpty,
+                  url.user == nil, url.password == nil, url.fragment == nil,
+                  !url.path.isEmpty, (1...65535).contains(url.port ?? 443),
+                  !endpoint.contains(where: { $0.isWhitespace }) else { return nil }
+            return endpoint
+        }
+        guard endpoint.hasPrefix("tcp://") else { return nil }
+        let resolver = String(endpoint.dropFirst("tcp://".count))
         var parsed = in_addr()
-        return address.withCString { inet_pton(AF_INET, $0, &parsed) } == 1 ? address : nil
+        return resolver.withCString { inet_pton(AF_INET, $0, &parsed) } == 1 ? resolver : nil
     }
 
     private static func endpointHost(_ endpoint: String?) -> String? {

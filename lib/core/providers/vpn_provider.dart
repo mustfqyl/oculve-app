@@ -424,6 +424,12 @@ class VpnNotifier extends StateNotifier<VpnState> {
       if (tunnelStopped && mounted) {
         ref.read(vpnTunnelMayBeActiveProvider.notifier).state = false;
       }
+      // A failed protected switch must not swallow later native connected
+      // statuses: while _switchAwaitingNative stays set, _onStatus ignores
+      // every connected event and the UI looks permanently unresponsive.
+      // Reset only after the stop attempt above so a stale connected status
+      // from the old session cannot be adopted mid-teardown.
+      _switchAwaitingNative = false;
       _fail(
         UserFacingFailure.message(
           error,

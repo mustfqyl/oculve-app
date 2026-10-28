@@ -37,6 +37,21 @@ public struct TunnelPreparedConfig {
 public enum TunnelXrayConfigPreparer {
     public enum StartupError: Error { case invalidConfiguration, endpointUnavailable }
 
+    /// Fixed preparation failure points. They only carry stage identity, never
+    /// configuration content, so they are safe to publish through diagnostics.
+    public enum StartupFailure: Error, Equatable {
+        case invalidJSON
+        case accessPolicyRejected
+        case privacyPolicyRejected
+        case dnsResolverUnsupported
+        case noProxyEndpoint
+        case tagCollision
+        case addressPortStrategyUnsupported
+        case endpointUnresolved
+        case ipv6PolicyRejected
+        case encodingFailed
+    }
+
     /// Retry transient endpoint resolution only before virtual DNS/routes exist.
     /// A failed preparation must never create a connected tunnel with no runtime
     /// to recover. Exhaustion is a startup error handled by NetworkExtension.
@@ -47,20 +62,95 @@ public enum TunnelXrayConfigPreparer {
         attempts: Int = 5,
         retryDelay: () async throws -> Void = { try await Task.sleep(nanoseconds: 3_000_000_000) }
     ) async throws -> TunnelPreparedConfig {
+        var resolutionFailed = false
+        var failureCode: StartupFailure?
         for attempt in 0..<max(1, attempts) {
             try Task.checkCancellation()
-            var resolutionFailed = false
-            let prepared = prepare(jsonData: jsonData, credentials: credentials) { host in
-                let address = resolveIPv4(host)
-                resolutionFailed = resolutionFailed || address == nil
-                return address
+            resolutionFailed = false
+            failureCode = nil
+            let prepared = prepare(jsonData: jsonData, credentials: credentials, resolveIPv4: resolveIPv4) { code in
+                if case .endpointUnresolved = code { resolutionFailed = true }
+                failureCode = code
             }
             try Task.checkCancellation()
             if let prepared { return prepared }
-            guard resolutionFailed else { throw StartupError.invalidConfiguration }
+            guard resolutionFailed else { throw failureCode ?? StartupFailure.invalidJSON }
             if attempt + 1 < attempts { try await retryDelay() }
         }
-        throw StartupError.endpointUnavailable
+        throw StartupFailure.endpointUnresolved
+    }
+
+    /// Maps a caught protected-switch error onto a fixed diagnostic stage
+    /// event. The underlying error text never reaches diagnostics.
+    public static func switchRejection(_ error: Error) -> NativeDiagnosticMessage {
+        func rejected(_ stage: String) -> NativeDiagnosticMessage {
+            // Stage names are compile-time literals; route them through the
+            // pass-through interpolation so the privacy redactor keeps them.
+            "Server switch rejected at \(NativeDiagnosticMessage(stringLiteral: stage)); existing tunnel protection retained"
+        }
+        if let failure = error as? StartupFailure {
+            switch failure {
+            case .invalidJSON: return rejected("configuration parse stage")
+            case .accessPolicyRejected: return rejected("access policy stage")
+            case .privacyPolicyRejected: return rejected("privacy policy stage")
+            case .dnsResolverUnsupported: return rejected("DNS resolver policy stage")
+            case .noProxyEndpoint: return rejected("proxy endpoint stage")
+            case .tagCollision: return rejected("tag collision stage")
+            case .addressPortStrategyUnsupported: return rejected("address-port strategy stage")
+            case .endpointUnresolved: return rejected("endpoint resolution stage")
+            case .ipv6PolicyRejected: return rejected("IPv6 policy stage")
+            case .encodingFailed: return rejected("configuration encoding stage")
+            }
+        }
+        switch (error as NSError).localizedDescription {
+        case "Invalid replacement metadata":
+            return rejected("metadata stage")
+        case "Protected tunnel is unavailable":
+            return rejected("tunnel state stage")
+        case "System route exclusions are unsupported":
+            return rejected("route exclusion stage")
+        case "Protected switch preparation failed":
+            return rejected("preparation stage")
+        case "Protected workers could not stop":
+            return rejected("worker stop stage")
+        default:
+            if error is CancellationError {
+                return "Server switch cancelled; existing tunnel protection retained"
+            }
+            return "Server switch rejected; existing tunnel protection retained"
+        }
+    }
+
+    /// Maps a caught preparation error onto a fixed diagnostic stage event.
+    /// The underlying error text never reaches diagnostics.
+    public static func preparationFailureEvent(_ error: Error) -> NativeDiagnosticMessage {
+        switch error as? StartupFailure {
+        case .invalidJSON?:
+            return "Tunnel preparation failed at configuration parse stage"
+        case .accessPolicyRejected?:
+            return "Tunnel preparation failed at access policy stage"
+        case .privacyPolicyRejected?:
+            return "Tunnel preparation failed at privacy policy stage"
+        case .dnsResolverUnsupported?:
+            return "Tunnel preparation failed at DNS resolver policy stage"
+        case .noProxyEndpoint?:
+            return "Tunnel preparation failed at proxy endpoint stage"
+        case .tagCollision?:
+            return "Tunnel preparation failed at tag collision stage"
+        case .addressPortStrategyUnsupported?:
+            return "Tunnel preparation failed at address-port strategy stage"
+        case .endpointUnresolved?:
+            return "Tunnel preparation failed at endpoint resolution stage"
+        case .ipv6PolicyRejected?:
+            return "Tunnel preparation failed at IPv6 policy stage"
+        case .encodingFailed?:
+            return "Tunnel preparation failed at configuration encoding stage"
+        case nil:
+            if error is CancellationError {
+                return "Tunnel preparation was cancelled before route installation"
+            }
+            return "Tunnel preparation failed before route installation"
+        }
     }
 
     public static func parseConfig(jsonData: Data) -> TunnelParsedConfig? {
@@ -79,19 +169,29 @@ public enum TunnelXrayConfigPreparer {
     public static func prepare(
         jsonData: Data,
         credentials: LocalProxyCredentials,
-        resolveIPv4: (String) -> String? = { _ in nil }
+        resolveIPv4: (String) -> String? = { _ in nil },
+        failure: (StartupFailure) -> Void = { _ in }
     ) -> TunnelPreparedConfig? {
         do {
             guard let input = try JSONSerialization.jsonObject(with: jsonData, options: []) as? [String: Any],
                   var configJSON = TunnelConfigKeys.normalize(input) else {
+                failure(.invalidJSON)
                 return nil
             }
             var messages: [String] = []
 
-            try LocalProxyAccessPolicy.applyVPN(to: &configJSON, credentials: credentials)
+            do {
+                try LocalProxyAccessPolicy.applyVPN(to: &configJSON, credentials: credentials)
+            } catch {
+                failure(.accessPolicyRejected)
+                return nil
+            }
             messages.append("Applied session authentication to the managed loopback SOCKS inbound")
 
-            guard XrayPrivacyConfig.apply(to: &configJSON) else { return nil }
+            guard XrayPrivacyConfig.apply(to: &configJSON) else {
+                failure(.privacyPolicyRejected)
+                return nil
+            }
             messages.append("Applied private Xray logging policy")
 
             if var routing = configJSON["routing"] as? [String: Any] {
@@ -142,16 +242,26 @@ public enum TunnelXrayConfigPreparer {
                 }
             }
 
-            guard let bootstrapAddresses = TunnelDNSPolicy.apply(to: &configJSON, resolveIPv4: resolveIPv4) else {
+            guard let bootstrapAddresses = TunnelDNSPolicy.apply(to: &configJSON, resolveIPv4: resolveIPv4,
+                failure: failure) else {
                 return nil
             }
             messages.append("Configured system DNS over TCP through the selected proxy")
-            guard TunnelIPv6Policy.apply(to: &configJSON) else { return nil }
+            guard TunnelIPv6Policy.apply(to: &configJSON) else {
+                failure(.ipv6PolicyRejected)
+                return nil
+            }
             messages.append("Captured IPv6 is blocked; IPv4 remains available")
-            let data = try JSONSerialization.data(withJSONObject: configJSON, options: [])
+            let data: Data
+            do { data = try JSONSerialization.data(withJSONObject: configJSON, options: []) }
+            catch {
+                failure(.encodingFailed)
+                return nil
+            }
             return TunnelPreparedConfig(data: data, logMessages: messages, proxyUsesXhttp: proxyUsesXhttp,
                                         bootstrapAddresses: bootstrapAddresses)
         } catch {
+            failure(.invalidJSON)
             return nil
         }
     }

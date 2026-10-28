@@ -169,24 +169,11 @@ open class FlutterVlessPacketTunnelProvider: NEPacketTunnelProvider {
         beginStartup()
         setForwardingReady(false)
         rememberTunnelLog("Starting Xray packet tunnel")
-        // A system-initiated Connect after a manual Stop must rearm crash
-        // recovery even when the containing application is not running.
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            TunnelOnDemandPolicy.enableForStart(configuration: configuration,
-                isCancelled: { self.isStartupStopped() }) { result in
-                switch result {
-                case .success:
-                    rememberTunnelLog("On-demand recovery armed for tunnel session")
-                    continuation.resume()
-                case .failure:
-                    rememberTunnelLog("Unable to arm on-demand recovery for tunnel session")
-                    continuation.resume(throwing: self.tunnelError("Unable to enable VPN recovery; reconnect from the app"))
-                }
-            }
-        }
-        guard !isStartupStopped() else { throw CancellationError() }
         // Endpoint bootstrap precedes virtual DNS installation. Reuse the
         // prepared endpoints when restarting workers within this same tunnel.
+        // On-demand recovery is armed only after routes exist: arming before a
+        // failing preparation made the system relaunch the extension in a tight
+        // loop and hold the network hostage on repeated failed starts.
         let credentials = try LocalProxyCredentials.generate()
         let preparation = Task {
             try await TunnelXrayConfigPreparer.prepareForStartup(jsonData: config, credentials: credentials,
@@ -200,7 +187,18 @@ open class FlutterVlessPacketTunnelProvider: NEPacketTunnelProvider {
         let prepared: TunnelPreparedConfig
         do { prepared = try await preparation.value }
         catch {
-            rememberTunnelLog("Tunnel preparation failed before route installation")
+            switch error as? TunnelXrayConfigPreparer.StartupError {
+            case .endpointUnavailable?:
+                rememberTunnelLog("Tunnel preparation failed at endpoint resolution stage")
+            case .invalidConfiguration?:
+                rememberTunnelLog("Tunnel preparation failed at configuration parse stage")
+            case nil:
+                if error is CancellationError {
+                    rememberTunnelLog("Tunnel preparation was cancelled before route installation")
+                } else {
+                    rememberTunnelLog("Tunnel preparation failed before route installation")
+                }
+            }
             throw tunnelError("Unable to prepare tunnel configuration or resolve its endpoint")
         }
         guard !preparation.isCancelled,
@@ -225,6 +223,24 @@ open class FlutterVlessPacketTunnelProvider: NEPacketTunnelProvider {
         try await setTunnelNetworkSettings(settings)
         guard !preparation.isCancelled else { throw CancellationError() }
         rememberTunnelLog("Protected tunnel routes and virtual DNS installed")
+        // A system-initiated Connect after a manual Stop must rearm crash
+        // recovery even when the containing application is not running. Armed
+        // only from here on: a preparation failure must not leave a rule that
+        // makes the system relaunch the extension in a tight loop.
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            TunnelOnDemandPolicy.enableForStart(configuration: configuration,
+                isCancelled: { self.isStartupStopped() }) { result in
+                switch result {
+                case .success:
+                    rememberTunnelLog("On-demand recovery armed for tunnel session")
+                    continuation.resume()
+                case .failure:
+                    rememberTunnelLog("Unable to arm on-demand recovery for tunnel session")
+                    continuation.resume(throwing: self.tunnelError("Unable to enable VPN recovery; reconnect from the app"))
+                }
+            }
+        }
+        guard !isStartupStopped() else { throw CancellationError() }
 
         runtimeSpec = RuntimeSpec(config: prepared.data, port: parsed.inboundPort,
             geoAssetsDirectory: providerConfiguration["geoAssetsDirectory"] as? String, credentials: credentials,
@@ -369,7 +385,7 @@ open class FlutterVlessPacketTunnelProvider: NEPacketTunnelProvider {
                     try self.startNativeRuntime(spec)
                     started = true
                 } catch {
-                    rememberTunnelLog("Native restart failed; protected traffic remains blocked")
+                    rememberTunnelLog(NativeLogPrivacy.restartFailure(error))
                     _ = self.stopNativeRuntime()
                 }
             }
@@ -403,6 +419,7 @@ open class FlutterVlessPacketTunnelProvider: NEPacketTunnelProvider {
         }
         guard let old else { throw tunnelError("Protected tunnel is unavailable") }
         defer { watchdogQueue.sync { replacementInProgress = false } }
+        rememberTunnelLog("Protected server switch started")
         let stored = try TunnelSecretProfile.load(metadata,
             providerBundleIdentifier: configuration.providerBundleIdentifier ?? "")
         let candidate = try DesktopBypassPolicy.apply(to: stored, cidrs: metadata["bypassSubnets"] as? [String] ?? [])
@@ -415,6 +432,7 @@ open class FlutterVlessPacketTunnelProvider: NEPacketTunnelProvider {
               TunnelDNSPolicy.allowsRouteExclusions(prepared.bootstrapAddresses.map { "\($0)/32" }) else {
             throw tunnelError("Protected switch preparation failed")
         }
+        rememberTunnelLog("Protected switch preparation succeeded")
         let dpiBypass = TunnelDpiRuntime.isDpiConfig(candidate)
         let interfaceName = dpiBypass ? try await TunnelDpiRuntime.currentPhysicalInterface() : nil
         // Retire workers, never the NetworkExtension session or virtual DNS.
@@ -424,6 +442,7 @@ open class FlutterVlessPacketTunnelProvider: NEPacketTunnelProvider {
             runtimeQueue.async { continuation.resume(returning: self.stopNativeRuntime()) }
         }
         guard stopped, !isStartupStopped() else { throw tunnelError("Protected workers could not stop") }
+        rememberTunnelLog("Protected switch stopped old workers")
         let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: "254.1.1.1")
         settings.mtu = NSNumber(value: tunnelMTU)
         let addresses = prepared.bootstrapAddresses
@@ -439,8 +458,10 @@ open class FlutterVlessPacketTunnelProvider: NEPacketTunnelProvider {
                 startTunnelWatchdog(port: old.port)
                 watchdogQueue.async { self.scheduleNativeRecovery(after: 0) }
             }
+            rememberTunnelLog("Protected switch route installation failed")
             throw error
         }
+        rememberTunnelLog("Protected switch routes reinstalled")
         guard !isStartupStopped() else { throw CancellationError() }
         runtimeSpec = RuntimeSpec(config: prepared.data, port: parsed.inboundPort,
             geoAssetsDirectory: metadata["geoAssetsDirectory"] as? String, credentials: credentials,
@@ -456,7 +477,10 @@ open class FlutterVlessPacketTunnelProvider: NEPacketTunnelProvider {
             let payload = Data(messageData.dropFirst(prefix.count))
             Task {
                 do { try await replaceProtectedRuntime(payload); completionHandler?(Data("accepted".utf8)) }
-                catch { rememberTunnelLog("Server switch rejected; existing tunnel protection retained"); completionHandler?(Data("rejected".utf8)) }
+                catch {
+                    rememberTunnelLog(TunnelXrayConfigPreparer.switchRejection(error))
+                    completionHandler?(Data("rejected".utf8))
+                }
             }
             return
         }

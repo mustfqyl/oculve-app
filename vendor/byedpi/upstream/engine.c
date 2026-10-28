@@ -70,10 +70,12 @@ static void *run_engine(void *unused) {
     static char interface_option[] = "--interface";
     static char split_option[] = "--split";
     static char disorder_option[] = "--disorder";
+#ifdef FAKE_SUPPORT
     static char fake_option[] = "--fake";
     static char fake_position[] = "-1";
     static char ttl_option[] = "--ttl";
     static char fake_ttl[] = "8";
+#endif
     static char split_first[] = "1+s";
     static char disorder_later[] = "3+s";
     static char disorder_first[] = "1+s";
@@ -110,10 +112,19 @@ static void *run_engine(void *unused) {
         // Try a low-TTL fake ClientHello before the real one, then retry the same
         // destination with packet strategies after reset/timeout/connect/TLS failure.
         // ByeDPI's cache records the working group, never a generic probe.
+        //
+        // FAKE_SUPPORT is only defined for __linux__/_WIN32 (params.h): fake
+        // packets use vmsplice/splice and do not exist on Apple. Passing
+        // --fake there is also a parse failure: it is not in the option
+        // table, and getopt_long resolves it as an ambiguous prefix of
+        // --fake-data/--fake-offset/--fake-tls-mod. Apple's profile 4 keeps
+        // the same auto-retry groups without the fake ClientHello.
+#ifdef FAKE_SUPPORT
         argv[argc++] = fake_option;
         argv[argc++] = fake_position;
         argv[argc++] = ttl_option;
         argv[argc++] = fake_ttl;
+#endif
         for (int preset = 0; preset < 4; ++preset) {
             argv[argc++] = auto_option;
             argv[argc++] = triggers;

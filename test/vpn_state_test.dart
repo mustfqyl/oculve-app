@@ -205,6 +205,29 @@ void main() {
     controller.dismissError();
   });
 
+  testWidgets('a connected status after a rejected replacement is adopted', (
+    tester,
+  ) async {
+    final controller = container.read(vpnProvider.notifier);
+    await controller.connect();
+    platform.emit(VlessStatus(state: 'CONNECTED'));
+    expect(container.read(vpnProvider), VpnState.connected);
+    platform.rejectReplacement = true;
+    await controller.selectServer(dpiBypassServerId);
+    expect(container.read(vpnProvider), VpnState.error);
+    expect(container.read(vpnTunnelMayBeActiveProvider), isTrue);
+    // The provider keeps the old session protected after a rejected switch;
+    // its connected status must still reach the UI instead of being ignored
+    // by a stale switch-await flag.
+    platform.emit(VlessStatus(state: 'CONNECTED'));
+    expect(container.read(vpnProvider), VpnState.connected);
+    platform.rejectReplacement = false;
+    await controller.disconnect();
+    expect(platform.stops, 1);
+    expect(container.read(vpnTunnelMayBeActiveProvider), isFalse);
+    controller.dismissError();
+  });
+
   test('same server selection and concurrent switches are ignored', () async {
     final controller = container.read(vpnProvider.notifier);
     await controller.selectServer(dpiBypassServerId);

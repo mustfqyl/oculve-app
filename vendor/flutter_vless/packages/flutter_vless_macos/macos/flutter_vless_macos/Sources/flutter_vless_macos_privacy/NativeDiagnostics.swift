@@ -32,6 +32,48 @@ public enum NativeLogPrivacy {
     public static let providerLogFilename = "flutter_vless_tunnel_private_v2.log"
     public static let snapshotCommand = "xray_debug_private_v2"
 
+    /// Recovery catches every startNativeRuntime failure. Only fixed stage
+    /// codes are exported; raw error text never reaches diagnostics.
+    /// The description input is already filtered through runtimeEvent() or
+    /// thrown by tunnelError(), which emits a closed message vocabulary.
+    public static func restartFailure(_ error: Error) -> NativeDiagnosticMessage {
+        let description = (error as NSError).localizedDescription
+        switch description {
+        case "Physical network interface is unavailable":
+            return "Native restart failed at DPI interface stage; protected traffic remains blocked"
+        case "Xray could not locate the NetworkExtension TUN interface":
+            return "Native restart failed at TUN descriptor stage; protected traffic remains blocked"
+        case "Invalid DPI strategy":
+            return "Native restart failed at DPI profile stage; protected traffic remains blocked"
+        case "DPI Bypass could not establish verified Internet connectivity":
+            return "Native restart failed at DPI connectivity stage; protected traffic remains blocked"
+        case "Xray geo asset directory must not be empty":
+            return "Native restart failed at Xray asset stage; protected traffic remains blocked"
+        case "Timed out waiting for HEV startup":
+            return "Native restart failed at HEV startup stage; protected traffic remains blocked"
+        case "Failed to start XRay with unknown error":
+            return "Native restart failed at Xray startup stage; protected traffic remains blocked"
+        default:
+            let hevPrefix = "HEV exited during startup with code "
+            if description.hasPrefix(hevPrefix),
+               let code = Int32(description.dropFirst(hevPrefix.count)) {
+                return "Native restart failed at HEV startup stage (code \(code)); protected traffic remains blocked"
+            }
+            let nativePrefix = "Native operation failed (code "
+            if description.hasPrefix(nativePrefix),
+               let code = Int(description.dropFirst(nativePrefix.count).dropLast(")".count)) {
+                return "Native restart failed at native stage (code \(code)); protected traffic remains blocked"
+            }
+            if description.hasPrefix("Xray startup failed") {
+                return "Native restart failed at Xray startup stage; protected traffic remains blocked"
+            }
+            if description == "Xray diagnostic details omitted" {
+                return "Native restart failed at Xray stage; protected traffic remains blocked"
+            }
+            return "Native restart failed at native stage; protected traffic remains blocked"
+        }
+    }
+
     /// Closed callback vocabulary: never infer that arbitrary runtime text is safe.
     public static func runtimeEvent(_ raw: String) -> NativeDiagnosticMessage {
         switch raw {

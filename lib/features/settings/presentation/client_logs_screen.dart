@@ -11,6 +11,26 @@ import 'package:oculve/core/connection/connection_preferences.dart';
 import 'package:oculve/core/connection/diagnostic_report.dart';
 import 'package:oculve/core/account/private_text_export.dart';
 
+/// A native diagnostics snapshot plus whether retrieval itself succeeded, so
+/// "snapshot unavailable" never renders the same as "snapshot empty".
+class NativeSnapshotResult {
+  const NativeSnapshotResult(this.text, this.succeeded);
+  final String text;
+  final bool succeeded;
+}
+
+/// The three diagnostics outcomes stay distinct: unavailable snapshot, empty
+/// snapshot, and recorded diagnostics.
+String nativeDiagnosticsDisplayText(NativeSnapshotResult result) {
+  if (!result.succeeded) {
+    return 'Native diagnostics could not be retrieved. '
+        'Connect to the VPN once, then refresh.';
+  }
+  return result.text.trim().isEmpty
+      ? 'No native diagnostics have been recorded.'
+      : result.text.trim();
+}
+
 class ClientLogsScreen extends ConsumerStatefulWidget {
   const ClientLogsScreen({super.key});
 
@@ -19,7 +39,7 @@ class ClientLogsScreen extends ConsumerStatefulWidget {
 }
 
 class _ClientLogsScreenState extends ConsumerState<ClientLogsScreen> {
-  late Future<String> _nativeDiagnostics;
+  late Future<NativeSnapshotResult> _nativeDiagnostics;
 
   @override
   void initState() {
@@ -31,9 +51,11 @@ class _ClientLogsScreenState extends ConsumerState<ClientLogsScreen> {
     _nativeDiagnostics = () async {
       try {
         await ref.read(vpnProvider.notifier).initialize();
-        return await VlessPlatform.instance.getProviderDebugSnapshot();
+        final snapshot = await VlessPlatform.instance
+            .getProviderDebugSnapshot();
+        return NativeSnapshotResult(snapshot, true);
       } catch (_) {
-        return '';
+        return const NativeSnapshotResult('', false);
       }
     }();
   }
@@ -44,6 +66,7 @@ class _ClientLogsScreenState extends ConsumerState<ClientLogsScreen> {
     setState(() => _exporting = true);
     try {
       final options = await ConnectionPreferences.read();
+      var snapshotSucceeded = true;
       final version = await VlessPlatform.instance
           .getCoreVersion()
           .timeout(const Duration(seconds: 3))
@@ -51,7 +74,10 @@ class _ClientLogsScreenState extends ConsumerState<ClientLogsScreen> {
       final nativeDiagnostics = await VlessPlatform.instance
           .getProviderDebugSnapshot()
           .timeout(const Duration(seconds: 3))
-          .catchError((_) => '');
+          .catchError((_) {
+            snapshotSucceeded = false;
+            return '';
+          });
       if (!mounted) return;
       final report = diagnosticReport(
         state: ref.read(vpnProvider).name,
@@ -61,6 +87,7 @@ class _ClientLogsScreenState extends ConsumerState<ClientLogsScreen> {
         reconnect: options.reconnect,
         coreVersion: version,
         nativeDiagnostics: nativeDiagnostics,
+        nativeSnapshotSucceeded: snapshotSucceeded,
       );
       await exportPrivateText(
         context,
@@ -155,17 +182,14 @@ class _ClientLogsScreenState extends ConsumerState<ClientLogsScreen> {
             style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 12),
-          FutureBuilder<String>(
+          FutureBuilder<NativeSnapshotResult>(
             future: _nativeDiagnostics,
             builder: (context, snapshot) {
               if (!snapshot.hasData) {
                 return const LinearProgressIndicator(minHeight: 2);
               }
-              final diagnostics = snapshot.data!.trim();
               return SelectableText(
-                diagnostics.isEmpty
-                    ? 'No native diagnostics have been recorded.'
-                    : diagnostics,
+                nativeDiagnosticsDisplayText(snapshot.data!),
               );
             },
           ),

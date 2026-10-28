@@ -18,13 +18,144 @@ final class TunnelDNSPolicyTests: XCTestCase {
             _ = try await TunnelXrayConfigPreparer.prepareForStartup(jsonData: data, credentials: Self.credentials,
                 resolveIPv4: { _ in nil }, attempts: 2, retryDelay: {})
             XCTFail("Unavailable endpoints must fail startup, never install a runtime-less tunnel")
-        } catch { XCTAssertTrue(error is TunnelXrayConfigPreparer.StartupError) }
+        } catch {
+            XCTAssertEqual(error as? TunnelXrayConfigPreparer.StartupFailure, .endpointUnresolved)
+            XCTAssertEqual(
+                TunnelXrayConfigPreparer.preparationFailureEvent(error).text,
+                "Tunnel preparation failed at endpoint resolution stage")
+        }
         do {
             _ = try await TunnelXrayConfigPreparer.prepareForStartup(jsonData: Data("{}".utf8), credentials: Self.credentials,
                 resolveIPv4: { _ in XCTFail("Invalid input must not resolve"); return nil },
                 retryDelay: { XCTFail("Invalid configuration must not retry") })
             XCTFail("Invalid input must fail startup")
-        } catch { XCTAssertTrue(error is TunnelXrayConfigPreparer.StartupError) }
+        } catch {
+            XCTAssertEqual(error as? TunnelXrayConfigPreparer.StartupFailure, .accessPolicyRejected)
+            XCTAssertEqual(
+                TunnelXrayConfigPreparer.preparationFailureEvent(error).text,
+                "Tunnel preparation failed at access policy stage")
+        }
+        do {
+            // A valid inbound without any proxy outbound must reach the DNS
+            // policy and fail at the proxy endpoint stage, not the resolver.
+            let data = try JSONSerialization.data(withJSONObject: [
+                "inbounds": [["tag": "socks-in", "protocol": "socks", "port": 10808,
+                              "settings": ["auth": "noauth", "udp": true]]]
+            ], options: [])
+            _ = try await TunnelXrayConfigPreparer.prepareForStartup(jsonData: data, credentials: Self.credentials,
+                resolveIPv4: { _ in XCTFail("A missing outbound must not resolve"); return nil },
+                retryDelay: { XCTFail("A missing outbound must not retry") })
+            XCTFail("A config without outbounds must fail startup")
+        } catch {
+            XCTAssertEqual(error as? TunnelXrayConfigPreparer.StartupFailure, .noProxyEndpoint)
+            XCTAssertEqual(
+                TunnelXrayConfigPreparer.preparationFailureEvent(error).text,
+                "Tunnel preparation failed at proxy endpoint stage")
+        }
+    }
+
+    func testPreparationFailureEventsCarryFixedStagesOnly() {
+        let secrets = ["server.example.invalid", "secret-token"]
+        let cases: [(TunnelXrayConfigPreparer.StartupFailure, String)] = [
+            (.invalidJSON, "Tunnel preparation failed at configuration parse stage"),
+            (.accessPolicyRejected, "Tunnel preparation failed at access policy stage"),
+            (.privacyPolicyRejected, "Tunnel preparation failed at privacy policy stage"),
+            (.dnsResolverUnsupported, "Tunnel preparation failed at DNS resolver policy stage"),
+            (.noProxyEndpoint, "Tunnel preparation failed at proxy endpoint stage"),
+            (.tagCollision, "Tunnel preparation failed at tag collision stage"),
+            (.addressPortStrategyUnsupported, "Tunnel preparation failed at address-port strategy stage"),
+            (.endpointUnresolved, "Tunnel preparation failed at endpoint resolution stage"),
+            (.ipv6PolicyRejected, "Tunnel preparation failed at IPv6 policy stage"),
+            (.encodingFailed, "Tunnel preparation failed at configuration encoding stage")
+        ]
+        for (failure, expected) in cases {
+            let text = TunnelXrayConfigPreparer.preparationFailureEvent(failure).text
+            XCTAssertEqual(text, expected)
+            for secret in secrets {
+                XCTAssertFalse(text.contains(secret))
+            }
+        }
+        XCTAssertEqual(
+            TunnelXrayConfigPreparer.preparationFailureEvent(CancellationError()).text,
+            "Tunnel preparation was cancelled before route installation")
+        XCTAssertEqual(
+            TunnelXrayConfigPreparer.preparationFailureEvent(
+                NSError(domain: "flutter_vless.packet_tunnel", code: 1,
+                        userInfo: [NSLocalizedDescriptionKey: secrets[0]])).text,
+            "Tunnel preparation failed before route installation")
+    }
+
+    func testEncryptedResolverPolicyMatchesAppPresets() throws {
+        // The app's DNS presets are single https:// DoH endpoints (the macOS
+        // policy already accepts them). The iOS policy must accept the same
+        // shape, bootstrap the DoH host through the proxy, and rewrite the
+        // plaintext relay onto Xray's protected loopback DoH module.
+        func makeConfig(_ servers: [Any]) -> [String: Any] {
+            [
+                "inbounds": [["tag": "socks-in", "protocol": "socks", "port": 10808,
+                              "settings": ["auth": "noauth", "udp": true]]],
+                "outbounds": [["tag": "proxy", "protocol": "vless",
+                               "settings": ["vnext": [["address": "203.0.113.7", "port": 443]]]]],
+                "dns": ["servers": servers]
+            ]
+        }
+        var knownConfig = makeConfig(["https://cloudflare-dns.com/dns-query"])
+        var knownStages: [TunnelXrayConfigPreparer.StartupFailure] = []
+        let known = TunnelDNSPolicy.apply(to: &knownConfig,
+            resolveIPv4: { _ in XCTFail("A known DoH host must not resolve"); return nil },
+            failure: { knownStages.append($0) })
+        XCTAssertNotNil(known)
+        XCTAssertNil(knownStages.first)
+        let knownDns = try XCTUnwrap(knownConfig["dns"] as? [String: Any])
+        XCTAssertEqual(knownDns["servers"] as? [String], ["https://cloudflare-dns.com/dns-query"])
+        XCTAssertEqual((knownDns["hosts"] as? [String: String])?["cloudflare-dns.com"], "1.1.1.1")
+        let outbounds = try XCTUnwrap(knownConfig["outbounds"] as? [[String: Any]])
+        let relay = try XCTUnwrap(outbounds.first { ($0["tag"] as? String) == "flutter-vless-system-dns" })
+        let relaySettings = try XCTUnwrap(relay["settings"] as? [String: Any])
+        XCTAssertEqual(relaySettings["rewriteAddress"] as? String, "127.0.0.1")
+        let relayRules = try XCTUnwrap(relaySettings["rules"] as? [[String: Any]])
+        XCTAssertEqual(relayRules.count, 3)
+        XCTAssertEqual(relayRules[1]["action"] as? String, "hijack")
+        XCTAssertEqual(relayRules[1]["qType"] as? String, "1")
+
+        var unknownConfig = makeConfig(["https://dns.example.net/dns-query"])
+        var unknownStages: [TunnelXrayConfigPreparer.StartupFailure] = []
+        let unknown = TunnelDNSPolicy.apply(to: &unknownConfig,
+            resolveIPv4: { _ in "203.0.113.9" }, failure: { unknownStages.append($0) })
+        XCTAssertNotNil(unknown)
+        XCTAssertNil(unknownStages.first)
+
+        var unresolvedConfig = makeConfig(["https://dns.example.net/dns-query"])
+        var unresolvedStages: [TunnelXrayConfigPreparer.StartupFailure] = []
+        let unresolved = TunnelDNSPolicy.apply(to: &unresolvedConfig,
+            resolveIPv4: { _ in nil }, failure: { unresolvedStages.append($0) })
+        XCTAssertNil(unresolved)
+        XCTAssertEqual(unresolvedStages, [.endpointUnresolved])
+
+        var rejectedConfig = makeConfig(["https://user:pass@dns.example.net/dns-query"])
+        var rejectedStages: [TunnelXrayConfigPreparer.StartupFailure] = []
+        let rejected = TunnelDNSPolicy.apply(to: &rejectedConfig,
+            resolveIPv4: { _ in XCTFail("A rejected endpoint must not resolve"); return nil },
+            failure: { rejectedStages.append($0) })
+        XCTAssertNil(rejected)
+        XCTAssertEqual(rejectedStages, [.dnsResolverUnsupported])
+
+        var multiConfig = makeConfig(["tcp://1.1.1.1", "tcp://8.8.8.8"])
+        var multiStages: [TunnelXrayConfigPreparer.StartupFailure] = []
+        let multi = TunnelDNSPolicy.apply(to: &multiConfig,
+            resolveIPv4: { _ in XCTFail("A rejected list must not resolve"); return nil },
+            failure: { multiStages.append($0) })
+        XCTAssertNil(multi)
+        XCTAssertEqual(multiStages, [.dnsResolverUnsupported])
+
+        var plainConfig = makeConfig(["tcp://1.1.1.1"])
+        var plainStages: [TunnelXrayConfigPreparer.StartupFailure] = []
+        let plain = TunnelDNSPolicy.apply(to: &plainConfig,
+            resolveIPv4: { _ in nil }, failure: { plainStages.append($0) })
+        XCTAssertNotNil(plain)
+        XCTAssertNil(plainStages.first)
+        let plainDns = try XCTUnwrap(plainConfig["dns"] as? [String: Any])
+        XCTAssertEqual(plainDns["servers"] as? [String], ["tcp://1.1.1.1"])
     }
 
     func testStartupCancellationDuringBackoffCannotPublishPreparedRuntime() async throws {

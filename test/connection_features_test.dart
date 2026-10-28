@@ -107,6 +107,43 @@ void main() {
       }
     },
   );
+  test('Apple native export never leaks IPs, domains or tokens', () {
+    final report = diagnosticReport(
+      state: 'connecting',
+      events: const [],
+      pingChecks: 0,
+      sharing: false,
+      reconnect: false,
+      nativeDiagnostics: [
+        '2026-10-28T10:00:00Z Tunnel preparation failed before route installation',
+        '2026-10-28T10:00:01Z HEV socks5 tunnel exited with code 2',
+        '2026-10-28T10:00:02Z dns=8.8.8.8 host=vps.example.net uuid=token-123',
+        '[xray] Xray runtime error',
+      ].join('\n'),
+    );
+    expect(report, contains('TUNNEL_PREPARE_FAILED'));
+    expect(report, contains('HEV_EXITED value=2'));
+    expect(report, contains('XRAY_RUNTIME_ERROR'));
+    expect(report, contains('Unrecognized native lines omitted: 1.'));
+    for (final secret in ['8.8.8.8', 'vps.example.net', 'token-123']) {
+      expect(report, isNot(contains(secret)));
+    }
+  });
+
+  test('Android native event codes still export unchanged', () {
+    final report = diagnosticReport(
+      state: 'disconnected',
+      events: const [],
+      pingChecks: 0,
+      sharing: false,
+      reconnect: false,
+      nativeDiagnostics: 'SESSION_START\nTUN_FAILED\nPERMISSION_REQUIRED',
+    );
+    expect(report, contains('SESSION_START'));
+    expect(report, contains('TUN_FAILED'));
+    expect(report, contains('Unrecognized native lines omitted: 1.'));
+    expect(report, isNot(contains('PERMISSION_REQUIRED')));
+  });
   test('LAN binds private interfaces only', () async {
     final service = LanProxyService();
     addTearDown(service.dispose);

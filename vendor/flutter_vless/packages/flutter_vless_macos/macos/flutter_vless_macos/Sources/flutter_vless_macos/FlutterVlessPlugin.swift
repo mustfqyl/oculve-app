@@ -1338,7 +1338,7 @@ final class PacketTunnelManager: ObservableObject {
         pluginLog.info("VPN preferences saved with Keychain reference active=\(activate, privacy: .public)")
     }
 
-    private func saveConfiguration(activate: Bool) async throws {
+    private func saveConfiguration(activate: Bool, preserveRecoveryPolicy: Bool = false) async throws {
         try validateRouting()
         let store = try secretStore()
         let manager = try await loadTunnelProviderManager() ?? NETunnelProviderManager()
@@ -1415,7 +1415,12 @@ final class PacketTunnelManager: ObservableObject {
                   [.connected, .reasserting].contains(active.connection.status),
                   !self.proxyOnly else { throw TunnelSecretError.invalidProfile }
             self.manager = active
-            try await self.saveConfiguration(activate: true)
+            // A protected switch must not rewrite isEnabled or the on-demand
+            // policy: saving those on the connected manager makes the system
+            // stop and re-establish the live tunnel before the replacement
+            // message can reach the provider. The provider already keeps
+            // capture and on-demand armed while it swaps its own workers.
+            try await self.saveConfiguration(activate: true, preserveRecoveryPolicy: true)
             guard let manager = self.manager,
                   [.connected, .reasserting].contains(manager.connection.status),
                   let metadata = (manager.protocolConfiguration as? NETunnelProviderProtocol)?.providerConfiguration else {

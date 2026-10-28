@@ -37,6 +37,31 @@ public struct TunnelPreparedConfig {
 public enum TunnelXrayConfigPreparer {
     public enum StartupError: Error { case invalidConfiguration, endpointUnavailable }
 
+    /// Maps a caught protected-switch error onto a fixed diagnostic stage
+    /// event. The underlying error text never reaches diagnostics.
+    public static func switchRejection(_ error: Error) -> NativeDiagnosticMessage {
+        func rejected(_ stage: String) -> NativeDiagnosticMessage {
+            // Stage names are compile-time literals; route them through the
+            // pass-through interpolation so the privacy redactor keeps them.
+            "Server switch rejected at \(NativeDiagnosticMessage(stringLiteral: stage)); existing tunnel protection retained"
+        }
+        switch (error as NSError).localizedDescription {
+        case "Invalid replacement metadata":
+            return rejected("metadata stage")
+        case "Protected tunnel is unavailable":
+            return rejected("tunnel state stage")
+        case "Protected switch preparation failed":
+            return rejected("preparation stage")
+        case "Protected workers could not stop":
+            return rejected("worker stop stage")
+        default:
+            if error is CancellationError {
+                return "Server switch cancelled; existing tunnel protection retained"
+            }
+            return "Server switch rejected; existing tunnel protection retained"
+        }
+    }
+
     /// Retry transient endpoint resolution only before virtual DNS/routes exist.
     /// A failed preparation must never create a connected tunnel with no runtime
     /// to recover. Exhaustion is a startup error handled by NetworkExtension.

@@ -13,6 +13,22 @@ final class ByeDpiEngineTests: XCTestCase {
         XCTAssertEqual(byedpi_engine_start(5, nil, nil), 0)
     }
 
+    func testProfileFourRestartsAfterParserRuns() {
+        // run_engine resets getopt state with optind = 1 before each
+        // parse_args; profile 4 must start repeatedly after other profiles
+        // and after an invalid profile request touched no parser state.
+        for _ in 0..<2 {
+            let port = byedpi_engine_start(4, nil, nil)
+            XCTAssertTrue((1...65535).contains(port))
+            XCTAssertEqual(byedpi_engine_profile(), 4)
+            XCTAssertEqual(byedpi_engine_stop(), 1)
+        }
+        XCTAssertEqual(byedpi_engine_start(5, nil, nil), 0)
+        let port = byedpi_engine_start(4, nil, nil)
+        XCTAssertTrue((1...65535).contains(port))
+        XCTAssertEqual(byedpi_engine_stop(), 1)
+    }
+
     func testDynamicLoopbackEndpointLifecycle() throws {
         let port = byedpi_engine_start(0, nil, nil)
         XCTAssertTrue((1...65535).contains(port))

@@ -131,6 +131,33 @@ final class TunnelXrayConfigPreparerTests: XCTestCase {
         XCTAssertTrue(result.logMessages.contains("Configured system DNS over TCP through the selected proxy"))
     }
 
+
+    func testSwitchRejectionExportsFixedStageCodesOnly() {
+        let secrets = ["server.example.invalid", "secret-token"]
+        func assertStage(_ error: Error, _ expected: String, file: StaticString = #filePath, line: UInt = #line) {
+            let text = TunnelXrayConfigPreparer.switchRejection(error).text
+            XCTAssertEqual(text, expected, file: file, line: line)
+            for secret in secrets {
+                XCTAssertFalse(text.contains(secret), file: file, line: line)
+            }
+        }
+        assertStage(
+            NSError(domain: "flutter_vless.packet_tunnel", code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "Protected workers could not stop"]),
+            "Server switch rejected at worker stop stage; existing tunnel protection retained")
+        assertStage(
+            NSError(domain: "flutter_vless.packet_tunnel", code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "Protected tunnel is unavailable"]),
+            "Server switch rejected at tunnel state stage; existing tunnel protection retained")
+        assertStage(
+            NSError(domain: "flutter_vless.packet_tunnel", code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: secrets[0]]),
+            "Server switch rejected; existing tunnel protection retained")
+        assertStage(
+            CancellationError(),
+            "Server switch cancelled; existing tunnel protection retained")
+    }
+
     func testParsesInboundPortAndProxyServerAcrossProtocols() throws {
         let shadowsocks = try jsonData([
             "inbounds": [
