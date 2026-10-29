@@ -1,0 +1,18 @@
+# Statik iz (Adım 2) — yalnızca kaynak okuma, cihazda doğrulanmadı
+Önem: Y=yüksek O=orta D=düşük
+
+1. [Android Y] Süreç ölümü: servis ayrı süreç (vendor/.../AndroidManifest.xml:19-21); START_STICKY (XrayVPNService.kt:151) ile döner ama profil yüklenene kadar TUN yok -> sızıntı penceresi olabilir. Test: `:RunSoLibXrayDaemon` sürecini öldür, tarayıcıda IP kontrolü.
+2. [Android Y] Lockdown: uygulama içi lockdown yok; allowBypass/setBlocking/setUnderlyingNetworks kullanılmıyor. Kill switch kullanıcının Always-on + "bağlantı yoksa engelle" ayarına bağlı (AndroidManifest.xml:28-30). Test: lockdown açık, servisi öldür, trafik çıkmamalı. Cihaz testi SessionSystemPolicyDeviceTest.kt:59-126 var, çalıştırılmadı.
+3. [Android Y] IPv6: engelleme yalnız yorumla belgeli (XrayVPNService.kt:365-366). Test: bağlıyken IPv6-only siteye bağlan, fiziksel IPv6 çıkışı olmamalı.
+4. [Android O] Hariç tutulan uygulamalar: BLOCKED_APPS -> addDisallowedApplication (XrayVPNService.kt:368-371), VPN'i tamamen atlar. Test: hariç uygulamanın doğrudan çıktığı ve UI'ın bunu söylediği.
+5. [Android O] Canlı sunucu değişimi: yeni profil önce kaydedilir (:196), config adaya çekilir (:211); hata olursa eski config'e rollback yok (:422-432); TUN korunur (:426). Test: geçersiz sunucuya geçiş, TUN açık kalmalı.
+6. [Apple D-O] includeAllNetworks=true, excludeLocalNetworks=false, disconnectOnSleep=false (macOS FlutterVlessPlugin.swift:1209-1211, iOS :835-837); zayıf profili provider reddeder (macOS provider :150-155, iOS :144-149). Çöküşte OS davranışı doğrulanmadı. Test: extension'ı öldür, en0 sızıntı yakala.
+7. [Apple Y] Protected switch durdurma hatası: stopTunnelWatchdog watchdogSuspended=true yapar (macOS :783, iOS :725), sonra `guard stopped` throw (macOS :444, iOS :426); watchdog yeniden başlamaz, kurtarma yalnız sleep/wake ile (macOS :542-550). Route-install hatasında rollback var (macOS :455-463). Test: "could not stop" logu sonrası 5 dk bekle, otomatik kurtarma var mı.
+8. [Apple O] Replace'te geri alma yok: yeni Keychain revizyonu kaydedilir, provider reddedince hata atılır ama geri alınmaz (macOS plugin :1412-1436, iOS :1028-1052). On-demand yeniden bağlanma reddedilen config'i kullanabilir. Test: geçersiz sunucuya switch, sonra ağ değiştir, hangi sunucuya bağlandığına bak.
+9. [Apple O] Ağ değişimi: NWPathMonitor 2 sn sonra health check (macOS :749-771, iOS :696-713); tam kurtarma 60 sn x 3 başarısızlık (macOS :26,:99,:867-872). Wi-Fi<->hücresel geçişinde dakikalar sürebilir (ölçülmedi). Test: geçiş, CONNECTED'a dönüş süresi.
+10. [Apple D] Uyku/uyanma: sleep watchdog'u askıya alır, wake 1.5 sn sonra health check (macOS :532-550, iOS :508-526). Test: 5 dk uyku sonrası otomatik yeniden bağlanma, sızıntı yok.
+11. [Apple D-O] On-demand kurulum sırası: route'lar kurulduktan sonra on-demand açılır (macOS provider :223-231); arada çökerse on-demand olmayabilir. Test: bağlanma anında extension'ı öldür.
+12. [DNS Apple D] matchDomains=[""] ile sanal DNS 198.18.0.2 (macOS provider :218-222); DNS proxy üzerinden TCP (TunnelDNSPolicy.swift:86-105); AAAA NODATA. iOS tam diff edilmedi. Test: en0 üzerinde UDP/53 olmamalı.
+13. [IPv6 Apple D] ::/0 fd00:198:18::1'e yönlenir, Xray'de ::/0 blackhole (TunnelIPv6Policy.swift:12-33). Test: IPv6-only site.
+14. [DNS Android D] Proxy DNS politikasında fiziksel DNS kapalı (XraySocketProtector.kt:84-85, XrayPhysicalDns.kt:37); sunucu hostname'i bağlantı öncesi fiziksel ağda çözülür (XraySocketProtector.kt:111-114), beklenen. Test: bağlanırken fiziksel ağda yalnız sunucu adı sorgulanmalı.
+Sınır: iOS-macOS tam diff yapılmadı; hiçbiri derlenmedi/çalıştırılmadı.

@@ -46,10 +46,7 @@ class _XrayCoreSettingsScreenState
   ConnectionPreferences _options = const ConnectionPreferences();
   List<String> _domains = [];
   int _dpiResetEpoch = 0;
-  bool _fragment = false,
-      _customMode = false,
-      _vpnOnlyDomains = false,
-      _busy = false;
+  bool _fragment = false, _customMode = false, _busy = false;
   @override
   void initState() {
     super.initState();
@@ -77,7 +74,6 @@ class _XrayCoreSettingsScreenState
     try {
       final dns = await XrayPreferences.userDnsSettings();
       final domains = await XrayPreferences.bypassDomains();
-      final vpnOnlyDomains = await XrayPreferences.vpnOnlyDomainsEnabled();
       final log = await XrayPreferences.logLevel();
       final fragment = await XrayPreferences.tlsHelloFragmentationEnabled();
       final options = await ConnectionPreferences.read();
@@ -85,7 +81,6 @@ class _XrayCoreSettingsScreenState
       setState(() {
         _dns = dns;
         _domains = domains;
-        _vpnOnlyDomains = vpnOnlyDomains;
         _log =
             [
               XrayLogLevel.error,

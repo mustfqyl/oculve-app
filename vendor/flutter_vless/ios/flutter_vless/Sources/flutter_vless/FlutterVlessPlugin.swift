@@ -464,13 +464,11 @@ public class FlutterVlessPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
         pluginLog.info("Method call: \(call.method, privacy: .public)")
         switch call.method {
         case "getSecurityCapabilities":
-            result(["iosKeychainReference": true, "androidProxyDns": false])
+            result(["protectedServerSwitch": true, "iosKeychainReference": true, "androidProxyDns": false])
         case "requestPermission":
             requestPermission(result: result)
         case "initializeVless":
             initializeVless(call: call, result: result)
-        case "getSecurityCapabilities":
-            result(["protectedServerSwitch": true, "iosKeychainReference": true])
         case "startVless", "replaceVless":
             startVless(call: call, result: result)
         case "stopVless":

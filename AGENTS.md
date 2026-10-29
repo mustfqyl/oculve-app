@@ -16,20 +16,20 @@
 - Windows: `windows/runner/main.cpp`; Linux: `linux/runner/main.cc`
 
 ## Komutlar
-- `flutter pub get` / `flutter analyze`
-- `XRAY_TEST_BINARY=/yol/xray flutter test`
-- `python3 -m unittest discover -s test -p '*_test.py'`
-- `./tool/prepare_ios_vpn.sh`, `./tool/prepare_macos_vpn.sh` (Apple build öncesi)
+- `flutter pub get` (çalışıyor) / `flutter analyze` (şu an 1 `unused_field` uyarısı: `xray_core_settings_screen.dart` `_vpnOnlyDomains`, exit 1)
+- `flutter test` çalışır (446 geçti); `XRAY_TEST_BINARY=/yol/xray` yalnızca 19 Xray entegrasyon testini açar, yoksa atlanır
+- `python3 -m unittest discover -s test -p '*_test.py'` (28/28 geçti)
+- `./tool/prepare_ios_vpn.sh`, `./tool/prepare_macos_vpn.sh`: Apple build öncesi ZORUNLU; Package.swift ve `project.pbxproj` yazar (çalıştırılmazsa xcodebuild "requires minimum platform version 13.0" ile düşer)
 - `python3 tool/prepare_desktop.py {linux|windows}`, sonra `flutter build linux --release`, `sh tool/package_linux.sh`
-- `flutter build apk --debug`
-- macOS: `xcodebuild -workspace macos/Runner.xcworkspace -scheme Runner ... CODE_SIGNING_ALLOWED=NO build`
+- `flutter build apk --debug` (son denemede `packageDebug` `libflutter.so` NoSuchFileException ile düştü; SDK var, doğrulanmadı)
+- macOS: önce `prepare_macos_vpn.sh`, sonra `xcodebuild -workspace macos/Runner.xcworkspace -scheme Runner ... CODE_SIGNING_ALLOWED=NO build` (script'siz exit 65; script'li hali doğrulanmadı)
 - CI: `.github/workflows/platform-verification.yml` (Flutter 3.44.9); Makefile yok
 
 ## Mimari ve kurallar
 - State: Riverpod 2 (`StateNotifierProvider` ağırlıklı); servislerde ara sıra `ChangeNotifierProvider`
 - Platform kanalları `MethodChannel`, ad öneki `com.oculve/...` (veya `oculve/startup`)
 - Lint: `flutter_lints`, ek kural yok; Dart SDK `^3.10.8`
-- Yerelleştirme elle: `lib/core/localization/app_strings.dart` (gen-l10n yok)
+- Yerelleştirme elle: `lib/core/localization/app_strings.dart` (doğrulandı: gen-l10n yok; `generate: true`, `l10n.yaml`, `app_localizations*.dart` yok)
 - API origin: `--dart-define=OCULVE_API_ORIGIN=...` (varsayılan `https://www.oculve.com`)
 - Kod üretimi yok (build_runner/freezed yok); `*.g.dart` dosyalarını elle düzenleme
 - Mevcut dosya ve kullanıcı değişikliklerini koru; kapsam dışı değişiklik yapma

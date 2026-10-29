@@ -822,7 +822,7 @@ public class FlutterVlessPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
         case "initializeVless":
             initializeVless(call: call, result: result)
         case "getSecurityCapabilities":
-            result(["protectedServerSwitch": true, "iosKeychainReference": true])
+            result(["protectedServerSwitch": true, "iosKeychainReference": true, "androidProxyDns": false])
         case "startVless", "replaceVless":
             startVless(call: call, result: result)
         case "stopVless":

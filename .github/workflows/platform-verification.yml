@@ -89,6 +89,16 @@ jobs:
           fi
           exit "$result"
 
+      # Runs the app module's JVM unit tests. Needs the Flutter Gradle plugin
+      # (provided by the Flutter setup above) and the Android SDK/NDK that the
+      # ubuntu runner image already ships, so the APK build above is the
+      # prerequisite. The vendored flutter_vless Android plugin has no wrapper
+      # of its own and is covered by this build.
+      - name: Run Android unit tests
+        id: android-unit-tests
+        working-directory: android
+        run: ./gradlew :app:testDebugUnitTest --no-daemon --console=plain
+
       - name: Write sanitized Linux job report
         if: always()
         shell: bash
@@ -99,6 +109,7 @@ jobs:
             echo "Linux release build: ${{ steps.linux-build.outcome }}"
             echo "Portable package with Linux tunnel helper and runtimes: ${{ steps.linux-package.outcome }}"
             echo "Android debug APK build: ${{ steps.android-build.outcome }}"
+            echo "Android Gradle unit tests: ${{ steps.android-unit-tests.outcome }}"
             echo "Linux kernel leak test capability probe: ${{ steps.linux-net-probe.outputs.available }}"
             echo "Linux desktop window launch smoke test: not run on the hosted runner"
             echo "Live Linux TUN traffic/leak test: not run; capability probe only"
@@ -115,6 +126,69 @@ jobs:
             ${{ runner.temp }}/oculve-linux-report.txt
           if-no-files-found: warn
           retention-days: 7
+
+  apple:
+    name: iOS and macOS build and tunnel tests
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      # Explicit Xcode selection; verify this directory exists on the image.
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Select Xcode
+        run: |
+          test -d "$DEVELOPER_DIR" || { echo "::error::Xcode not found at $DEVELOPER_DIR"; ls /Applications | grep -i xcode; exit 1; }
+          xcodebuild -version
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: stable
+          flutter-version: '3.44.9'
+
+      - name: Fetch Dart dependencies
+        run: flutter pub get
+
+      - name: Test vendored iOS tunnel support
+        run: bash vendor/flutter_vless/tool/test_ios_tunnel_support.sh
+
+      - name: Test vendored macOS tunnel support
+        run: bash vendor/flutter_vless/tool/test_macos_tunnel_support.sh
+
+      # The prepare scripts legitimately patch tracked project files
+      # (macos/Runner.xcodeproj/project.pbxproj), so a plain
+      # `git diff --exit-code` would fail on every run. Instead snapshot the
+      # tracked diff once preparation is done, and fail only if the builds
+      # change tracked files beyond that snapshot.
+      - name: Prepare iOS VPN and build without signing
+        run: |
+          ./tool/prepare_ios_vpn.sh
+          flutter build ios --no-codesign
+
+      - name: Prepare macOS VPN and build without signing
+        run: |
+          ./tool/prepare_macos_vpn.sh
+          git diff -- . ':(exclude)*Package.resolved' > "$RUNNER_TEMP/after-prepare.diff"
+          if [ -s "$RUNNER_TEMP/after-prepare.diff" ]; then
+            echo "::warning::prepare scripts modify tracked files; commit them if intended"
+            git diff --stat
+          fi
+          xcodebuild -workspace macos/Runner.xcworkspace -scheme Runner -configuration Debug CODE_SIGNING_ALLOWED=NO build
+
+      - name: Check builds left tracked files unchanged
+        run: |
+          # xcodebuild deletes the tracked SwiftPM Package.resolved files on
+          # every run (observed locally); that is a known side effect, not a
+          # regression, so it is excluded from the comparison.
+          git diff -- . ':(exclude)*Package.resolved' > "$RUNNER_TEMP/after-build.diff"
+          if ! diff -u "$RUNNER_TEMP/after-prepare.diff" "$RUNNER_TEMP/after-build.diff"; then
+            echo "::error::Build modified tracked files"
+            git diff --stat
+            exit 1
+          fi
 
   windows:
     name: Windows desktop and tests
