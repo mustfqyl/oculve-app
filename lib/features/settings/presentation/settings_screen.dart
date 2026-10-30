@@ -11,6 +11,7 @@ import 'package:oculve/core/theme/app_theme.dart';
 import 'package:oculve/core/widgets/app_page.dart';
 import 'package:oculve/core/widgets/app_route.dart';
 import 'client_logs_screen.dart';
+import 'settings_segmented_control.dart';
 import 'usage_statistics_screen.dart';
 import 'xray_core_settings_screen.dart';
 import 'tray_preferences_screen.dart';
@@ -262,97 +263,32 @@ class _ThemeSelector extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final themes = [
-      (AppThemeMode.auto, Icons.schedule_rounded, 'Auto'),
-      (AppThemeMode.light, Icons.light_mode_rounded, 'Light'),
-      (AppThemeMode.dark, Icons.dark_mode_rounded, 'Dark'),
-    ];
-
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final fg = isDark ? AppTheme.foreground : AppTheme.lightForeground;
-    final fgMuted = isDark
-        ? AppTheme.foregroundMuted
-        : AppTheme.lightForegroundMuted;
     final currentTheme = ref.watch(themeProvider);
 
-    return Container(
-      padding: const EdgeInsets.all(3),
-      decoration: BoxDecoration(
-        color: isDark
-            ? Colors.white.withValues(alpha: 0.04)
-            : Colors.black.withValues(alpha: 0.03),
-        borderRadius: BorderRadius.circular(11),
-      ),
-      child: Row(
-        children: themes.map((entry) {
-          final (mode, icon, label) = entry;
-          final isSelected = currentTheme == mode;
-          void select() => ref.read(themeProvider.notifier).setTheme(mode);
-          return Expanded(
-            child: Semantics(
-              label: context.tr(label),
-              button: true,
-              selected: isSelected,
-              onTap: select,
-              child: ExcludeSemantics(
-                child: InkWell(
-                  onTap: select,
-                  borderRadius: BorderRadius.circular(9),
-                  mouseCursor: SystemMouseCursors.click,
-                  splashFactory: NoSplash.splashFactory,
-                  overlayColor: AppTheme.interactionOverlay(isDark: isDark),
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(minHeight: 48),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 180),
-                      alignment: Alignment.center,
-                      padding: const EdgeInsets.symmetric(vertical: 7),
-                      decoration: BoxDecoration(
-                        color: isSelected
-                            ? (isDark
-                                  ? Colors.white.withValues(alpha: 0.12)
-                                  : Colors.white)
-                            : Colors.transparent,
-                        borderRadius: BorderRadius.circular(9),
-                        boxShadow: isSelected && !isDark
-                            ? [
-                                BoxShadow(
-                                  color: Colors.black.withValues(alpha: 0.06),
-                                  blurRadius: 4,
-                                  offset: const Offset(0, 1),
-                                ),
-                              ]
-                            : null,
-                      ),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            icon,
-                            size: 16,
-                            color: isSelected ? fg : fgMuted,
-                          ),
-                          const SizedBox(height: 3),
-                          CompactLabel(
-                            label,
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: isSelected
-                                  ? FontWeight.w700
-                                  : FontWeight.w500,
-                              color: isSelected ? fg : fgMuted,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          );
-        }).toList(),
-      ),
+    return SettingsSegmentedControl<AppThemeMode>(
+      key: const ValueKey('theme-options'),
+      segments: const [
+        SettingsSegment(
+          key: ValueKey('theme-auto'),
+          value: AppThemeMode.auto,
+          icon: Icons.schedule_rounded,
+          label: 'Auto',
+        ),
+        SettingsSegment(
+          key: ValueKey('theme-light'),
+          value: AppThemeMode.light,
+          icon: Icons.light_mode_rounded,
+          label: 'Light',
+        ),
+        SettingsSegment(
+          key: ValueKey('theme-dark'),
+          value: AppThemeMode.dark,
+          icon: Icons.dark_mode_rounded,
+          label: 'Dark',
+        ),
+      ],
+      selected: currentTheme,
+      onSelected: (mode) => ref.read(themeProvider.notifier).setTheme(mode),
     );
   }
 }
@@ -400,104 +336,24 @@ class _LanguageSelector extends ConsumerWidget {
             ),
           ),
         ),
-        Container(
+        SettingsSegmentedControl<String>(
           key: const ValueKey('language-options'),
-          padding: const EdgeInsets.all(2),
-          decoration: BoxDecoration(
-            color: isDark
-                ? Colors.white.withValues(alpha: 0.04)
-                : Colors.black.withValues(alpha: 0.03),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              for (final (code, _, short) in _languages) ...[
-                if (code != 'en') const SizedBox(width: 2),
-                _LanguageOption(
-                  key: ValueKey('language-$code'),
-                  code: code,
-                  label: short,
-                  selected: selected == code,
-                  onTap: () =>
-                      ref.read(localeProvider.notifier).setLanguage(code),
-                ),
-              ],
-            ],
-          ),
+          expand: false,
+          compact: true,
+          segments: [
+            for (final (code, name, short) in _languages)
+              SettingsSegment(
+                key: ValueKey('language-$code'),
+                value: code,
+                label: short,
+                semanticsLabel: name,
+              ),
+          ],
+          selected: selected,
+          onSelected: (code) =>
+              ref.read(localeProvider.notifier).setLanguage(code),
         ),
       ],
-    );
-  }
-}
-
-class _LanguageOption extends StatelessWidget {
-  const _LanguageOption({
-    super.key,
-    required this.code,
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final String code;
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final muted = isDark
-        ? AppTheme.foregroundMuted
-        : AppTheme.lightForegroundMuted;
-
-    final languageName = switch (code) {
-      'es' => 'Español',
-      'tr' => 'Türkçe',
-      _ => 'English',
-    };
-    return Semantics(
-      label: languageName,
-      button: true,
-      selected: selected,
-      onTap: onTap,
-      child: ExcludeSemantics(
-        child: InkWell(
-          borderRadius: BorderRadius.circular(6),
-          mouseCursor: SystemMouseCursors.click,
-          splashFactory: NoSplash.splashFactory,
-          overlayColor: AppTheme.interactionOverlay(isDark: isDark),
-          onTap: onTap,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 160),
-            constraints: const BoxConstraints(minWidth: 28, minHeight: 24),
-            alignment: Alignment.center,
-            padding: const EdgeInsets.symmetric(horizontal: 5),
-            decoration: BoxDecoration(
-              color: selected
-                  ? AppTheme.successColor.withValues(alpha: .18)
-                  : Colors.transparent,
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(
-                color: selected
-                    ? AppTheme.successColor.withValues(alpha: .45)
-                    : Colors.transparent,
-              ),
-            ),
-            child: Text(
-              label,
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-                color: selected
-                    ? AppTheme.successForeground(isDark: isDark)
-                    : muted,
-              ),
-            ),
-          ),
-        ),
-      ),
     );
   }
 }

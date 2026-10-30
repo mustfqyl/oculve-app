@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart' hide Text;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:oculve/core/desktop/startup_service.dart';
-import 'package:oculve/core/widgets/app_feedback.dart';
+import 'package:oculve/core/widgets/inline_feedback.dart';
 import 'connection_settings_widgets.dart';
 
 class StartupSetting extends ConsumerStatefulWidget {
-  const StartupSetting({super.key});
+  const StartupSetting({super.key, required this.errors});
+
+  /// Where a failure is shown (the heading of the group this row is in).
+  final InlineErrorController errors;
   @override
   ConsumerState<StartupSetting> createState() => _StartupSettingState();
 }
@@ -20,6 +23,7 @@ class _StartupSettingState extends ConsumerState<StartupSetting> {
   }
 
   Future<void> _load([StartupMode? mode]) async {
+    widget.errors.clear();
     setState(() => _busy = true);
     try {
       final service = ref.read(startupServiceProvider);
@@ -35,8 +39,7 @@ class _StartupSettingState extends ConsumerState<StartupSetting> {
     } catch (error) {
       if (mounted) {
         if (mode != null) {
-          AppFeedback.showError(
-            context,
+          widget.errors.show(
             error,
             fallback: 'Could not update startup settings.',
           );

@@ -4,12 +4,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:oculve/core/connection/dpi_preferences.dart';
 import 'package:oculve/core/providers/vpn_provider.dart';
-import 'package:oculve/core/widgets/app_feedback.dart';
+import 'package:oculve/core/widgets/inline_feedback.dart';
 import 'package:oculve/core/theme/app_theme.dart';
 import 'connection_settings_widgets.dart';
 
 class DpiSettings extends ConsumerStatefulWidget {
-  const DpiSettings({super.key});
+  const DpiSettings({super.key, required this.errors});
+
+  /// Where a failure is shown (the group heading owned by the screen).
+  final InlineErrorController errors;
   @override
   ConsumerState<DpiSettings> createState() => _DpiSettingsState();
 }
@@ -29,13 +32,14 @@ class _DpiSettingsState extends ConsumerState<DpiSettings> {
       final strategy = await DpiPreferences.read();
       if (mounted) setState(() => _strategy = strategy);
     } catch (error) {
-      if (mounted) AppFeedback.showError(context, error);
+      if (mounted) widget.errors.show(error);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
   Future<void> _cycle() async {
+    widget.errors.clear();
     setState(() => _busy = true);
     try {
       final next =
@@ -43,13 +47,14 @@ class _DpiSettingsState extends ConsumerState<DpiSettings> {
       await DpiPreferences.save(next);
       if (mounted) setState(() => _strategy = next);
     } catch (error) {
-      if (mounted) AppFeedback.showError(context, error);
+      if (mounted) widget.errors.show(error);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
   Future<void> _retry() async {
+    widget.errors.clear();
     setState(() => _busy = true);
     try {
       // ByeDPI learns groups in its own destination cache, scoped to its process.
@@ -74,7 +79,7 @@ class _DpiSettingsState extends ConsumerState<DpiSettings> {
         });
       }
     } catch (error) {
-      if (mounted) AppFeedback.showError(context, error);
+      if (mounted) widget.errors.show(error);
     } finally {
       if (mounted) setState(() => _busy = false);
     }

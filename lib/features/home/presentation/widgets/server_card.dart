@@ -3,7 +3,9 @@ import 'package:oculve/core/localization/localized_text.dart';
 import 'package:oculve/core/widgets/app_route.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:oculve/core/theme/app_theme.dart';
+import 'package:oculve/core/models/vpn_state.dart';
 import 'package:oculve/core/providers/vpn_provider.dart';
+import 'package:oculve/core/vpn/connected_latency.dart';
 import 'package:oculve/core/vpn/profile.dart';
 import 'package:oculve/core/vpn/server_latency.dart';
 import 'package:oculve/features/auth/data/auth_repository.dart';
@@ -19,6 +21,8 @@ class ServerCard extends ConsumerWidget {
     final dark = Theme.of(context).brightness == Brightness.dark;
     final profiles = ref.watch(sessionProvider).valueOrNull?.profiles ?? [];
     final id = ref.watch(selectedServerProvider);
+    final connected = ref.watch(vpnProvider) == VpnState.connected;
+    final liveDelay = connected ? ref.watch(connectedLatencyProvider) : null;
     final isOptimal = id == optimalServerId;
     final isDpiBypass = id == dpiBypassServerId;
     VpnProfile? profile;
@@ -121,7 +125,14 @@ class ServerCard extends ConsumerWidget {
                             ),
                     ),
                     const SizedBox(width: 4),
-                    if (profile != null) LatencyLabel(latency: latency),
+                    if (profile != null)
+                      LatencyLabel(
+                        // On a live connection the real delay through the
+                        // tunnel replaces the (stale) direct TCP time.
+                        latency: connected && liveDelay != null
+                            ? AsyncValue.data(liveDelay)
+                            : latency,
+                      ),
                     const Icon(Icons.chevron_right, size: 16),
                   ],
                 ),

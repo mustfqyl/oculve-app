@@ -141,10 +141,12 @@ void main() {
     );
     AppFeedback.showError(owner, _message);
     await tester.pump();
-    await tester.pump(const Duration(seconds: 5));
+    // The visible time scales with the message (4.5-8 s), then it fades out
+    // over 380 ms. A repeat must not restart that clock.
+    await tester.pump(const Duration(seconds: 4));
     AppFeedback.showError(owner, _message);
-    await tester.pump(const Duration(seconds: 2));
-    await tester.pump(const Duration(milliseconds: 250));
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pump(const Duration(milliseconds: 450));
     expect(find.byKey(_notice), findsNothing);
     expect(tester.takeException(), isNull);
   });

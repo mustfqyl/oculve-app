@@ -19,11 +19,15 @@ COMMON = {
     "getSecurityCapabilities", "getServerDelay", "initializeVless",
     "replaceVless", "requestPermission", "startVless", "stopVless",
 }
+# Startup tunnel-state query. Android, iOS and macOS answer it; the paused
+# Windows backend has no tunnel to report and the Dart adapter treats the
+# missing handler as "unknown" instead of failing.
+TUNNEL_STATUS = {"getTunnelStatus"}
 MACOS_ONLY = {"getLocalProxyEndpoint", "getTrafficProtection"}
 METHODS = {
-    "android": COMMON,
-    "ios": COMMON,
-    "macos": COMMON | MACOS_ONLY,
+    "android": COMMON | TUNNEL_STATUS,
+    "ios": COMMON | TUNNEL_STATUS,
+    "macos": COMMON | TUNNEL_STATUS | MACOS_ONLY,
     "windows": COMMON,
 }
 CAPABILITY_KEYS = {

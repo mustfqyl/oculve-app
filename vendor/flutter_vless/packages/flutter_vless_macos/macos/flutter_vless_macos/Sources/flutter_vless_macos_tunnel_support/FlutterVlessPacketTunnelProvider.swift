@@ -111,8 +111,14 @@ open class FlutterVlessPacketTunnelProvider: NEPacketTunnelProvider {
     private var runtimeRecoveryInFlight = false
     // Accessed only on runtimeQueue.
     private var hasStartedHEV = false
+    // Accessed only on runtimeQueue. NetworkExtension owns this utun; it is never closed here.
+    private var packetTunnelDescriptor: Int32?
+    // Accessed only on runtimeQueue. Our dup handed to Xray; stopXRay closes it if Xray left it open.
+    private var xrayTunnelDuplicate: Int32?
     private var hevStopSignal: DispatchGroup?
     private var packetBridge: TunnelPacketBridge?
+    // Accessed only on runtimeQueue.
+    private var strategyLearner: DpiStrategyLearner?
 
     private struct RuntimeSpec {
         let config: Data
@@ -121,6 +127,8 @@ open class FlutterVlessPacketTunnelProvider: NEPacketTunnelProvider {
         let credentials: LocalProxyCredentials
         let dpiBypass: Bool
         var physicalInterfaceName: String?
+        /// Opaque hash of the physical path; the raw gateway is never stored.
+        var networkHash: String?
     }
 
     private func setForwardingReady(_ ready: Bool) {
@@ -158,12 +166,12 @@ open class FlutterVlessPacketTunnelProvider: NEPacketTunnelProvider {
             providerBundleIdentifier: configuration.providerBundleIdentifier ?? "")
         let config = try DesktopBypassPolicy.apply(to: storedConfig, cidrs: bypassSubnets)
         let dpiBypass = TunnelDpiRuntime.isDpiConfig(config)
-        let dpiInterfaceName: String?
+        let dpiIdentity: TunnelDpiRuntime.NetworkIdentity?
         if dpiBypass {
-            do { dpiInterfaceName = try await TunnelDpiRuntime.currentPhysicalInterface() }
+            do { dpiIdentity = try await TunnelDpiRuntime.currentNetworkIdentity() }
             catch { throw tunnelError("Unable to identify the physical network interface for DPI Bypass") }
         } else {
-            dpiInterfaceName = nil
+            dpiIdentity = nil
         }
         TunnelDebugStore.shared.configure(groupIdentifier: providerConfiguration["groupIdentifier"] as? String)
         beginStartup()
@@ -244,7 +252,8 @@ open class FlutterVlessPacketTunnelProvider: NEPacketTunnelProvider {
 
         runtimeSpec = RuntimeSpec(config: prepared.data, port: parsed.inboundPort,
             geoAssetsDirectory: providerConfiguration["geoAssetsDirectory"] as? String, credentials: credentials,
-            dpiBypass: dpiBypass, physicalInterfaceName: dpiInterfaceName)
+            dpiBypass: dpiBypass, physicalInterfaceName: dpiIdentity?.interfaceName,
+            networkHash: dpiIdentity?.hash)
         startTunnelWatchdog(port: runtimeSpec?.port)
         // NE connected only means the routes are installed. The plugin
         // queries forwarding readiness before publishing CONNECTED.
@@ -315,34 +324,110 @@ open class FlutterVlessPacketTunnelProvider: NEPacketTunnelProvider {
         guard let interfaceName = spec.physicalInterfaceName, !interfaceName.isEmpty else {
             throw tunnelError("Physical network interface is unavailable")
         }
-        guard let tunnelFileDescriptor = TunnelDpiRuntime.packetTunnelFileDescriptor() else {
+        guard let tunnelFileDescriptor = packetTunnelDescriptorForXray() else {
             throw tunnelError("Xray could not locate the NetworkExtension TUN interface")
         }
         guard let selected = TunnelDpiRuntime.selectedProfile(data: spec.config) else {
             throw tunnelError("Invalid DPI strategy")
         }
-        for profile in [selected] {
-            let localProxyPort = TunnelDpiRuntime.start(profile: profile, interfaceName: interfaceName)
+        let identity = TunnelDpiRuntime.NetworkIdentity(
+            interfaceName: interfaceName, hash: spec.networkHash ?? "")
+        // Pinned profiles give one attempt; automatic walks the ladder. No new
+        // attempt starts after the deadline; a running probe finishes on its own
+        // timeouts (about 14 s worst case per attempt).
+        let deadline = Date().addingTimeInterval(20)
+        let learned = TunnelDpiRuntime.learnedProfile(identity: identity)
+        let learnedGroup = TunnelDpiRuntime.learnedGroup(identity: identity)
+        for (attempt, profile) in TunnelDpiRuntime.profileCandidates(
+                selected: selected, identity: identity).enumerated() {
+            guard Date() < deadline else { break }
+            let firstGroup = profile == TunnelDpiRuntime.automaticProfile ? learnedGroup : nil
+            let localProxyPort = TunnelDpiRuntime.start(
+                profile: profile, firstGroup: firstGroup, interfaceName: interfaceName)
             guard (1...65535).contains(localProxyPort),
                   let config = TunnelDpiRuntime.config(data: spec.config, localProxyPort: localProxyPort,
                     interfaceName: interfaceName) else {
                 _ = TunnelDpiRuntime.stop()
                 continue
             }
+            // Xray receives a copy; a failed attempt is closed by stopNativeRuntime.
+            let duplicate = dup(tunnelFileDescriptor)
+            guard duplicate >= 0 else {
+                _ = TunnelDpiRuntime.stop()
+                throw tunnelError("Xray could not duplicate the TUN descriptor")
+            }
+            xrayTunnelDuplicate = duplicate
+            rememberTunnelLog("TUN descriptor: utun fd \(tunnelFileDescriptor) handed to Xray as duplicate fd \(duplicate)")
             do {
                 try startXRay(xrayConfig: config, geoAssetsDirectory: spec.geoAssetsDirectory,
-                              tunFileDescriptor: tunnelFileDescriptor)
-                if TunnelDpiRuntime.isRunning(),
-                   LocalProxyDelayClient.checkConnectivity(port: spec.port, credentials: spec.credentials) {
-                    rememberTunnelLog("Xray TUN and DPI runtime passed authenticated HTTPS connectivity")
-                    return
+                              tunFileDescriptor: duplicate)
+                if TunnelDpiRuntime.isRunning() {
+                    if attempt == 0, learned == profile {
+                        // A strategy learned from real traffic must not hold the
+                        // connection open; the probe verifies it in the background.
+                        startStrategyLearner(profile: profile, identity: identity)
+                        verifyLearnedStrategy(identity: identity)
+                        rememberTunnelLog("Learned DPI strategy started; verifying in the background")
+                        return
+                    }
+                    if LocalProxyDelayClient.checkConnectivity(port: spec.port, credentials: spec.credentials) {
+                        // One HTTPS probe proves reachability, not that the strategy
+                        // carries the user's traffic; only response counters persist it.
+                        startStrategyLearner(profile: profile, identity: identity)
+                        rememberTunnelLog("Xray TUN and DPI runtime passed authenticated HTTPS connectivity")
+                        return
+                    }
                 }
             } catch {
                 // Profile details and probe destinations stay out of diagnostics.
             }
+            // Only a failed preferred strategy is dropped; a pinned or later
+            // attempt must not erase what real traffic already taught us.
+            if profile == learned { TunnelDpiRuntime.invalidate(identity: identity) }
             _ = stopNativeRuntime()
         }
         throw tunnelError("DPI Bypass could not establish verified Internet connectivity")
+    }
+
+    /// The learned strategy started without waiting for a probe. A failed
+    /// background probe drops it so the next recovery walks the full ladder.
+    private func verifyLearnedStrategy(identity: TunnelDpiRuntime.NetworkIdentity) {
+        runtimeQueue.asyncAfter(deadline: .now() + 2) { [weak self] in
+            guard let self, !self.isStartupStopped(), let spec = self.runtimeSpec,
+                  spec.dpiBypass else { return }
+            if LocalProxyDelayClient.checkConnectivity(port: spec.port, credentials: spec.credentials) {
+                rememberTunnelLog("Learned DPI strategy passed background verification")
+                return
+            }
+            TunnelDpiRuntime.invalidate(identity: identity)
+            rememberTunnelLog("Learned DPI strategy failed verification; falling back to the ordered scan")
+            self.watchdogQueue.async { self.scheduleNativeRecovery(after: 0) }
+        }
+    }
+
+    /// Runs on runtimeQueue.
+    private func startStrategyLearner(profile: Int, identity: TunnelDpiRuntime.NetworkIdentity) {
+        strategyLearner?.stop()
+        let learner = DpiStrategyLearner(identity: identity, profile: profile, queue: runtimeQueue)
+        learner.start()
+        strategyLearner = learner
+    }
+
+    /// Runs on runtimeQueue. The utun is scanned once and reused; it is
+    /// rescanned only when the saved number no longer names a utun socket.
+    private func packetTunnelDescriptorForXray() -> Int32? {
+        if let descriptor = packetTunnelDescriptor, TunnelDpiRuntime.isTunnelDescriptor(descriptor) {
+            return descriptor
+        }
+        if let stale = packetTunnelDescriptor {
+            rememberTunnelLog("TUN descriptor: cached fd \(stale) is no longer a utun socket; rescanning")
+        }
+        let scanned = TunnelDpiRuntime.packetTunnelFileDescriptor()
+        packetTunnelDescriptor = scanned
+        if let scanned {
+            rememberTunnelLog("TUN descriptor: located utun fd \(scanned) once; every Xray attempt gets a duplicate")
+        }
+        return scanned
     }
 
     /// Runs on runtimeQueue. A blocked native quit must not stall NE teardown.
@@ -358,6 +443,8 @@ open class FlutterVlessPacketTunnelProvider: NEPacketTunnelProvider {
             }
         }
         stopXRay()
+        strategyLearner?.stop()
+        strategyLearner = nil
         stopped = TunnelDpiRuntime.stop() && stopped
         if !stopped { rememberTunnelLog("Native shutdown pending; protected traffic remains blocked") }
         return stopped
@@ -434,7 +521,7 @@ open class FlutterVlessPacketTunnelProvider: NEPacketTunnelProvider {
         }
         rememberTunnelLog("Protected switch preparation succeeded")
         let dpiBypass = TunnelDpiRuntime.isDpiConfig(candidate)
-        let interfaceName = dpiBypass ? try await TunnelDpiRuntime.currentPhysicalInterface() : nil
+        let dpiIdentity = dpiBypass ? try await TunnelDpiRuntime.currentNetworkIdentity() : nil
         // Retire workers, never the NetworkExtension session or virtual DNS.
         stopTunnelWatchdog()
         setForwardingReady(false)
@@ -465,7 +552,8 @@ open class FlutterVlessPacketTunnelProvider: NEPacketTunnelProvider {
         guard !isStartupStopped() else { throw CancellationError() }
         runtimeSpec = RuntimeSpec(config: prepared.data, port: parsed.inboundPort,
             geoAssetsDirectory: metadata["geoAssetsDirectory"] as? String, credentials: credentials,
-            dpiBypass: dpiBypass, physicalInterfaceName: interfaceName)
+            dpiBypass: dpiBypass, physicalInterfaceName: dpiIdentity?.interfaceName,
+            networkHash: dpiIdentity?.hash)
         startTunnelWatchdog(port: parsed.inboundPort)
         rememberTunnelLog("Server replaced inside protected tunnel")
         watchdogQueue.async { self.scheduleNativeRecovery(after: 0) }
@@ -695,6 +783,18 @@ open class FlutterVlessPacketTunnelProvider: NEPacketTunnelProvider {
         if !XRaySetTunFileDescriptor(-1, &error) {
             rememberTunnelLog("Unable to clear Xray TUN descriptor after shutdown")
         }
+        if let duplicate = xrayTunnelDuplicate {
+            xrayTunnelDuplicate = nil
+            switch TunnelDpiRuntime.descriptorState(duplicate) {
+            case .tunnel:
+                let closed = TunnelDpiRuntime.closeIfStillTunnel(duplicate)
+                rememberTunnelLog("TUN duplicate fd \(duplicate) still the tunnel after stop; closed by provider=\(closed)")
+            case .reused:
+                rememberTunnelLog("TUN duplicate fd \(duplicate) reused by another file; left open")
+            case .closed:
+                rememberTunnelLog("TUN duplicate fd \(duplicate) already closed by Xray")
+            }
+        }
         tunnelLog.info("XRay stopped \(XRayGetVersion(), privacy: .public)")
     }
 
@@ -753,8 +853,9 @@ open class FlutterVlessPacketTunnelProvider: NEPacketTunnelProvider {
                 rememberTunnelLog("Network path changed status=\(String(describing: path.status))")
                 if path.status == .satisfied {
                     if var spec = self.runtimeSpec, spec.dpiBypass {
-                        if let interfaceName = TunnelDpiRuntime.interfaceName(in: path) {
-                            spec.physicalInterfaceName = interfaceName
+                        if let identity = TunnelDpiRuntime.networkIdentity(in: path) {
+                            spec.physicalInterfaceName = identity.interfaceName
+                            spec.networkHash = identity.hash
                             self.runtimeSpec = spec
                         }
                         // An access point or upstream network can change while

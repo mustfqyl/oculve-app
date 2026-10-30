@@ -110,6 +110,15 @@ abstract class VlessPlatform extends PlatformInterface {
     );
   }
 
+  /// Reports the tunnel state the native backend observes right now.
+  ///
+  /// This is an explicit query, not a status event, so an app may use it at
+  /// startup to adopt a tunnel that an earlier app session left running.
+  /// Returns a wire state string (`CONNECTED`, `CONNECTING`, `DISCONNECTING`,
+  /// `DISCONNECTED`) or `null` when the backend cannot answer, for example
+  /// before initialization or on a platform without a tunnel backend.
+  Future<String?> getTunnelStatus() async => null;
+
   /// Returns the Xray core version reported by the platform backend.
   Future<String> getCoreVersion() {
     throw UnimplementedError(

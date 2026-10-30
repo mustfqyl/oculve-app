@@ -31,7 +31,7 @@ void main() {
     expect(lightOverlay.resolve({WidgetState.pressed}), Colors.transparent);
   });
 
-  testWidgets('language pill matches the compact committed design', (
+  testWidgets('language selector shares the theme selector segment style', (
     tester,
   ) async {
     SharedPreferences.setMockInitialValues({});
@@ -41,7 +41,7 @@ void main() {
           theme: AppTheme.darkTheme,
           home: MediaQuery(
             data: MediaQueryData(
-              size: const Size(320, 568),
+              size: const Size(360, 780),
               textScaler: TextScaler.noScaling,
             ),
             child: SettingsScreen(),
@@ -50,17 +50,36 @@ void main() {
       ),
     );
 
-    final englishPillSize = tester.getSize(
-      find.descendant(
-        of: find.byKey(const ValueKey('language-en')),
-        matching: find.byType(AnimatedContainer),
-      ),
-    );
-    expect(englishPillSize, const Size(32.5, 24));
-    expect(
-      tester.getSize(find.byKey(const ValueKey('language-options'))).width,
-      105.5,
-    );
+    BoxDecoration decorationOf(String segmentKey) {
+      final option = tester.widget<AnimatedContainer>(
+        find.descendant(
+          of: find.byKey(ValueKey(segmentKey)),
+          matching: find.byType(AnimatedContainer),
+        ),
+      );
+      return option.decoration! as BoxDecoration;
+    }
+
+    TextStyle labelStyleOf(String text) => tester
+        .widget<RichText>(
+          find.descendant(of: find.text(text), matching: find.byType(RichText)),
+        )
+        .text
+        .style!;
+
+    final themeSelected = decorationOf('theme-auto');
+    final languageSelected = decorationOf('language-en');
+    expect(languageSelected.color, themeSelected.color);
+    expect(languageSelected.borderRadius, themeSelected.borderRadius);
+    expect(languageSelected.border, themeSelected.border);
+    expect(languageSelected.boxShadow, themeSelected.boxShadow);
+
+    final themeLabel = labelStyleOf('Auto');
+    final languageLabel = labelStyleOf('EN');
+    expect(languageLabel.fontSize, themeLabel.fontSize);
+    expect(languageLabel.fontWeight, themeLabel.fontWeight);
+    expect(languageLabel.color, themeLabel.color);
+
     await tester.pumpWidget(const SizedBox.shrink());
   });
 

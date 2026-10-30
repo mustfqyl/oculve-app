@@ -184,6 +184,8 @@ class AppStrings {
         'Restablece DNS, sitios excluidos, fragmentación, reconexión y compartición local. El inicio automático se conserva.',
     'Save DNS': 'Guardar DNS',
     'DNS saved. Reconnect to apply.': 'DNS guardado. Reconecta para aplicarlo.',
+    'Enter a DNS address, such as dns.adguard.com or 94.140.14.14.':
+        'Escribe una dirección DNS, como dns.adguard.com o 94.140.14.14.',
     'Could not load LAN sharing settings.':
         'No se pudieron cargar los ajustes de compartición local.',
     'Could not save connection settings. Check your input and try again.':
@@ -200,8 +202,8 @@ class AppStrings {
     'Proxy address copied.': 'Dirección del proxy copiada.',
     'Enter valid numeric ranges for fragment length, delay and splits.':
         'Introduce rangos válidos para tamaño, retraso y divisiones.',
-    'Enter a valid HTTPS DNS URL without credentials or a fragment.':
-        'Introduce una URL DNS HTTPS válida sin credenciales ni fragmento.',
+    'Enter a valid DNS address without credentials or a fragment.':
+        'Introduce una dirección DNS válida sin credenciales ni fragmento.',
     'macOS currently carries IPv4 only. IPv6 lookups are unavailable in this tunnel.':
         'El túnel macOS actualmente solo transporta IPv4. Las consultas IPv6 no están disponibles.',
 
@@ -406,6 +408,8 @@ class AppStrings {
     'Disconnected': 'Desconectado',
     'Connect VPN': 'Conectar VPN',
     'Disconnect VPN': 'Desconectar VPN',
+    'VPN is on': 'La VPN está activada',
+    'Turn off': 'Desactivar',
     'VPN connection in progress': 'Conexión VPN en curso',
     'Tap to connect': 'Toca para conectar',
     'Tap to retry.': 'Toca para volver a intentarlo.',
@@ -744,6 +748,18 @@ class AppStrings {
     'No server ping checks have been recorded.':
         'No se han registrado pruebas de ping de servidores.',
     'XRAY DIAGNOSTICS': 'DIAGNÓSTICO DE XRAY',
+    'Status': 'Estado',
+    'Latest activity': 'Actividad reciente',
+    'App events': 'Eventos de la aplicación',
+    'TCP ping checks': 'Pruebas de ping TCP',
+    'Xray diagnostics': 'Diagnóstico de Xray',
+    'Connecting': 'Conectando',
+    'Disconnecting': 'Desconectando',
+    'Show all': 'Mostrar todo',
+    'Show fewer': 'Mostrar menos',
+    'Available': 'Disponible',
+    'Not available': 'No disponible',
+    'No records': 'Sin registros',
     'Save transport settings': 'Guardar ajustes de transporte',
     'Must match the server inbound.':
         'Debe coincidir con la entrada del servidor.',
@@ -1280,6 +1296,8 @@ class AppStrings {
     'Save DNS': 'DNS kaydet',
     'DNS saved. Reconnect to apply.':
         'DNS kaydedildi. Uygulamak için yeniden bağlanın.',
+    'Enter a DNS address, such as dns.adguard.com or 94.140.14.14.':
+        'Bir DNS adresi girin, örneğin dns.adguard.com veya 94.140.14.14.',
     'Could not load LAN sharing settings.':
         'Yerel ağ paylaşımı ayarları yüklenemedi.',
     'Could not save connection settings. Check your input and try again.':
@@ -1296,8 +1314,8 @@ class AppStrings {
     'Proxy address copied.': 'Proxy adresi kopyalandı.',
     'Enter valid numeric ranges for fragment length, delay and splits.':
         'Parça boyutu, gecikme ve parça sayısı için geçerli aralıklar girin.',
-    'Enter a valid HTTPS DNS URL without credentials or a fragment.':
-        'Kullanıcı bilgisi veya # içermeyen geçerli bir HTTPS DNS adresi girin.',
+    'Enter a valid DNS address without credentials or a fragment.':
+        'Kullanıcı bilgisi veya # içermeyen geçerli bir DNS adresi girin.',
     'macOS currently carries IPv4 only. IPv6 lookups are unavailable in this tunnel.':
         'macOS tüneli şu anda yalnızca IPv4 taşır. Bu tünelde IPv6 sorguları kullanılamaz.',
 
@@ -1497,6 +1515,8 @@ class AppStrings {
     'Disconnected': 'Bağlı değil',
     'Connect VPN': 'VPN’e bağlan',
     'Disconnect VPN': 'VPN bağlantısını kes',
+    'VPN is on': 'VPN açık',
+    'Turn off': 'Kapat',
     'VPN connection in progress': 'VPN bağlantısı sürüyor',
     'Tap to connect': 'Bağlanmak için dokunun',
     'Tap to retry.': 'Yeniden denemek için dokunun.',
@@ -1833,6 +1853,18 @@ class AppStrings {
     'No server ping checks have been recorded.':
         'Henüz sunucu ping kontrolü kaydedilmedi.',
     'XRAY DIAGNOSTICS': 'XRAY TANILAMASI',
+    'Status': 'Durum',
+    'Latest activity': 'Son etkinlik',
+    'App events': 'Uygulama olayları',
+    'TCP ping checks': 'TCP ping kontrolleri',
+    'Xray diagnostics': 'Xray tanılaması',
+    'Connecting': 'Bağlanıyor',
+    'Disconnecting': 'Bağlantı kesiliyor',
+    'Show all': 'Tümünü göster',
+    'Show fewer': 'Daha az göster',
+    'Available': 'Kullanılabilir',
+    'Not available': 'Kullanılamıyor',
+    'No records': 'Kayıt yok',
     'Save transport settings': 'Taşıma ayarlarını kaydet',
     'Must match the server inbound.': 'Sunucudaki inbound ile aynı olmalı.',
     '0-RTT is faster when the server permits it.':

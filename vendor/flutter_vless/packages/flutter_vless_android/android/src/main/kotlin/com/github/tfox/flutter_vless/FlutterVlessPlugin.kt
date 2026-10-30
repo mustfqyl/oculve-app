@@ -85,6 +85,9 @@ class FlutterVlessPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activity
             override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
                 vpnStatusSink = events
                 registerReceiver()
+                // A relaunched app must not assume DISCONNECTED while the
+                // tunnel is still up; report the state the service last sent.
+                emitStatus(AppConfigs.V2RAY_STATE, null)
             }
 
             override fun onCancel(arguments: Any?) {
@@ -292,6 +295,11 @@ class FlutterVlessPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activity
             "getProviderDebugSnapshot" -> {
                 result.success(XrayCoreManager.getProviderDebugSnapshot(context))
             }
+            "getTunnelStatus" -> {
+                // Read-only query used at startup to adopt a tunnel that is
+                // still running after the app was closed and reopened.
+                result.success(stateName(AppConfigs.V2RAY_STATE))
+            }
             "requestPermission" -> {
                 val current = activity
                 if (current == null) {
@@ -309,6 +317,36 @@ class FlutterVlessPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activity
     }
 
     /**
+     * Sends a status payload to Dart. Also used by onListen so a relaunched app
+     * learns the state the service last published instead of assuming
+     * DISCONNECTED while the tunnel is still up.
+     */
+    private fun emitStatus(
+        state: AppConfigs.V2RAY_STATES?,
+        duration: String?,
+        uploadSpeed: Long = 0,
+        downloadSpeed: Long = 0,
+        uploadTraffic: Long = 0,
+        downloadTraffic: Long = 0,
+    ) {
+        val data = ArrayList<String>()
+        data.add(duration ?: "0")
+        data.add(uploadSpeed.toString())
+        data.add(downloadSpeed.toString())
+        data.add(uploadTraffic.toString())
+        data.add(downloadTraffic.toString())
+        data.add(stateName(state))
+        vpnStatusSink?.success(data)
+    }
+
+    private fun stateName(state: AppConfigs.V2RAY_STATES?): String = when (state) {
+        AppConfigs.V2RAY_STATES.V2RAY_CONNECTED -> "CONNECTED"
+        AppConfigs.V2RAY_STATES.V2RAY_CONNECTING -> "CONNECTING"
+        AppConfigs.V2RAY_STATES.V2RAY_PERMISSION_REQUIRED -> "PERMISSION_REQUIRED"
+        else -> "DISCONNECTED"
+    }
+
+    /**
      * Registers a BroadcastReceiver to listen for updates from XrayVPNService.
      * This allows us to receive state changes (Connected/Disconnected) and traffic stats.
      */
@@ -319,28 +357,14 @@ class FlutterVlessPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activity
                 override fun onReceive(context: Context?, intent: Intent?) {
                     if (intent == null || vpnStatusSink == null) return
                     val state = intent.getSerializableExtra("STATE") as? AppConfigs.V2RAY_STATES
-                    val duration = intent.getStringExtra("DURATION")
-                    val uploadSpeed = intent.getLongExtra("UPLOAD_SPEED", 0)
-                    val downloadSpeed = intent.getLongExtra("DOWNLOAD_SPEED", 0)
-                    val uploadTraffic = intent.getLongExtra("UPLOAD_TRAFFIC", 0)
-                    val downloadTraffic = intent.getLongExtra("DOWNLOAD_TRAFFIC", 0)
-
-                    val stateName = when (state) {
-                        AppConfigs.V2RAY_STATES.V2RAY_CONNECTED -> "CONNECTED"
-                        AppConfigs.V2RAY_STATES.V2RAY_CONNECTING -> "CONNECTING"
-                        AppConfigs.V2RAY_STATES.V2RAY_PERMISSION_REQUIRED -> "PERMISSION_REQUIRED"
-                        else -> "DISCONNECTED"
-                    }
-
-                    val data = ArrayList<String>()
-                    data.add(duration ?: "0")
-                    data.add(uploadSpeed.toString())
-                    data.add(downloadSpeed.toString())
-                    data.add(uploadTraffic.toString())
-                    data.add(downloadTraffic.toString())
-                    data.add(stateName)
-
-                    vpnStatusSink?.success(data)
+                    emitStatus(
+                        state = state,
+                        duration = intent.getStringExtra("DURATION"),
+                        uploadSpeed = intent.getLongExtra("UPLOAD_SPEED", 0),
+                        downloadSpeed = intent.getLongExtra("DOWNLOAD_SPEED", 0),
+                        uploadTraffic = intent.getLongExtra("UPLOAD_TRAFFIC", 0),
+                        downloadTraffic = intent.getLongExtra("DOWNLOAD_TRAFFIC", 0),
+                    )
                 }
             }
         }

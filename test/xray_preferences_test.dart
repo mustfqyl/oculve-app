@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -605,13 +606,164 @@ void main() {
     final rules =
         (jsonDecode(config) as Map<String, dynamic>)['routing']['rules']
             as List;
-    expect(rules[2]['domain'], ['domain:secure.example.com']);
-    expect(rules[2]['outboundTag'], 'byedpi');
-    expect(rules[3], {'type': 'field', 'outboundTag': 'direct'});
+    // rules[0] is the UDP 443 block and rules[1..2] are the ByeDPI probes.
+    expect(rules[3]['domain'], ['domain:secure.example.com']);
+    expect(rules[3]['outboundTag'], 'byedpi');
+    expect(rules[4], {'type': 'field', 'outboundTag': 'direct'});
     expect(
       rules.any((rule) => rule['domain'] == ['domain:blocked.example']),
       isFalse,
     );
+  });
+
+  test('DPI Bypass addresses known DoH servers by IP, never by hostname', () {
+    // ByeDPI runs with --no-domain and rejects hostname targets, so a DoH
+    // server given by name can never be resolved through the byedpi outbound.
+    final config =
+        jsonDecode(
+              XrayPreferences.configureDpiBypass(
+                localProxyPort: 65535,
+                dnsSettings: const XrayDnsSettings(
+                  servers: [
+                    'https://cloudflare-dns.com/dns-query',
+                    'https://dns.google/dns-query',
+                    'https://dns.quad9.net:5053/dns-query',
+                    'https://resolver.example/dns-query',
+                    '{"address":"https://dns.google/dns-query","domains":["a.example"]}',
+                  ],
+                ),
+              ),
+            )
+            as Map<String, dynamic>;
+    // Unknown hostnames are dropped: ByeDPI cannot dial them and they have no IP.
+    expect(config['dns']['servers'], [
+      'https://1.1.1.1/dns-query',
+      'https://8.8.8.8/dns-query',
+      'https://9.9.9.9:5053/dns-query',
+      {
+        'address': 'https://8.8.8.8/dns-query',
+        'domains': ['a.example'],
+      },
+    ]);
+  });
+
+  test('DPI Bypass drops unresolvable DNS hostnames and keeps IP entries', () {
+    final servers = XrayPreferences.dpiDnsServers([
+      'https://resolver.example/dns-query',
+      'localhost',
+      'tcp://dns.google:53',
+      'tcp://1.0.0.1',
+      'https://1.0.0.1/dns-query',
+      '2001:4860:4860::8888',
+      '[2001:4860:4860::8888]:5353',
+      'h2c://[2001:4860:4860::6464]/dns-query',
+      {'address': 'quic+local://dns.example', 'port': 853},
+      {'address': 'https://dns.quad9.net/dns-query', 'skipFallback': true},
+    ]);
+    expect(servers, [
+      'tcp://8.8.8.8:53',
+      'tcp://1.0.0.1',
+      'https://1.0.0.1/dns-query',
+      '2001:4860:4860::8888',
+      '[2001:4860:4860::8888]:5353',
+      'h2c://[2001:4860:4860::6464]/dns-query',
+      {'address': 'https://9.9.9.9/dns-query', 'skipFallback': true},
+    ]);
+  });
+
+  test('DPI Bypass falls back to IP DoH servers when all are dropped', () {
+    final servers = XrayPreferences.dpiDnsServers([
+      'https://resolver.example/dns-query',
+      'localhost',
+    ]);
+    expect(servers, [
+      'https://1.1.1.1/dns-query',
+      'https://8.8.8.8/dns-query',
+      'https://9.9.9.9/dns-query',
+    ]);
+  });
+
+  test('DPI Bypass config never names a DNS server by hostname', () {
+    final config =
+        jsonDecode(
+              XrayPreferences.configureDpiBypass(
+                localProxyPort: 65535,
+                dnsSettings: const XrayDnsSettings(
+                  servers: [
+                    'https://cloudflare-dns.com/dns-query',
+                    'tcp://dns.google',
+                    'https://resolver.example/dns-query',
+                    'localhost',
+                    '9.9.9.9',
+                    '{"address":"https://dns.quad9.net/dns-query"}',
+                  ],
+                ),
+              ),
+            )
+            as Map<String, dynamic>;
+    final servers = config['dns']['servers'] as List;
+    expect(servers, isNotEmpty);
+    for (final server in servers) {
+      final address = server is Map ? server['address'] as String : server;
+      final host = Uri.parse(
+        address.contains('://') ? address : 'tcp://$address',
+      ).host;
+      expect(InternetAddress.tryParse(host), isNotNull, reason: address);
+    }
+  });
+
+  test('DPI Bypass blocks QUIC (UDP 443) before any domain rule', () {
+    final config =
+        jsonDecode(
+              XrayPreferences.configureDpiBypass(
+                localProxyPort: 65535,
+                dnsSettings: const XrayDnsSettings(
+                  servers: ['https://cloudflare-dns.com/dns-query'],
+                ),
+                routingRules: const [
+                  XrayRoutingRule(
+                    action: XrayRoutingAction.direct,
+                    domains: ['domain:quic.example'],
+                    networks: ['udp'],
+                  ),
+                ],
+              ),
+            )
+            as Map<String, dynamic>;
+    final rules = config['routing']['rules'] as List;
+    expect(rules.first, {
+      'type': 'field',
+      'network': 'udp',
+      'port': '443',
+      'outboundTag': 'block',
+    });
+    // Other UDP, including DNS on port 53, is not blocked.
+    expect(rules.where((rule) => rule['outboundTag'] == 'block'), hasLength(1));
+  });
+
+  test('DPI Bypass accepts profiles 0-6 and rejects anything else', () {
+    String build(int profile) => XrayPreferences.configureDpiBypass(
+      localProxyPort: 65535,
+      dpiProfile: profile,
+      dnsSettings: const XrayDnsSettings(
+        servers: ['https://cloudflare-dns.com/dns-query'],
+      ),
+    );
+    for (final profile in [0, 4, 5, 6]) {
+      expect(() => build(profile), returnsNormally, reason: '$profile');
+      expect(
+        (jsonDecode(build(profile)) as Map)['oculveDpiProfile'],
+        profile,
+        reason: '$profile',
+      );
+    }
+    for (final profile in [-1, 7]) {
+      expect(
+        () => build(profile),
+        throwsA(isA<FormatException>()),
+        reason: '$profile',
+      );
+    }
   });
 
   test('structured routing creates Xray proxy, direct and block rules', () {

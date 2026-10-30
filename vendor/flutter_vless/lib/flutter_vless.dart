@@ -228,6 +228,18 @@ class FlutterVless {
     return await VlessPlatform.instance.getConnectedServerDelay(url);
   }
 
+  /// Returns the tunnel state the native backend observes right now.
+  ///
+  /// Unlike [onStatusChanged], this is an explicit query: it is the only safe
+  /// way to adopt a tunnel that an earlier app session left running, because a
+  /// late `CONNECTED` status event can also arrive after a deliberate stop.
+  ///
+  /// Returns `null` when the platform cannot answer, for example before
+  /// [initializeVless] or on a backend without a tunnel.
+  Future<String?> getTunnelStatus() {
+    return VlessPlatform.instance.getTunnelStatus();
+  }
+
   /// Returns the embedded or discovered Xray core version string.
   ///
   /// The exact value is reported by the active platform implementation and can

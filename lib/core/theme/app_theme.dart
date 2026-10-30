@@ -1,6 +1,8 @@
 import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
+import 'package:oculve/core/widgets/app_route.dart';
 
 class AppTheme {
   // === Typography scale tokens ===
@@ -68,6 +70,9 @@ class AppTheme {
       useMaterial3: true,
       brightness: Brightness.dark,
       scaffoldBackgroundColor: backgroundColor,
+      // Pages are transparent so the one shared backdrop (AppBackdrop) shows
+      // through; routes cross-fade over it instead of stacking backdrops.
+      pageTransitionsTheme: _pageTransitions,
       primaryColor: accent,
       colorScheme: const ColorScheme.dark(
         primary: accent,
@@ -122,6 +127,7 @@ class AppTheme {
       useMaterial3: true,
       brightness: Brightness.light,
       scaffoldBackgroundColor: lightBackground,
+      pageTransitionsTheme: _pageTransitions,
       primaryColor: lightAccent,
       colorScheme: const ColorScheme.light(
         primary: lightAccent,
@@ -172,6 +178,81 @@ class AppTheme {
   }
 }
 
+/// One transition policy for every platform: content cross-fades over the
+/// single shared backdrop (see [AppFadeThroughTransition]).
+const PageTransitionsTheme _pageTransitions = PageTransitionsTheme(
+  builders: {
+    TargetPlatform.android: AppFadeThroughPageTransitionsBuilder(),
+    TargetPlatform.iOS: AppCupertinoPageTransitionsBuilder(),
+    TargetPlatform.macOS: AppFadeThroughPageTransitionsBuilder(),
+    TargetPlatform.windows: AppFadeThroughPageTransitionsBuilder(),
+    TargetPlatform.linux: AppFadeThroughPageTransitionsBuilder(),
+  },
+);
+
+// ============================================================
+// ORB DRIFT PHASE – one clock shared by the app backdrop
+// ============================================================
+/// Phase of the animated background orbs.
+///
+/// The single app backdrop ([PremiumBackground] behind the navigator) keeps a
+/// controller only to receive frames. The phase itself comes from this one
+/// clock, started when the backdrop was built, so the motion is continuous
+/// across route changes instead of restarting at `t = 0`.
+class OrbDriftPhase {
+  OrbDriftPhase._();
+
+  /// One sweep, matching the controller's `repeat(reverse: true)`.
+  static const Duration period = Duration(seconds: 44);
+
+  static Duration? _epoch;
+  static Duration? _lastElapsed;
+
+  /// Time since the first background was built.
+  ///
+  /// Outside a frame this returns the value last seen inside one, which keeps
+  /// callers free of the scheduler's frame-only time stamp assertion.
+  static Duration elapsed() {
+    final now = _frameTime();
+    if (now == null) return _lastElapsed ?? Duration.zero;
+    var epoch = _epoch;
+    if (epoch == null || now < epoch) {
+      // First use, or the scheduler restarted its epoch (hot reload, a
+      // timeDilation change): the shared clock restarts with it.
+      epoch = now;
+      _epoch = epoch;
+    }
+    final sinceEpoch = now - epoch;
+    _lastElapsed = sinceEpoch;
+    return sinceEpoch;
+  }
+
+  /// The value the old per-page controller reported: a triangle wave over two
+  /// [period]s, i.e. `repeat(reverse: true)`.
+  static double wave(Duration elapsed, {Duration period = period}) {
+    final half = period.inMicroseconds;
+    final x = (elapsed.inMicroseconds % (half * 2)) / half;
+    return x <= 1 ? x : 2 - x;
+  }
+
+  static Duration? _frameTime() {
+    final binding = SchedulerBinding.instance;
+    final phase = binding.schedulerPhase;
+    final inFrame =
+        phase == SchedulerPhase.transientCallbacks ||
+        phase == SchedulerPhase.midFrameMicrotasks ||
+        phase == SchedulerPhase.persistentCallbacks;
+    return inFrame ? binding.currentFrameTimeStamp : null;
+  }
+
+  /// Restarts the shared clock; tests call this to stay deterministic.
+  @visibleForTesting
+  static void reset() {
+    _epoch = null;
+    _lastElapsed = null;
+  }
+}
+
 // ============================================================
 // PREMIUM BACKGROUND – Website background geometry and colors
 // Dark: Cyber Neon | Light: Premium Studio
@@ -185,41 +266,34 @@ class PremiumBackground extends StatefulWidget {
 }
 
 class _PremiumBackgroundState extends State<PremiumBackground>
-    with TickerProviderStateMixin {
-  late AnimationController _driftCtrl;
-  late AnimationController _nodeCtrl;
-  late final Listenable _backgroundMotion;
+    with SingleTickerProviderStateMixin {
+  /// Keeps frames coming; the phase itself comes from [OrbDriftPhase].
+  late final AnimationController _driftCtrl = AnimationController(
+    vsync: this,
+    duration: OrbDriftPhase.period,
+  );
 
-  @override
-  void initState() {
-    super.initState();
-    _driftCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 44),
-    );
-    _nodeCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 12),
-    );
-    _backgroundMotion = Listenable.merge([_driftCtrl, _nodeCtrl]);
-  }
+  /// Phase held still while reduced motion is on, as the stopped controller
+  /// used to be.
+  double? _frozenT;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (MediaQuery.disableAnimationsOf(context)) {
+      _frozenT ??= _driftCtrl.value;
       _driftCtrl.stop();
-      _nodeCtrl.stop();
     } else {
-      if (!_driftCtrl.isAnimating) _driftCtrl.repeat(reverse: true);
-      if (!_nodeCtrl.isAnimating) _nodeCtrl.repeat();
+      _frozenT = null;
+      if (!_driftCtrl.isAnimating) {
+        _driftCtrl.repeat(reverse: true);
+      }
     }
   }
 
   @override
   void dispose() {
     _driftCtrl.dispose();
-    _nodeCtrl.dispose();
     super.dispose();
   }
 
@@ -258,91 +332,76 @@ class _PremiumBackgroundState extends State<PremiumBackground>
             ),
           ),
 
-          // Website BackgroundEffects' dark neon and light studio orbs.
-          AnimatedBuilder(
-            animation: _backgroundMotion,
-            builder: (context, _) {
-              final t = _driftCtrl.value;
-              final nodeOne = (_nodeCtrl.value * 1.5) % 1;
-              final nodeTwo = 1 - _nodeCtrl.value;
-              return Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  if (isDark) ...[
-                    Positioned.fill(
-                      child: CustomPaint(painter: _WebsiteMeshPainter()),
-                    ),
-                    // Same base geometry as .neon-1 and .neon-2 on the site.
-                    Positioned(
-                      top: -200 + math.cos(t * math.pi) * 30,
-                      right: -100 + math.sin(t * math.pi) * 40,
-                      child: _BlurredOrb(
-                        size: 600,
-                        color: Colors.white,
-                        opacity: 0.15,
-                        blur: 100,
+          // Orb layer. Its phase comes from the shared clock, so every page
+          // draws the same frame; the boundary keeps orb repaints away from
+          // the page content.
+          RepaintBoundary(
+            child: AnimatedBuilder(
+              animation: _driftCtrl,
+              builder: (context, _) {
+                final t =
+                    _frozenT ?? OrbDriftPhase.wave(OrbDriftPhase.elapsed());
+                return Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    if (isDark) ...[
+                      // Same base geometry as .neon-1 and .neon-2 on the site.
+                      Positioned(
+                        top: -200 + math.cos(t * math.pi) * 30,
+                        right: -100 + math.sin(t * math.pi) * 40,
+                        child: const _SoftOrb(
+                          size: 600,
+                          color: Colors.white,
+                          opacity: 0.15,
+                          profile: _whiteOrbProfile,
+                          halo: 200,
+                        ),
                       ),
-                    ),
-                    Positioned(
-                      bottom: -50 - math.sin(t * math.pi) * 40,
-                      left: -100 + math.cos(t * math.pi) * 30,
-                      child: _BlurredOrb(
-                        size: 400,
-                        color: const Color(0xFF3B82F6),
-                        opacity: 0.15,
-                        blur: 100,
+                      Positioned(
+                        bottom: -50 - math.sin(t * math.pi) * 40,
+                        left: -100 + math.cos(t * math.pi) * 30,
+                        child: const _SoftOrb(
+                          size: 400,
+                          color: Color(0xFF3B82F6),
+                          opacity: 0.15,
+                          profile: _blueOrbProfile,
+                          halo: 200,
+                        ),
                       ),
-                    ),
-                    Positioned(
-                      top: sz.height * .2 - 100 * nodeOne,
-                      left: sz.width * .15 + 20 * nodeOne,
-                      child: _FloatingNode(
-                        opacity: math.sin(math.pi * nodeOne) * .3,
+                    ] else ...[
+                      // Website .studio-1, .studio-2 and .studio-3.
+                      Positioned(
+                        top: sz.height * 0.1,
+                        left: -100 + math.sin(t * math.pi) * 30,
+                        child: const _SoftOrb(
+                          size: 500,
+                          color: Color(0xFF6366F1), // Indigo
+                          opacity: 0.12,
+                        ),
                       ),
-                    ),
-                    Positioned(
-                      bottom: sz.height * .3 + 100 * nodeTwo,
-                      right: sz.width * .1 - 20 * nodeTwo,
-                      child: _FloatingNode(
-                        opacity: math.sin(math.pi * nodeTwo) * .3,
+                      Positioned(
+                        bottom: sz.height * 0.2,
+                        right: -50 - math.cos(t * math.pi) * 30,
+                        child: const _SoftOrb(
+                          size: 400,
+                          color: Color(0xFF8B5CF6), // Violet
+                          opacity: 0.12,
+                        ),
                       ),
-                    ),
-                  ] else ...[
-                    // Website .studio-1, .studio-2 and .studio-3.
-                    Positioned(
-                      top: sz.height * 0.1,
-                      left: -100 + math.sin(t * math.pi) * 30,
-                      child: _BlurredOrb(
-                        size: 500,
-                        color: const Color(0xFF6366F1), // Indigo
-                        opacity: 0.12,
-                        blur: 80,
+                      Positioned(
+                        top: sz.height * 0.4,
+                        left: sz.width * 0.3 + math.sin(t * math.pi * 0.5) * 40,
+                        child: const _SoftOrb(
+                          size: 300,
+                          color: Color(0xFF06B6D4), // Cyan
+                          opacity: 0.12,
+                        ),
                       ),
-                    ),
-                    Positioned(
-                      bottom: sz.height * 0.2,
-                      right: -50 - math.cos(t * math.pi) * 30,
-                      child: _BlurredOrb(
-                        size: 400,
-                        color: const Color(0xFF8B5CF6), // Violet
-                        opacity: 0.12,
-                        blur: 80,
-                      ),
-                    ),
-                    Positioned(
-                      top: sz.height * 0.4,
-                      left: sz.width * 0.3 + math.sin(t * math.pi * 0.5) * 40,
-                      child: _BlurredOrb(
-                        size: 300,
-                        color: const Color(0xFF06B6D4), // Cyan
-                        opacity: 0.12,
-                        blur: 80,
-                      ),
-                    ),
+                    ],
                   ],
-                ],
-              );
-            },
+                );
+              },
+            ),
           ),
 
           // Content
@@ -356,76 +415,89 @@ class _PremiumBackgroundState extends State<PremiumBackground>
 
 // ── Helper Widgets ──
 
-class _BlurredOrb extends StatelessWidget {
+/// A soft, unclipped glow. Painting it as a gradient instead of a blurred
+/// circle avoids the square blur box and the per-frame blur cost.
+///
+/// The dark orbs pass a [profile] sampled from the Gaussian feather the old
+/// blurred disc had (a disc of radius `size / 2` blurred with sigma 100) plus
+/// a [halo] of two sigma, so the glow keeps its original brightness, softness
+/// and spread. The glow is painted outside the widget's [size] box, which
+/// keeps every orb position unchanged.
+class _SoftOrb extends StatelessWidget {
   final double size;
   final Color color;
   final double opacity;
-  final double blur;
 
-  const _BlurredOrb({
+  /// Alpha multipliers from the centre (stop 0) to the edge of the glow.
+  final List<(double, double)> profile;
+
+  /// How far the glow reaches past the disc, in pixels.
+  final double halo;
+
+  const _SoftOrb({
     required this.size,
     required this.color,
     required this.opacity,
-    required this.blur,
+    this.profile = const [(0, 1), (.45, .45), (1, 0)],
+    this.halo = 0,
   });
 
   @override
   Widget build(BuildContext context) {
-    return ImageFiltered(
-      imageFilter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
-      child: Container(
+    final extent = size + 2 * halo;
+    return IgnorePointer(
+      child: SizedBox(
         width: size,
         height: size,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: color.withValues(alpha: opacity),
+        child: OverflowBox(
+          maxWidth: extent,
+          maxHeight: extent,
+          child: Container(
+            width: extent,
+            height: extent,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: RadialGradient(
+                stops: [for (final (stop, _) in profile) stop],
+                colors: [
+                  for (final (_, alpha) in profile)
+                    color.withValues(alpha: opacity * alpha),
+                ],
+              ),
+            ),
+          ),
         ),
       ),
     );
   }
 }
 
-class _FloatingNode extends StatelessWidget {
-  const _FloatingNode({required this.opacity});
-  final double opacity;
+/// Gaussian feather of the white neon orb: a disc of radius 300 blurred with
+/// sigma 100, sampled into nine stops up to two sigma past the disc.
+const List<(double, double)> _whiteOrbProfile = [
+  (0, .989),
+  (.125, .978),
+  (.25, .932),
+  (.375, .818),
+  (.5, .623),
+  (.625, .385),
+  (.75, .184),
+  (.875, .065),
+  (1, .017),
+];
 
-  @override
-  Widget build(BuildContext context) => Opacity(
-    opacity: opacity.clamp(0, 1),
-    child: Container(
-      width: 4,
-      height: 4,
-      decoration: const BoxDecoration(
-        shape: BoxShape.circle,
-        color: Colors.white,
-        boxShadow: [BoxShadow(color: Colors.white, blurRadius: 15)],
-      ),
-    ),
-  );
-}
-
-class _WebsiteMeshPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final bounds = Offset.zero & size;
-    final paint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1
-      ..shader = const RadialGradient(
-        colors: [Color(0x02FFFFFF), Colors.transparent],
-        stops: [0.3, 0.7],
-      ).createShader(bounds);
-    for (double x = 0; x < size.width; x += 80) {
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
-    }
-    for (double y = 0; y < size.height; y += 80) {
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _WebsiteMeshPainter oldDelegate) => false;
-}
+/// Same feather for the blue neon orb (radius 200, sigma 100).
+const List<(double, double)> _blueOrbProfile = [
+  (0, .865),
+  (.125, .831),
+  (.25, .731),
+  (.375, .576),
+  (.5, .396),
+  (.625, .232),
+  (.75, .113),
+  (.875, .045),
+  (1, .015),
+];
 
 // ============================================================
 // FROSTED GLASS CARD – heavy blur like Betternet

@@ -8,7 +8,7 @@ import 'package:oculve/core/connection/connection_preferences.dart';
 import 'package:oculve/core/connection/lan_proxy_service.dart';
 import 'package:oculve/core/providers/vpn_provider.dart';
 import 'package:oculve/core/widgets/app_page.dart';
-import 'package:oculve/core/widgets/app_feedback.dart';
+import 'package:oculve/core/widgets/inline_feedback.dart';
 import 'connection_settings_widgets.dart';
 import 'package:oculve/core/theme/app_theme.dart';
 
@@ -25,6 +25,9 @@ class _LanSharingScreenState extends ConsumerState<LanSharingScreen> {
   bool _loading = true, _busy = false, _enabled = false, _reveal = false;
   List<String> _addresses = [];
   String? _address;
+  final _error = InlineErrorController();
+  final _success = InlineTooltipFeedbackController();
+
   @override
   void initState() {
     super.initState();
@@ -51,11 +54,7 @@ class _LanSharingScreenState extends ConsumerState<LanSharingScreen> {
       });
     } catch (error) {
       if (mounted) {
-        AppFeedback.showError(
-          context,
-          error,
-          fallback: 'Could not load LAN sharing settings.',
-        );
+        _error.show(error, fallback: 'Could not load LAN sharing settings.');
       }
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -63,6 +62,7 @@ class _LanSharingScreenState extends ConsumerState<LanSharingScreen> {
   }
 
   Future<void> _save(bool enabled, {bool persistCredentials = false}) async {
+    _error.clear();
     setState(() => _busy = true);
     try {
       if (enabled && (_address == null || !_addresses.contains(_address))) {
@@ -83,8 +83,7 @@ class _LanSharingScreenState extends ConsumerState<LanSharingScreen> {
       setState(() => _enabled = enabled);
       await ref.read(vpnProvider.notifier).syncLanSharing();
       if (mounted) {
-        AppFeedback.showMessage(
-          context,
+        _success.show(
           enabled
               ? 'LAN sharing saved. Reconnect to apply these settings.'
               : 'LAN sharing stopped.',
@@ -92,8 +91,7 @@ class _LanSharingScreenState extends ConsumerState<LanSharingScreen> {
       }
     } catch (error) {
       if (mounted) {
-        AppFeedback.showError(
-          context,
+        _error.show(
           error,
           fallback:
               'Check your LAN address, port, username and password. Use at least 12 characters for the password.',
@@ -109,6 +107,8 @@ class _LanSharingScreenState extends ConsumerState<LanSharingScreen> {
     _port.dispose();
     _user.dispose();
     _password.dispose();
+    _error.dispose();
+    _success.dispose();
     super.dispose();
   }
 
@@ -117,6 +117,7 @@ class _LanSharingScreenState extends ConsumerState<LanSharingScreen> {
     final service = ref.watch(lanProxyProvider);
     return AppPage(
       title: 'LAN proxy sharing',
+      feedback: _error,
       child: _loading
           ? const Center(child: CircularProgressIndicator())
           : ListView(
@@ -246,22 +247,23 @@ class _LanSharingScreenState extends ConsumerState<LanSharingScreen> {
                   style: TextStyle(color: settingsMuted(context), fontSize: 12),
                 ),
                 if (service.running)
-                  TextButton.icon(
-                    onPressed: () async {
-                      await Clipboard.setData(
-                        ClipboardData(
-                          text: '${service.address}:${service.port}',
-                        ),
-                      );
-                      if (context.mounted) {
-                        AppFeedback.showMessage(
-                          context,
-                          'Proxy address copied.',
+                  InlineTooltipFeedback(
+                    controller: _success,
+                    message: 'Copied',
+                    child: TextButton.icon(
+                      onPressed: () async {
+                        await Clipboard.setData(
+                          ClipboardData(
+                            text: '${service.address}:${service.port}',
+                          ),
                         );
-                      }
-                    },
-                    icon: const Icon(Icons.copy_outlined, size: 16),
-                    label: Text('${service.address}:${service.port}'),
+                        if (context.mounted) {
+                          _success.show('Copied');
+                        }
+                      },
+                      icon: const Icon(Icons.copy_outlined, size: 16),
+                      label: Text('${service.address}:${service.port}'),
+                    ),
                   ),
                 if (service.error != null)
                   Padding(

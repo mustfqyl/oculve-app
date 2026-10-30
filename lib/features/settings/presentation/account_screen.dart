@@ -13,6 +13,7 @@ import 'package:oculve/core/account/private_text_export.dart';
 import 'package:oculve/core/theme/app_theme.dart';
 import 'package:oculve/core/widgets/app_page.dart';
 import 'package:oculve/core/widgets/app_feedback.dart';
+import 'package:oculve/core/widgets/inline_feedback.dart';
 import 'package:oculve/features/auth/data/auth_repository.dart';
 import 'package:oculve/core/localization/app_strings.dart';
 
@@ -30,6 +31,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
   bool _accountRefreshBusy = false;
   Timer? _accountRefresh;
   bool _appVisible = true;
+  final _feedback = InlineErrorController();
 
   @override
   void initState() {
@@ -57,6 +59,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
   @override
   void dispose() {
     _accountRefresh?.cancel();
+    _feedback.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -107,25 +110,21 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
     return '${date.year}-${two(date.month)}-${two(date.day)} ${two(date.hour)}:${two(date.minute)} UTC';
   }
 
+  /// Confirmations and hints appear in the page header, in place of the title.
   void _message(String message, {BuildContext? source}) {
     if (!mounted) return;
-    AppFeedback.showMessage(source ?? context, message);
+    _feedback.showMessage(message);
   }
 
   Future<bool> _run(Future<void> Function() action) async {
     if (_busy) return false;
+    _feedback.clear();
     setState(() => _busy = true);
     try {
       await action();
       return true;
     } catch (error) {
-      if (mounted) {
-        AppFeedback.showError(
-          context,
-          error,
-          placement: AppFeedbackPlacement.pageBottom,
-        );
-      }
+      if (mounted) _feedback.show(error);
       return false;
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -466,7 +465,10 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
         if (result == null) return;
         if (!mounted) return;
         if ((result['code'] as String).length < 6) {
-          _message(context.tr('Enter the code from your authenticator.'));
+          _feedback.showMessage(
+            context.tr('Enter the code from your authenticator.'),
+            kind: AppFeedbackKind.info,
+          );
           return;
         }
         final enabled = await ref
@@ -1079,6 +1081,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
 
     return AppPage(
       title: context.tr('Account'),
+      feedback: _feedback,
       child: DefaultTextStyle.merge(
         style: const TextStyle(height: 1.25, letterSpacing: 0),
         child: LayoutBuilder(

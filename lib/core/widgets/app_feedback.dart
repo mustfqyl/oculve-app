@@ -2,9 +2,16 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:oculve/core/haptics/app_haptics.dart';
 import 'package:oculve/core/localization/app_strings.dart';
 import 'package:oculve/core/models/user_facing_failure.dart';
 import 'package:oculve/core/theme/app_theme.dart';
+
+/// Rollback switch. When true, errors that have an element to belong to (the
+/// connect button, the sign-in fields) are shown in place, inside a slot that
+/// is reserved up front so nothing around them moves. When false every error
+/// goes back to the top banner it used before.
+const bool kInlineFeedback = true;
 
 enum AppFeedbackKind { error, info, success }
 
@@ -35,6 +42,11 @@ class AppFeedback {
 
   static String errorMessage(Object error, {String? fallback}) =>
       UserFacingFailure.message(error, fallback: fallback);
+
+  /// Text/icon tone for an error shown in place or in the banner; readable on
+  /// both themes, never the only carrier of the message.
+  static Color errorTone({required bool dark}) =>
+      dark ? const Color(0xFFFF7777) : const Color(0xFFB42318);
 
   static void dismiss() {
     final entry = _activeEntry;
@@ -80,6 +92,14 @@ class AppFeedback {
       return; // Repeated native/API events must not reset the expiry timer.
     }
     dismiss();
+    switch (kind) {
+      case AppFeedbackKind.error:
+        AppHaptics.error();
+      case AppFeedbackKind.success:
+        AppHaptics.success();
+      case AppFeedbackKind.info:
+        break;
+    }
     final id = ++_nextId;
     late final OverlayEntry entry;
     entry = OverlayEntry(
@@ -128,10 +148,14 @@ class _FeedbackOverlay extends StatefulWidget {
 
 class _FeedbackOverlayState extends State<_FeedbackOverlay>
     with TickerProviderStateMixin {
-  static const _duration = Duration(seconds: 7);
+  // Long enough to read the whole message, but never abrupt: it fades out.
+  late final Duration _duration = Duration(
+    milliseconds: (3500 + widget.message.length * 45).clamp(4500, 8000),
+  );
   late final AnimationController _entry = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 200),
+    duration: const Duration(milliseconds: 220),
+    reverseDuration: const Duration(milliseconds: 380),
   );
   late final AnimationController _remaining = AnimationController(
     vsync: this,

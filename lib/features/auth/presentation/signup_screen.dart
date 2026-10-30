@@ -5,14 +5,17 @@ import 'package:flutter/material.dart' hide Text;
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:oculve/core/account/private_text_export.dart';
+import 'package:oculve/core/haptics/app_haptics.dart';
 import 'package:oculve/core/localization/localized_text.dart';
 import 'package:oculve/core/theme/app_theme.dart';
 import 'package:oculve/core/widgets/app_route.dart';
 import 'package:oculve/core/widgets/app_feedback.dart';
+import 'package:oculve/core/widgets/inline_feedback.dart';
 import 'package:oculve/core/widgets/oculve_wordmark.dart';
 import 'package:oculve/features/auth/data/auth_repository.dart';
 import 'package:oculve/features/auth/presentation/login_screen.dart';
 import 'package:oculve/features/auth/presentation/widgets/oculve_veil_artwork.dart';
+import 'package:oculve/features/auth/presentation/widgets/tunnel_active_notice.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 typedef AccessCodeSaver =
@@ -42,6 +45,35 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen>
   bool _loading = false, _saving = false, _creating = false;
   bool _codeExported = false;
   bool _copied = false, _registered = false;
+  String? _formError;
+  Timer? _formErrorTimer;
+
+  /// Shows a failure next to the action that caused it. The line fades away on
+  /// its own after long enough to read, and as soon as the user acts again.
+  void _fail(Object error, {String? fallback}) {
+    if (!mounted) return;
+    if (!kInlineFeedback) {
+      AppFeedback.showError(
+        context,
+        error,
+        fallback: fallback,
+        placement: AppFeedbackPlacement.auth,
+      );
+      return;
+    }
+    final text = AppFeedback.errorMessage(error, fallback: fallback);
+    AppHaptics.error();
+    _formErrorTimer?.cancel();
+    setState(() => _formError = text);
+    final visible = (3000 + text.length * 45).clamp(4000, 8000);
+    _formErrorTimer = Timer(Duration(milliseconds: visible), _clearFormError);
+  }
+
+  void _clearFormError() {
+    _formErrorTimer?.cancel();
+    _formErrorTimer = null;
+    if (mounted && _formError != null) setState(() => _formError = null);
+  }
 
   @override
   void initState() {
@@ -65,6 +97,7 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen>
 
   @override
   void dispose() {
+    _formErrorTimer?.cancel();
     _pages.dispose();
     _welcomeAnimation.dispose();
     super.dispose();
@@ -84,12 +117,9 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen>
       return true;
     } catch (error) {
       if (mounted) {
-        AppFeedback.showError(
-          context,
-          error,
-          fallback: 'Could not create your sign-in key. Please try again.',
-          placement: AppFeedbackPlacement.auth,
-        );
+        // The key card already says it could not be created and the button
+        // reads "Try again", so a second message would only repeat it.
+        AppHaptics.error();
       }
       return false;
     } finally {
@@ -98,6 +128,7 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen>
   }
 
   Future<void> _next() async {
+    _clearFormError();
     if (_step == 0) {
       if (!_pages.hasClients) return;
       await _pages.animateToPage(
@@ -150,23 +181,17 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen>
       final saved = await ref.read(accessCodeSaverProvider)(context, code);
       if (!mounted) return false;
       if (!saved) {
-        AppFeedback.showError(
-          context,
-          'Choose a place to save your code before continuing.',
-          placement: AppFeedbackPlacement.auth,
-        );
+        _fail('Choose a place to save your code before continuing.');
         return false;
       }
       setState(() => _codeExported = true);
       return true;
     } catch (error) {
       if (mounted) {
-        AppFeedback.showError(
-          context,
+        _fail(
           error,
           fallback:
               'Could not save your code. Choose a location and try again.',
-          placement: AppFeedbackPlacement.auth,
         );
       }
       return false;
@@ -187,19 +212,13 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen>
     } on RegistrationCreatedButNotReady {
       if (mounted) {
         setState(() => _registered = true);
-        AppFeedback.showError(
-          context,
+        _fail(
           'Your account was created, but server setup is still finishing. Sign in again shortly.',
-          placement: AppFeedbackPlacement.auth,
         );
       }
     } catch (error) {
       if (mounted) {
-        AppFeedback.showError(
-          context,
-          error,
-          placement: AppFeedbackPlacement.auth,
-        );
+        _fail(error);
       }
     } finally {
       if (mounted) setState(() => _creating = false);
@@ -244,91 +263,86 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen>
     final compact = screen.height < 620;
     final veryCompact = screen.height < 440;
     return Scaffold(
-      body: PremiumBackground(
-        child: SafeArea(
-          child: Padding(
-            padding: EdgeInsets.fromLTRB(
-              compact ? 14 : 22,
-              compact ? 4 : 12,
-              compact ? 14 : 22,
-              compact ? 8 : 16,
-            ),
-            child: Column(
-              children: [
-                ConstrainedBox(
-                  constraints: const BoxConstraints(minHeight: 48),
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      if (_step > 0)
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: SizedBox(
-                            width: 48,
-                            child: IconButton(
-                              padding: EdgeInsets.zero,
-                              onPressed: _creating || _saving ? null : _back,
-                              icon: Icon(
-                                Icons.arrow_back_rounded,
-                                color: fg,
-                                size: 19,
-                                semanticLabel: MaterialLocalizations.of(
-                                  context,
-                                ).backButtonTooltip,
-                              ),
+      backgroundColor: Colors.transparent,
+      body: SafeArea(
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            compact ? 14 : 22,
+            compact ? 4 : 12,
+            compact ? 14 : 22,
+            compact ? 8 : 16,
+          ),
+          child: Column(
+            children: [
+              ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 48),
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    if (_step > 0)
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: SizedBox(
+                          width: 48,
+                          child: IconButton(
+                            padding: EdgeInsets.zero,
+                            onPressed: _creating || _saving ? null : _back,
+                            icon: Icon(
+                              Icons.arrow_back_rounded,
+                              color: fg,
+                              size: 19,
+                              semanticLabel: MaterialLocalizations.of(
+                                context,
+                              ).backButtonTooltip,
                             ),
                           ),
                         ),
-                      OculveWordmark(color: fg, alignment: Alignment.center),
-                    ],
-                  ),
+                      ),
+                    OculveWordmark(color: fg, alignment: Alignment.center),
+                  ],
                 ),
-                const SizedBox(height: 8),
-                Semantics(
-                  label: 'Step ${_step + 1} of 3',
-                  child: Row(
-                    children: List.generate(
-                      3,
-                      (index) => Expanded(
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 220),
-                          margin: EdgeInsets.only(right: index == 2 ? 0 : 6),
-                          height: 3,
-                          decoration: BoxDecoration(
-                            color: index <= _step
-                                ? fg.withValues(alpha: .9)
-                                : fg.withValues(alpha: .13),
-                            borderRadius: BorderRadius.circular(3),
-                          ),
+              ),
+              const SizedBox(height: 8),
+              Semantics(
+                label: 'Step ${_step + 1} of 3',
+                child: Row(
+                  children: List.generate(
+                    3,
+                    (index) => Expanded(
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 220),
+                        margin: EdgeInsets.only(right: index == 2 ? 0 : 6),
+                        height: 3,
+                        decoration: BoxDecoration(
+                          color: index <= _step
+                              ? fg.withValues(alpha: .9)
+                              : fg.withValues(alpha: .13),
+                          borderRadius: BorderRadius.circular(3),
                         ),
                       ),
                     ),
                   ),
                 ),
-                const SizedBox(height: 4),
-                Expanded(
-                  child: PageView(
-                    controller: _pages,
-                    physics: _SignupPagePhysics(
-                      isCodeSaved: () => _codeExported,
+              ),
+              const SizedBox(height: 4),
+              Expanded(
+                child: PageView(
+                  controller: _pages,
+                  physics: _SignupPagePhysics(isCodeSaved: () => _codeExported),
+                  onPageChanged: _onPageChanged,
+                  children: [
+                    _scroll(
+                      context,
+                      _welcomePage(fg, muted, compact, dark, veryCompact),
                     ),
-                    onPageChanged: _onPageChanged,
-                    children: [
-                      _scroll(
-                        context,
-                        _welcomePage(fg, muted, compact, dark, veryCompact),
-                      ),
-                      _scroll(
-                        context,
-                        _accessCodePage(fg, muted, compact, dark),
-                      ),
-                      _scroll(context, _finishPage(fg, muted, compact, dark)),
-                    ],
-                  ),
+                    _scroll(context, _accessCodePage(fg, muted, compact, dark)),
+                    _scroll(context, _finishPage(fg, muted, compact, dark)),
+                  ],
                 ),
-                _footer(context, fg, muted),
-              ],
-            ),
+              ),
+              const TunnelActiveNotice(),
+              _footer(context, fg, muted),
+            ],
           ),
         ),
       ),
@@ -610,6 +624,8 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen>
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          // Reserved line: a failure appears here without moving the button.
+          InlineErrorSlot(message: _formError),
           SizedBox(
             width: double.infinity,
             height: 48,

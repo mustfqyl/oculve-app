@@ -49,7 +49,7 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 350));
       final cloudflare = find.text('Cloudflare');
-      expect(tester.widget<Text>(cloudflare).maxLines, 1);
+      expect(tester.widget<Text>(cloudflare).maxLines, 2);
       expect(
         (tester.renderObject(cloudflare) as RenderParagraph).didExceedMaxLines,
         isFalse,

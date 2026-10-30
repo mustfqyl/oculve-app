@@ -259,18 +259,55 @@ class XrayPreferences {
     );
   }
 
+  /// A DNS endpoint the UI may store: a full HTTPS (DoH) URL, or a plain IP
+  /// reached over TCP such as `tcp://94.140.14.14`. Hostnames are only allowed
+  /// in the HTTPS form, so the tunnel never has to resolve a resolver's name.
   static bool isUserDnsEndpoint(String? value) {
-    final uri = Uri.tryParse(value ?? '');
-    return value != null &&
-        value.length <= 2048 &&
-        uri != null &&
-        uri.scheme == 'https' &&
-        uri.host.isNotEmpty &&
-        uri.userInfo.isEmpty &&
-        !uri.hasFragment &&
-        uri.path.isNotEmpty &&
-        !value.contains(RegExp(r'\s')) &&
-        (!uri.hasPort || uri.port > 0 && uri.port <= 65535);
+    if (value == null || value.length > 2048 || value.contains(RegExp(r'\s'))) {
+      return false;
+    }
+    final uri = Uri.tryParse(value);
+    if (uri == null || uri.userInfo.isNotEmpty || uri.hasFragment) return false;
+    final portOk = !uri.hasPort || uri.port > 0 && uri.port <= 65535;
+    if (uri.scheme == 'https') {
+      return uri.host.isNotEmpty && uri.path.isNotEmpty && portOk;
+    }
+    if (uri.scheme == 'tcp') {
+      return InternetAddress.tryParse(uri.host) != null &&
+          (uri.path.isEmpty || uri.path == '/') &&
+          !uri.hasQuery &&
+          portOk;
+    }
+    return false;
+  }
+
+  /// Turns what a person types into a stored endpoint, so they do not have to
+  /// know the URL form: `dns.adguard.com` becomes
+  /// `https://dns.adguard.com/dns-query`, `94.140.14.14` becomes
+  /// `tcp://94.140.14.14`. Anything with an explicit scheme is kept as typed
+  /// and then judged by [isUserDnsEndpoint]. Garbage is returned unchanged so
+  /// validation rejects it.
+  static String normalizeUserDnsInput(String raw) {
+    final value = raw.trim();
+    if (value.isEmpty ||
+        value.contains(RegExp(r'\s')) ||
+        value.contains('://')) {
+      return value;
+    }
+    final bare = value.startsWith('[') && value.endsWith(']')
+        ? value.substring(1, value.length - 1)
+        : value;
+    final ip = InternetAddress.tryParse(bare);
+    if (ip != null) {
+      return ip.type == InternetAddressType.IPv6
+          ? 'tcp://[${ip.address}]'
+          : 'tcp://${ip.address}';
+    }
+    final uri = Uri.tryParse('https://$value');
+    if (uri == null || !uri.host.contains('.')) return value;
+    return uri.path.isEmpty || uri.path == '/'
+        ? 'https://${uri.host}${uri.hasPort ? ':${uri.port}' : ''}/dns-query'
+        : 'https://$value';
   }
 
   /// Persists the small, validated DNS surface exposed by Oculve's UI.
@@ -278,7 +315,7 @@ class XrayPreferences {
     if (settings.servers.length != 1 ||
         !isUserDnsEndpoint(settings.servers.single)) {
       throw const FormatException(
-        'Enter a valid HTTPS DNS URL without credentials or a fragment.',
+        'Enter a valid DNS address without credentials or a fragment.',
       );
     }
     await setDnsSettings(
@@ -645,7 +682,7 @@ class XrayPreferences {
     List<XrayRoutingRule> routingRules = const [],
   }) {
     dnsSettings.validate();
-    if (dpiProfile < 0 || dpiProfile > 4) {
+    if (dpiProfile < 0 || dpiProfile > 6) {
       throw const FormatException('Invalid DPI strategy.');
     }
     if (localProxyPort < 1 || localProxyPort > 65535) {
@@ -677,6 +714,16 @@ class XrayPreferences {
     // Profile readiness must prove that the ByeDPI outbound works even when
     // user split-tunnel rules send ordinary traffic to Direct or Block.
     final rules = <Map<String, dynamic>>[
+      // Reject QUIC (UDP 443) first so clients fall back to TCP at once instead
+      // of waiting on a path the DPI engine does not carry. Other UDP, including
+      // DNS on 53, is left alone: the tunnel's DNS path depends on it and the
+      // exact UDP handling is not verified on-device.
+      {
+        'type': 'field',
+        'network': 'udp',
+        'port': '443',
+        'outboundTag': 'block',
+      },
       {
         'type': 'field',
         'domain': ['full:www.gstatic.com'],
@@ -738,7 +785,7 @@ class XrayPreferences {
       ],
       'outbounds': outbounds,
       'dns': {
-        'servers': dnsSettings.configServers,
+        'servers': dpiDnsServers(dnsSettings.configServers),
         'queryStrategy': dnsSettings.queryStrategy.configValue,
         'disableCache': dnsSettings.disableCache,
         'serveStale': dnsSettings.serveStale,
@@ -753,6 +800,57 @@ class XrayPreferences {
       },
       'routing': {'domainStrategy': 'AsIs', 'rules': rules},
     });
+  }
+
+  static const _dpiDohHostIps = {
+    'cloudflare-dns.com': '1.1.1.1',
+    'dns.google': '8.8.8.8',
+    'dns.quad9.net': '9.9.9.9',
+  };
+
+  static const _dpiFallbackDnsServers = [
+    'https://1.1.1.1/dns-query',
+    'https://8.8.8.8/dns-query',
+    'https://9.9.9.9/dns-query',
+  ];
+
+  /// ByeDPI runs with --no-domain and rejects hostname targets (SOCKS5 REP 8),
+  /// so Xray cannot dial a DNS server by name through that outbound. Every DNS
+  /// server in the DPI config must therefore be an IP:
+  /// - IP literals (with or without scheme, port or path) are kept as-is.
+  /// - Known DoH providers are rewritten to their IP; their certificates cover it.
+  /// - Any other hostname is dropped, including `localhost`, which would make
+  ///   Xray use the system resolver and loop back into the tunnel.
+  /// If nothing remains, [_dpiFallbackDnsServers] is used.
+  static List<dynamic> dpiDnsServers(List<dynamic> servers) {
+    final result = <dynamic>[];
+    for (final server in servers) {
+      if (server is String) {
+        final address = _dpiDnsAddress(server);
+        if (address != null) result.add(address);
+      } else if (server is Map && server['address'] is String) {
+        final address = _dpiDnsAddress(server['address'] as String);
+        if (address != null) result.add({...server, 'address': address});
+      } else {
+        result.add(server);
+      }
+    }
+    return result.isEmpty ? [..._dpiFallbackDnsServers] : result;
+  }
+
+  /// Returns [address] with a resolvable host, or null when it names a host
+  /// that ByeDPI cannot dial and that has no known IP.
+  static String? _dpiDnsAddress(String address) {
+    if (InternetAddress.tryParse(address) != null) return address;
+    final hasScheme = address.contains('://');
+    final uri = Uri.tryParse(hasScheme ? address : 'tcp://$address');
+    final host = uri?.host ?? '';
+    if (InternetAddress.tryParse(host) != null) return address;
+    final ip = _dpiDohHostIps[host];
+    if (ip == null) return null;
+    return hasScheme
+        ? uri!.replace(host: ip).toString()
+        : address.replaceFirst(host, ip);
   }
 
   static Future<void> setBlockedApps(List<String> apps) async {

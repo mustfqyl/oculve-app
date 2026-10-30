@@ -108,8 +108,16 @@ actor InterfaceLookupGate {
     func resume() { continuation?.resume(returning: "en0"); continuation = nil }
 }
 enum TunnelDpiRuntime {
+    struct NetworkIdentity: Equatable {
+        let interfaceName: String
+        let hash: String
+    }
     static let gate = InterfaceLookupGate()
     static func isDpiConfig(_ data: Data) -> Bool { data == Data("dpi-config".utf8) }
+    static func currentNetworkIdentity() async throws -> NetworkIdentity {
+        let name = await gate.lookup()
+        return NetworkIdentity(interfaceName: name, hash: "fixture")
+    }
     static func currentPhysicalInterface() async throws -> String { await gate.lookup() }
 }
 final class TunnelDebugStore {

@@ -21,6 +21,9 @@ extern void clear_params(char *line, char **argv);
 
 enum engine_state { ENGINE_IDLE, ENGINE_STARTING, ENGINE_RUNNING, ENGINE_STOPPING, ENGINE_EXITED };
 
+/* Presets of the profile 4 automatic chain, in their stable order. */
+#define AUTO_PRESET_COUNT 5
+
 static pthread_mutex_t engine_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t engine_changed = PTHREAD_COND_INITIALIZER;
 static pthread_t engine_thread;
@@ -32,6 +35,37 @@ static int local_port = 0;
 static int active_profile = -1;
 static char protect_path[PATH_MAX];
 static char interface_name[64];
+/* Normalized first preset of the automatic chain (0 = built-in order). */
+static int group_first = 0;
+/* Counters indexed by group id; the read side maps them back to presets. */
+static int group_ok[BYEDPI_ENGINE_GROUP_LIMIT];
+static int group_fail[BYEDPI_ENGINE_GROUP_LIMIT];
+static int group_exhausted = 0;
+
+static void note_counter(int *slot) {
+    if (*slot < BYEDPI_ENGINE_STAT_LIMIT) ++*slot;
+}
+
+void byedpi_group_note_ok(int id) {
+    if (id < 0 || id >= BYEDPI_ENGINE_GROUP_LIMIT) return;
+    pthread_mutex_lock(&engine_mutex);
+    note_counter(&group_ok[id]);
+    pthread_mutex_unlock(&engine_mutex);
+}
+
+void byedpi_group_note_fail(int id) {
+    if (id < 0 || id >= BYEDPI_ENGINE_GROUP_LIMIT) return;
+    pthread_mutex_lock(&engine_mutex);
+    note_counter(&group_fail[id]);
+    pthread_mutex_unlock(&engine_mutex);
+}
+
+void byedpi_group_note_exhausted(void) {
+    pthread_mutex_lock(&engine_mutex);
+    note_counter(&group_exhausted);
+    pthread_mutex_unlock(&engine_mutex);
+}
+
 
 static void reset_params(void) {
     memset(&params, 0, sizeof(params));
@@ -80,12 +114,27 @@ static void *run_engine(void *unused) {
     static char disorder_later[] = "3+s";
     static char disorder_first[] = "1+s";
     static char split_later[] = "3+s";
+    static char tlsrec_option[] = "--tlsrec";
+    static char oob_option[] = "--oob";
+    /* Automatic presets in their stable order; each entry is one group's
+     * options. `first_group` only rotates the order they are emitted in, so a
+     * learned preset is tried first while the rest keep their built-in order. */
+    static char *auto_preset_args[AUTO_PRESET_COUNT][4] = {
+        { tlsrec_option, split_first, 0, 0 },
+        { tlsrec_option, split_first, split_option, split_first },
+        { split_option, split_first, 0, 0 },
+        { disorder_option, disorder_first, split_option, split_later },
+        { oob_option, split_first, 0, 0 },
+    };
+    static const int auto_preset_len[AUTO_PRESET_COUNT] = { 2, 4, 2, 4, 2 };
     int result = -1;
 
     reset_params();
     pthread_mutex_lock(&engine_mutex);
     params.engine_stop_requested = engine_stop_requested;
+    int first_preset = group_first;
     pthread_mutex_unlock(&engine_mutex);
+
     params.allow_dynamic_port = true;
     params.engine_mode = true;
     params.engine_ready_callback = report_ready;
@@ -112,6 +161,8 @@ static void *run_engine(void *unused) {
         // Try a low-TTL fake ClientHello before the real one, then retry the same
         // destination with packet strategies after reset/timeout/connect/TLS failure.
         // ByeDPI's cache records the working group, never a generic probe.
+        // Groups run in order: TLS record split first (passes stateless and
+        // record-reassembling SNI filters), then plain split, disorder, and OOB.
         //
         // FAKE_SUPPORT is only defined for __linux__/_WIN32 (params.h): fake
         // packets use vmsplice/splice and do not exist on Apple. Passing
@@ -119,27 +170,21 @@ static void *run_engine(void *unused) {
         // table, and getopt_long resolves it as an ambiguous prefix of
         // --fake-data/--fake-offset/--fake-tls-mod. Apple's profile 4 keeps
         // the same auto-retry groups without the fake ClientHello.
+        // --timeout is not used: it exists only under TIMEOUT_SUPPORT and
+        // applies to every connection; the built-in 5 s response timer already
+        // reports a silently dropped TLS ClientHello as a torst trigger.
 #ifdef FAKE_SUPPORT
         argv[argc++] = fake_option;
         argv[argc++] = fake_position;
         argv[argc++] = ttl_option;
         argv[argc++] = fake_ttl;
 #endif
-        for (int preset = 0; preset < 4; ++preset) {
+        for (int step = 0; step < AUTO_PRESET_COUNT; ++step) {
+            int preset = (first_preset + step) % AUTO_PRESET_COUNT;
             argv[argc++] = auto_option;
             argv[argc++] = triggers;
-            if (preset == 0 || preset == 1) {
-                argv[argc++] = split_option;
-                argv[argc++] = split_first;
-            }
-            if (preset == 1 || preset == 2 || preset == 3) {
-                argv[argc++] = disorder_option;
-                argv[argc++] = preset == 1 ? disorder_later : disorder_first;
-            }
-            if (preset == 3) {
-                argv[argc++] = split_option;
-                argv[argc++] = split_later;
-            }
+            for (int option = 0; option < auto_preset_len[preset]; ++option)
+                argv[argc++] = auto_preset_args[preset][option];
         }
     } else switch (active_profile) {
         case 0:
@@ -161,6 +206,16 @@ static void *run_engine(void *unused) {
             argv[argc++] = disorder_first;
             argv[argc++] = split_option;
             argv[argc++] = split_later;
+            break;
+        case 5:
+            argv[argc++] = tlsrec_option;
+            argv[argc++] = split_first;
+            break;
+        case 6:
+            argv[argc++] = tlsrec_option;
+            argv[argc++] = split_first;
+            argv[argc++] = split_option;
+            argv[argc++] = split_first;
             break;
         default:
             goto finished;
@@ -191,7 +246,13 @@ static void deadline_after_seconds(struct timespec *deadline, int seconds) {
 }
 
 int byedpi_engine_start(int profile, const char *protect, const char *iface) {
-    if (profile < 0 || profile > 4) return 0;
+    return byedpi_engine_start_grouped(profile, -1, protect, iface);
+}
+
+int byedpi_engine_start_grouped(int profile, int first_group,
+                                const char *protect, const char *iface) {
+    if (profile < 0 || profile > 6) return 0;
+    if (first_group < 0 || first_group >= AUTO_PRESET_COUNT) first_group = 0;
     pthread_mutex_lock(&engine_mutex);
     int reap = state == ENGINE_EXITED && thread_finished;
     pthread_mutex_unlock(&engine_mutex);
@@ -211,6 +272,10 @@ int byedpi_engine_start(int profile, const char *protect, const char *iface) {
     if (protect) memcpy(protect_path, protect, strlen(protect) + 1);
     if (iface) memcpy(interface_name, iface, strlen(iface) + 1);
     active_profile = profile;
+    group_first = first_group;
+    memset(group_ok, 0, sizeof(group_ok));
+    memset(group_fail, 0, sizeof(group_fail));
+    group_exhausted = 0;
     local_port = 0;
     thread_finished = 0;
     engine_result = -1;
@@ -284,3 +349,33 @@ int byedpi_engine_profile(void) {
     pthread_mutex_unlock(&engine_mutex);
     return profile;
 }
+
+int byedpi_engine_group_stats(int *ok_counts, int *fail_counts, int capacity) {
+    if (!ok_counts || !fail_counts || capacity <= 0) return 0;
+    int written = 0;
+    pthread_mutex_lock(&engine_mutex);
+    if (state != ENGINE_IDLE && active_profile >= 0) {
+        int groups = active_profile == 4 ? AUTO_PRESET_COUNT : 1;
+        if (groups > capacity) groups = capacity;
+        for (int index = 0; index < groups; ++index) {
+            // Ids are stable preset indices (1..5), so a reader can name the
+            // same preset again as `first_group` no matter how this run was
+            // rotated. Id 0 is the desync-free base group of a pinned profile.
+            int id = active_profile == 4 ? 1 + index : 0;
+            if (id >= BYEDPI_ENGINE_GROUP_LIMIT) continue;
+            ok_counts[written] = group_ok[id];
+            fail_counts[written] = group_fail[id];
+            ++written;
+        }
+    }
+    pthread_mutex_unlock(&engine_mutex);
+    return written;
+}
+
+int byedpi_engine_exhausted(void) {
+    pthread_mutex_lock(&engine_mutex);
+    int exhausted = state == ENGINE_IDLE ? 0 : group_exhausted;
+    pthread_mutex_unlock(&engine_mutex);
+    return exhausted;
+}
+

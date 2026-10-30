@@ -209,6 +209,16 @@ class VlessMethodChannelAdapter extends VlessPlatform {
   }
 
   @override
+  Future<String?> getTunnelStatus() async {
+    try {
+      return await methodChannel.invokeMethod<String>('getTunnelStatus');
+    } on MissingPluginException {
+      // Native backends that predate this query cannot report a tunnel.
+      return null;
+    }
+  }
+
+  @override
   Future<String> getCoreVersion() async {
     return await methodChannel.invokeMethod('getCoreVersion');
   }

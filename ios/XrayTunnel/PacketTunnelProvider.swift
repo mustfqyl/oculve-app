@@ -93,6 +93,14 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     private var lastTrafficLogDate: Date = .distantPast
     private var hevLogURL: URL?
     private var watchdogTimer: DispatchSourceTimer?
+    /// Fast detection, both on the watchdog queue. The periodic check above runs
+    /// once a minute; these make a dead server noticeable to the tunnel within
+    /// seconds instead (see TunnelStallDetector).
+    private var stallTimer: DispatchSourceTimer?
+    private var livenessTimer: DispatchSourceTimer?
+    private var stallDetector = TunnelStallDetector()
+    private var endpointLiveness = EndpointLiveness()
+    private var lastStallCheck: Date?
     private var pathMonitor: NWPathMonitor?
     private var watchdogPolicy = TunnelWatchdogFailurePolicy(failureThreshold: 3)
     private var watchdogSuspended = false
@@ -108,6 +116,8 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     private var runtimeSpec: RuntimeSpec?
     private var runtimeRecoveryInFlight = false
     // Accessed only on runtimeQueue.
+    private var strategyLearner: DpiStrategyLearner?
+    // Accessed only on runtimeQueue.
     private var hasStartedHEV = false
     private var hevStopSignal: DispatchGroup?
 
@@ -118,7 +128,30 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         let credentials: LocalProxyCredentials
         let dpiBypass: Bool
         var physicalInterfaceName: String?
+        /// Opaque hash of the physical path; the raw gateway is never stored.
+        var networkHash: String?
+
+        func replacingConfig(_ config: Data) -> RuntimeSpec {
+            RuntimeSpec(config: config, port: port, geoAssetsDirectory: geoAssetsDirectory,
+                credentials: credentials, dpiBypass: dpiBypass,
+                physicalInterfaceName: physicalInterfaceName, networkHash: networkHash)
+        }
     }
+
+    /// The server's usable addresses, best first. The first is the one pinned in
+    /// the running config; the rest are what the tunnel can fail over to. All of
+    /// them have a route exclusion, so switching never touches the routes.
+    private struct EndpointRotation {
+        let host: String
+        let port: Int
+        var order: [String]
+        var lastRotation: Date?
+    }
+    private let endpointLock = NSLock()
+    private var endpointRotation: EndpointRotation?
+    /// Do not hop between addresses faster than this: a flapping server must
+    /// not make the tunnel restart in a loop.
+    private let endpointRotationCooldown: TimeInterval = 30
 
     private func setForwardingReady(_ ready: Bool) {
         forwardingLock.lock()
@@ -160,12 +193,12 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         // interface discovery must remain cancelled when discovery completes.
         beginStartup()
         let dpiBypass = TunnelDpiRuntime.isDpiConfig(config)
-        let dpiInterfaceName: String?
+        let dpiIdentity: TunnelDpiRuntime.NetworkIdentity?
         if dpiBypass {
-            do { dpiInterfaceName = try await TunnelDpiRuntime.currentPhysicalInterface() }
+            do { dpiIdentity = try await TunnelDpiRuntime.currentNetworkIdentity() }
             catch { throw tunnelError("Unable to identify the physical network interface for DPI Bypass") }
         } else {
-            dpiInterfaceName = nil
+            dpiIdentity = nil
         }
         guard !isStartupStopped() else { throw CancellationError() }
         TunnelDebugStore.shared.configure(groupIdentifier: providerConfiguration["groupIdentifier"] as? String)
@@ -177,9 +210,12 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         // failing preparation made the system relaunch the extension in a tight
         // loop and hold the network hostage on repeated failed starts.
         let credentials = try LocalProxyCredentials.generate()
+        let serverHost = TunnelXrayConfigPreparer.parseConfig(jsonData: config)?.serverAddress
+        let serverPort = serverHost.flatMap { TunnelEndpointCandidates.endpointPort(configJSON: config, host: $0) }
+        clearEndpointRotation()
         let preparation = Task {
             try await TunnelXrayConfigPreparer.prepareForStartup(jsonData: config, credentials: credentials,
-                resolveIPv4: { resolveIPv4Addresses(for: $0).first })
+                resolveIPv4: { self.selectEndpoint(for: $0, serverHost: serverHost, port: serverPort) })
         }
         setStartupPreparation(preparation)
         defer { setStartupPreparation(nil) }
@@ -194,7 +230,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
               TunnelDNSPolicy.allowsRouteExclusions(prepared.bootstrapAddresses.map { "\($0)/32" }) else {
             throw tunnelError("Tunnel preparation cancelled or incompatible")
         }
-        let addresses = prepared.bootstrapAddresses
+        let addresses = withFailoverExclusions(prepared.bootstrapAddresses)
 
         let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: "254.1.1.1")
         settings.mtu = NSNumber(value: tunnelMTU)
@@ -232,7 +268,8 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
 
         runtimeSpec = RuntimeSpec(config: prepared.data, port: parsed.inboundPort,
             geoAssetsDirectory: providerConfiguration["geoAssetsDirectory"] as? String, credentials: credentials,
-            dpiBypass: dpiBypass, physicalInterfaceName: dpiInterfaceName)
+            dpiBypass: dpiBypass, physicalInterfaceName: dpiIdentity?.interfaceName,
+            networkHash: dpiIdentity?.hash)
         startTunnelWatchdog(port: runtimeSpec?.port)
         // NE connected only means the routes are installed. The plugin
         // queries forwarding readiness before publishing CONNECTED.
@@ -303,8 +340,20 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         guard let selected = TunnelDpiRuntime.selectedProfile(data: spec.config) else {
             throw tunnelError("Invalid DPI strategy")
         }
-        for profile in [selected] {
-            let localProxyPort = TunnelDpiRuntime.start(profile: profile, interfaceName: interfaceName)
+        let identity = TunnelDpiRuntime.NetworkIdentity(
+            interfaceName: interfaceName, hash: spec.networkHash ?? "")
+        // Pinned profiles give one attempt; automatic walks the ladder. No new
+        // attempt starts after the deadline; a running probe finishes on its own
+        // timeouts (about 14 s worst case per attempt).
+        let deadline = Date().addingTimeInterval(20)
+        let learned = TunnelDpiRuntime.learnedProfile(identity: identity)
+        let learnedGroup = TunnelDpiRuntime.learnedGroup(identity: identity)
+        for (attempt, profile) in TunnelDpiRuntime.profileCandidates(
+                selected: selected, identity: identity).enumerated() {
+            guard Date() < deadline else { break }
+            let firstGroup = profile == TunnelDpiRuntime.automaticProfile ? learnedGroup : nil
+            let localProxyPort = TunnelDpiRuntime.start(
+                profile: profile, firstGroup: firstGroup, interfaceName: interfaceName)
             guard (1...65535).contains(localProxyPort),
                   let config = TunnelDpiRuntime.config(data: spec.config, localProxyPort: localProxyPort,
                     interfaceName: interfaceName) else {
@@ -314,17 +363,56 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             do {
                 try startXRay(xrayConfig: config, geoAssetsDirectory: spec.geoAssetsDirectory)
                 try startSocks5Tunnel(serverPort: spec.port, credentials: spec.credentials)
-                if TunnelDpiRuntime.isRunning(),
-                   LocalProxyDelayClient.checkConnectivity(port: spec.port, credentials: spec.credentials) {
-                    rememberTunnelLog("Automatic DPI strategy passed authenticated HTTPS connectivity")
-                    return
+                if TunnelDpiRuntime.isRunning() {
+                    if attempt == 0, learned == profile {
+                        // A strategy learned from real traffic must not hold the
+                        // connection open; the probe verifies it in the background.
+                        startStrategyLearner(profile: profile, identity: identity)
+                        verifyLearnedStrategy(identity: identity)
+                        rememberTunnelLog("Learned DPI strategy started; verifying in the background")
+                        return
+                    }
+                    if LocalProxyDelayClient.checkConnectivity(port: spec.port, credentials: spec.credentials) {
+                        // One HTTPS probe proves reachability, not that the strategy
+                        // carries the user's traffic; only response counters persist it.
+                        startStrategyLearner(profile: profile, identity: identity)
+                        rememberTunnelLog("Automatic DPI strategy passed authenticated HTTPS connectivity")
+                        return
+                    }
                 }
             } catch {
                 // Profile details and probe destinations stay out of diagnostics.
             }
+            // Only a failed preferred strategy is dropped; a pinned or later
+            // attempt must not erase what real traffic already taught us.
+            if profile == learned { TunnelDpiRuntime.invalidate(identity: identity) }
             _ = stopNativeRuntime()
         }
         throw tunnelError("DPI Bypass could not establish verified Internet connectivity")
+    }
+
+    /// The learned strategy started without waiting for a probe. A failed
+    /// background probe drops it so the next recovery walks the full ladder.
+    private func verifyLearnedStrategy(identity: TunnelDpiRuntime.NetworkIdentity) {
+        runtimeQueue.asyncAfter(deadline: .now() + 2) { [weak self] in
+            guard let self, !self.isStartupStopped(), let spec = self.runtimeSpec,
+                  spec.dpiBypass else { return }
+            if LocalProxyDelayClient.checkConnectivity(port: spec.port, credentials: spec.credentials) {
+                rememberTunnelLog("Learned DPI strategy passed background verification")
+                return
+            }
+            TunnelDpiRuntime.invalidate(identity: identity)
+            rememberTunnelLog("Learned DPI strategy failed verification; falling back to the ordered scan")
+            self.watchdogQueue.async { self.scheduleNativeRecovery(after: 0) }
+        }
+    }
+
+    /// Runs on runtimeQueue.
+    private func startStrategyLearner(profile: Int, identity: TunnelDpiRuntime.NetworkIdentity) {
+        strategyLearner?.stop()
+        let learner = DpiStrategyLearner(identity: identity, profile: profile, queue: runtimeQueue)
+        learner.start()
+        strategyLearner = learner
     }
 
     /// Runs on runtimeQueue. A blocked native quit must not stall NE teardown.
@@ -339,6 +427,8 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             }
         }
         stopXRay()
+        strategyLearner?.stop()
+        strategyLearner = nil
         stopped = TunnelDpiRuntime.stop() && stopped
         if !stopped { rememberTunnelLog("Native shutdown pending; protected traffic remains blocked") }
         return stopped
@@ -415,8 +505,11 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             throw tunnelError("Protected switch preparation failed")
         }
         rememberTunnelLog("Protected switch preparation succeeded")
+        // The new server is pinned to one address here, so the previous
+        // server's failover list must not be applied to it.
+        clearEndpointRotation()
         let dpiBypass = TunnelDpiRuntime.isDpiConfig(candidate)
-        let interfaceName = dpiBypass ? try await TunnelDpiRuntime.currentPhysicalInterface() : nil
+        let dpiIdentity = dpiBypass ? try await TunnelDpiRuntime.currentNetworkIdentity() : nil
         // Retire workers, never the NetworkExtension session or virtual DNS.
         stopTunnelWatchdog()
         setForwardingReady(false)
@@ -447,7 +540,8 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         guard !isStartupStopped() else { throw CancellationError() }
         runtimeSpec = RuntimeSpec(config: prepared.data, port: parsed.inboundPort,
             geoAssetsDirectory: metadata["geoAssetsDirectory"] as? String, credentials: credentials,
-            dpiBypass: dpiBypass, physicalInterfaceName: interfaceName)
+            dpiBypass: dpiBypass, physicalInterfaceName: dpiIdentity?.interfaceName,
+            networkHash: dpiIdentity?.hash)
         startTunnelWatchdog(port: parsed.inboundPort)
         rememberTunnelLog("Server replaced inside protected tunnel")
         watchdogQueue.async { self.scheduleNativeRecovery(after: 0) }
@@ -693,6 +787,22 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             watchdogTimer = timer
             timer.resume()
 
+            stallDetector.reset()
+            endpointLiveness.reset()
+            lastStallCheck = nil
+            stallTimer?.cancel()
+            let stall = DispatchSource.makeTimerSource(queue: watchdogQueue)
+            stall.schedule(deadline: .now() + 4, repeating: 2, leeway: .milliseconds(500))
+            stall.setEventHandler { [weak self] in self?.pollTrafficStall() }
+            stallTimer = stall
+            stall.resume()
+            livenessTimer?.cancel()
+            let liveness = DispatchSource.makeTimerSource(queue: watchdogQueue)
+            liveness.schedule(deadline: .now() + 10, repeating: 10, leeway: .seconds(1))
+            liveness.setEventHandler { [weak self] in self?.pollEndpointLiveness() }
+            livenessTimer = liveness
+            liveness.resume()
+
             pathMonitor?.cancel()
             let monitor = NWPathMonitor()
             monitor.pathUpdateHandler = { [weak self] path in
@@ -700,9 +810,10 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 rememberTunnelLog("Network path changed status=\(String(describing: path.status))")
                 if path.status == .satisfied {
                     if var spec = self.runtimeSpec, spec.dpiBypass,
-                       let interfaceName = TunnelDpiRuntime.interfaceName(in: path),
-                       interfaceName != spec.physicalInterfaceName {
-                        spec.physicalInterfaceName = interfaceName
+                       let identity = TunnelDpiRuntime.networkIdentity(in: path),
+                       identity.interfaceName != spec.physicalInterfaceName || identity.hash != spec.networkHash {
+                        spec.physicalInterfaceName = identity.interfaceName
+                        spec.networkHash = identity.hash
                         self.runtimeSpec = spec
                         rememberTunnelLog("Physical interface changed; restarting automatic DPI selection")
                         self.scheduleNativeRecovery(after: 0)
@@ -726,6 +837,10 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             watchdogPolicy.reset()
             watchdogTimer?.cancel()
             watchdogTimer = nil
+            stallTimer?.cancel()
+            stallTimer = nil
+            livenessTimer?.cancel()
+            livenessTimer = nil
             pathMonitor?.cancel()
             pathMonitor = nil
             watchdogInboundPort = nil
@@ -807,7 +922,13 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             scheduleRecoveryCheck()
         }
 
-        if watchdogPolicy.record(success: success) {
+        let terminal = watchdogPolicy.record(success: success)
+        // A pinned address that refuses connections is evidence on its own, so
+        // there is no need to wait for a second failed check to move on.
+        if !success, rotateEndpointIfNeeded() {
+            return false
+        }
+        if terminal {
             reportTerminalFailure(
                 "Tunnel watchdog failed \(watchdogPolicy.consecutiveFailures) consecutive checks",
                 code: 2
@@ -911,6 +1032,128 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             return 0
         }
         return size.uint64Value
+    }
+
+    private func clearEndpointRotation() {
+        endpointLock.lock()
+        endpointRotation = nil
+        endpointLock.unlock()
+    }
+
+    /// Resolves the server's name to every usable address and pins the first
+    /// one that accepts a TCP connection, so one dead address out of several
+    /// does not take the connection down. Anything else (the DoH host, a
+    /// literal) is resolved the plain way. Addresses are never logged.
+    private func selectEndpoint(for host: String, serverHost: String?, port: Int?) -> String? {
+        let resolved = resolveIPv4Addresses(for: host)
+        guard let serverHost, let port, !isIPv4Literal(host),
+              host.lowercased() == serverHost.lowercased() else { return resolved.first }
+        let candidates = TunnelEndpointCandidates.filter(resolved)
+        guard candidates.count > 1 else { return candidates.first ?? resolved.first }
+        let reachable = TunnelEndpointCandidates.firstReachable(
+            candidates, port: port, connect: TunnelEndpointCandidates.tcpConnect)
+        let chosen = reachable ?? candidates[0]
+        var order = candidates
+        order.removeAll { $0 == chosen }
+        order.insert(chosen, at: 0)
+        endpointLock.lock()
+        endpointRotation = EndpointRotation(host: serverHost, port: port, order: order, lastRotation: nil)
+        endpointLock.unlock()
+        rememberTunnelLog("Server has \(candidates.count) addresses; \(reachable == nil ? "none answered, using the first" : "pinned one that answers")")
+        return chosen
+    }
+
+    /// The route exclusions for the pinned address plus every failover address,
+    /// so a switch between them never needs new routes (and never opens a
+    /// window in which traffic could bypass the tunnel). Falls back to the
+    /// pinned address alone if any extra would be refused.
+    private func withFailoverExclusions(_ pinned: [String]) -> [String] {
+        endpointLock.lock()
+        let extra = endpointRotation?.order ?? []
+        endpointLock.unlock()
+        let merged = pinned + extra.filter { !pinned.contains($0) }
+        guard merged.count > pinned.count else { return pinned }
+        if TunnelDNSPolicy.allowsRouteExclusions(merged.map { "\($0)/32" }) { return merged }
+        endpointLock.lock()
+        if var rotation = endpointRotation {
+            rotation.order = rotation.order.filter { pinned.contains($0) }
+            endpointRotation = rotation.order.count > 1 ? rotation : nil
+        }
+        endpointLock.unlock()
+        return pinned
+    }
+
+    /// Runs on the watchdog queue every few seconds. When the device keeps
+    /// sending and nothing comes back, the tunnel is checked at once rather
+    /// than at the next minute mark. An idle phone is never checked here.
+    private func pollTrafficStall() {
+        guard !watchdogSuspended, !runtimeRecoveryInFlight, hevLifecycle.isRunning else {
+            stallDetector.reset()
+            return
+        }
+        let stats = Socks5Tunnel.stats
+        guard stallDetector.record(now: Date(),
+            up: UInt64(truncatingIfNeeded: stats.up.packets),
+            down: UInt64(truncatingIfNeeded: stats.down.packets)) else { return }
+        if let last = lastStallCheck, Date().timeIntervalSince(last) < 10 { return }
+        lastStallCheck = Date()
+        rememberTunnelLog("Traffic stalled while in use; checking the tunnel now")
+        performTunnelHealthCheck(trigger: "stall")
+    }
+
+    /// Runs on the watchdog queue every ten seconds, only for a server that has
+    /// other addresses to fall back to: a light TCP connect to the pinned one.
+    /// Two failures in a row move the tunnel on, so a server that died while the
+    /// phone was idle is already replaced when the person next opens a page.
+    private func pollEndpointLiveness() {
+        guard !watchdogSuspended, !runtimeRecoveryInFlight else { return }
+        endpointLock.lock()
+        let current = endpointRotation
+        endpointLock.unlock()
+        guard let state = current, state.order.count > 1, let pinned = state.order.first else {
+            endpointLiveness.reset()
+            return
+        }
+        let alive = TunnelEndpointCandidates.tcpConnect(address: pinned, port: state.port, timeout: 2)
+        guard endpointLiveness.record(alive: alive) else { return }
+        rememberTunnelLog("Pinned server address stopped answering; looking for another")
+        if rotateEndpointIfNeeded() { endpointLiveness.reset() }
+    }
+
+    /// Runs on the watchdog queue after a failed health check or failed liveness
+    /// checks. Moves the tunnel to another of the server's addresses, but only
+    /// when the pinned one really refuses connections while another answers: a
+    /// general outage (no address answers) or a different fault (the pinned one
+    /// still answers) must not make the tunnel hop around, and the cooldown
+    /// stops a flapping server from restarting it in a loop. Returns whether it
+    /// switched.
+    @discardableResult
+    private func rotateEndpointIfNeeded() -> Bool {
+        guard let spec = runtimeSpec else { return false }
+        endpointLock.lock()
+        let current = endpointRotation
+        endpointLock.unlock()
+        guard var state = current, state.order.count > 1, let pinned = state.order.first else { return false }
+        if let last = state.lastRotation, Date().timeIntervalSince(last) < endpointRotationCooldown { return false }
+        guard !TunnelEndpointCandidates.tcpConnect(address: pinned, port: state.port, timeout: 1) else { return false }
+        guard let next = TunnelEndpointCandidates.firstReachable(
+                Array(state.order.dropFirst()), port: state.port, connect: TunnelEndpointCandidates.tcpConnect),
+              let rebound = TunnelEndpointCandidates.rebind(configJSON: spec.config, host: state.host, address: next)
+        else { return false }
+        var order = state.order
+        order.removeAll { $0 == next }
+        order.insert(next, at: 0)
+        order = TunnelEndpointCandidates.demoting(pinned, in: order)
+        state.order = order
+        state.lastRotation = Date()
+        endpointLock.lock()
+        endpointRotation = state
+        endpointLock.unlock()
+        runtimeSpec = spec.replacingConfig(rebound)
+        watchdogPolicy.reset()
+        rememberTunnelLog("Server address stopped answering; switched to another of \(order.count)")
+        scheduleNativeRecovery(after: 0)
+        return true
     }
 
     private func resolveIPv4Addresses(for host: String) -> [String] {

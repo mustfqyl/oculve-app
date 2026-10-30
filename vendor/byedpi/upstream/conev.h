@@ -90,6 +90,9 @@ struct eval {
     int detect;
     bool mark; //
     bool waiting_for_response;
+    /* Set once the first byte arrives from the destination on this attempt;
+     * used only to count one success per connection. */
+    bool response_seen;
     int to_count; 
     
     int tls_rec_size;

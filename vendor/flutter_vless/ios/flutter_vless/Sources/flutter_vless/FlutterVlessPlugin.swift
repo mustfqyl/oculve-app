@@ -430,6 +430,28 @@ public class FlutterVlessPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
         }
     }
 
+    /// Reads provider readiness right after the OS reports connected instead of
+    /// waiting for the next one-second poll tick.
+    ///
+    /// The forwardingReady gate is unchanged: CONNECTED still requires the
+    /// provider's "ready" answer, so this only removes the polling delay.
+    private func refreshReadinessSoon(attempt: Int = 0) {
+        Task { @MainActor in
+            guard let manager = self.packetTunnelManager,
+                  manager.status == .connected else { return }
+            await manager.refreshForwardingState()
+            guard self.packetTunnelManager?.status == .connected else { return }
+            self.emitStatus(
+                duration: self.currentDurationSeconds(),
+                state: self.currentRuntimeState(),
+                reason: "provider-readiness-quick"
+            )
+            guard self.currentRuntimeState() != "CONNECTED", attempt < 3 else { return }
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            self.refreshReadinessSoon(attempt: attempt + 1)
+        }
+    }
+
     private func currentRuntimeState() -> String {
         if proxyOnlyRunner.isRunning {
             return "CONNECTED"
@@ -475,6 +497,8 @@ public class FlutterVlessPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
             stopVless(result: result)
         case "getCoreVersion":
             getCoreVersion(result: result)
+        case "getTunnelStatus":
+            getTunnelStatus(result: result)
         case "getConnectedServerDelay":
             getConnectedServerDelay(call: call, result: result)
         case "getServerDelay":
@@ -659,6 +683,27 @@ public class FlutterVlessPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
         }
     }
 
+    /// Answers an explicit startup query with the tunnel state native observes.
+    ///
+    /// Read-only: it waits for the first preference load and never starts or
+    /// stops a session. Dart uses it to adopt a tunnel left running by an
+    /// earlier app session, which a status event alone cannot prove.
+    private func getTunnelStatus(result: @escaping FlutterResult) {
+        Task {
+            guard let manager = self.packetTunnelManager else {
+                result("DISCONNECTED")
+                return
+            }
+            await manager.waitForInitialLoad()
+            if manager.status == .connected {
+                // The forwardingReady gate is unchanged; asking now only avoids
+                // showing CONNECTING until the next one-second poll.
+                await manager.refreshForwardingState()
+            }
+            result(self.currentRuntimeState())
+        }
+    }
+
     private func initializeVless(call: FlutterMethodCall, result: @escaping FlutterResult) {
         guard let arguments = call.arguments as? [String: Any],
               let providerBundleIdentifier = arguments["providerBundleIdentifier"] as? String,
@@ -676,6 +721,7 @@ public class FlutterVlessPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
             switch status {
             case .connecting, .connected, .reasserting, .disconnecting:
                 self.startTimer(reason: "vpn-status-\(status?.rawValue ?? -1)")
+                if status == .connected { self.refreshReadinessSoon() }
             case .disconnected, .invalid:
                 if self.packetTunnelManager?.isRecoveryEnabled == true {
                     self.startTimer(reason: "vpn-recovery")
@@ -737,6 +783,10 @@ final class PacketTunnelManager: ObservableObject {
 
     private var cancellables: Set<AnyCancellable> = []
 
+    /// First preference load. Startup status queries wait for it so they do not
+    /// report DISCONNECTED while the manager is still loading.
+    private var initialLoad: Task<Void, Never>?
+
     @Published private var manager: NETunnelProviderManager?
 
     @Published private(set) var isProcessing: Bool = false
@@ -761,12 +811,17 @@ final class PacketTunnelManager: ObservableObject {
         self.keychainAccessGroup = keychainAccessGroup
         self.keychainClient = keychainClient
         isProcessing = true
-        Task(priority: .userInitiated) {
+        initialLoad = Task(priority: .userInitiated) {
             await self.reload()
             await MainActor.run {
                 self.isProcessing = false
             }
         }
+    }
+
+    /// Waits for the first preference load so `status` reflects the live tunnel.
+    func waitForInitialLoad() async {
+        await initialLoad?.value
     }
 
 

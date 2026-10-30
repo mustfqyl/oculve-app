@@ -95,7 +95,7 @@ BEGIN
             VALUE "InternalName", "Oculve" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 Oculve. All rights reserved." "\0"
             VALUE "OriginalFilename", "oculve.exe" "\0"
-            VALUE "ProductName", "Oculve" "\0"
+            VALUE "ProductName", "oculve" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

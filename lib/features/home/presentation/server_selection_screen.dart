@@ -9,7 +9,8 @@ import 'package:oculve/core/models/vpn_state.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:oculve/core/theme/app_theme.dart';
 import 'package:oculve/core/widgets/app_page.dart';
-import 'package:oculve/core/widgets/app_feedback.dart';
+import 'package:oculve/core/widgets/inline_feedback.dart';
+import 'package:oculve/core/vpn/connected_latency.dart';
 import 'package:oculve/core/vpn/server_latency.dart';
 import 'package:oculve/core/vpn/profile.dart';
 import 'widgets/country_icon.dart';
@@ -29,6 +30,7 @@ class ServerSelectionScreen extends ConsumerStatefulWidget {
 
 class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
   ServerSort _sort = ServerSort.latency;
+  final _error = InlineErrorController();
 
   @override
   void initState() {
@@ -39,12 +41,10 @@ class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
         await ref.read(sessionProvider.notifier).refresh();
       } catch (error) {
         if (mounted) {
-          AppFeedback.showError(
-            context,
+          _error.show(
             error,
             fallback:
                 'Could not refresh servers. Showing the last saved locations.',
-            placement: AppFeedbackPlacement.pageTop,
           );
         }
       }
@@ -54,6 +54,12 @@ class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
         ref.invalidate(serverLatencyProvider(profile.id));
       }
     });
+  }
+
+  @override
+  void dispose() {
+    _error.dispose();
+    super.dispose();
   }
 
   @override
@@ -112,6 +118,15 @@ class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
         });
       }
     }
+    final vpnState = ref.watch(vpnProvider);
+    final connectedProfileId = vpnState != VpnState.connected
+        ? null
+        : selected == optimalServerId
+        ? ref.watch(optimalServerProfileProvider)
+        : selected;
+    final liveDelay = connectedProfileId == null
+        ? null
+        : ref.watch(connectedLatencyProvider);
     final serverRows = ListView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
@@ -153,7 +168,13 @@ class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                trailing: LatencyLabel(latency: latencies[profile.id]!),
+                trailing: LatencyLabel(
+                  // The connected server shows its real delay through the
+                  // tunnel; it is not used for sorting or for Optimal.
+                  latency: profile.id == connectedProfileId && liveDelay != null
+                      ? AsyncValue.data(liveDelay)
+                      : latencies[profile.id]!,
+                ),
                 enabled: enabled,
                 onTap: () {
                   unawaited(
@@ -169,6 +190,7 @@ class _ServerSelectionScreenState extends ConsumerState<ServerSelectionScreen> {
     );
     return AppPage(
       title: context.tr('Locations'),
+      feedback: _error,
       action: IconButton(
         key: const ValueKey('server-sort-toggle'),
         tooltip: sortHint,

@@ -11,6 +11,7 @@ import '../models/vpn_state.dart';
 import '../models/user_facing_failure.dart';
 import '../vpn/xray_preferences.dart';
 import '../vpn/server_latency.dart';
+import '../connection/server_selection_store.dart';
 import '../vpn/profile.dart';
 import '../../features/auth/data/auth_repository.dart';
 
@@ -23,6 +24,13 @@ final vpnErrorProvider = StateProvider<String?>((ref) => null);
 /// True until the native tunnel has confirmed that it stopped. Direct TCP
 /// measurements must not accidentally run through an active VPN route.
 final vpnTunnelMayBeActiveProvider = StateProvider<bool>((ref) => false);
+
+/// True when the app adopted a tunnel that was already running before this app
+/// session asked for one (relaunch, logout or session expiry while connected).
+///
+/// The tunnel is shown and can be stopped, but no reconnect or replacement is
+/// scheduled for it because the user expressed no intent in this session.
+final vpnTunnelAdoptedProvider = StateProvider<bool>((ref) => false);
 final trafficProvider = StateProvider<VlessStatus?>((ref) => null);
 final vpnProvider = StateNotifierProvider<VpnNotifier, VpnState>(
   (ref) => VpnNotifier(ref),
@@ -48,6 +56,8 @@ class VpnNotifier extends StateNotifier<VpnState> {
   bool _requested = false;
   bool _runtimeErrorHandled = false;
   bool _wanted = false;
+  bool _adopted = false;
+  bool _restored = false;
   Timer? _retry;
   int _retryCount = 0;
   int _lanAttempt = 0;
@@ -111,6 +121,7 @@ class VpnNotifier extends StateNotifier<VpnState> {
     }
     if (!_requested &&
         !_wanted &&
+        !_adopted &&
         [
           VlessConnectionState.connected,
           VlessConnectionState.connecting,
@@ -144,6 +155,14 @@ class VpnNotifier extends StateNotifier<VpnState> {
     }
     if (next == VpnState.disconnected && _requested) {
       _requested = false;
+      if (_adopted) {
+        // The adopted tunnel ended on its own. This session never asked for
+        // it, so there is nothing to reconnect and no failure to report.
+        _clearAdopted();
+        _record('adopted tunnel ended');
+        state = VpnState.disconnected;
+        return;
+      }
       _fail('VPN disconnected. Reconnect to protect your traffic.');
       _scheduleReconnect();
       return;
@@ -168,6 +187,80 @@ class VpnNotifier extends StateNotifier<VpnState> {
       groupIdentifier: 'group.com.oculve.app',
     );
     _initialized = true;
+  }
+
+  /// Adopts a tunnel that was still running before this app session started.
+  ///
+  /// Leaving the app does not stop the tunnel, so the UI must show it after a
+  /// relaunch. A status event cannot prove this by itself: the same CONNECTED
+  /// event can arrive late after a deliberate Disconnect. Only this explicit
+  /// native query marks the tunnel as adopted, and an adopted tunnel is never
+  /// reconnected automatically because no user intent exists in this session.
+  Future<void> restoreTunnel() async {
+    if (_restored) return;
+    _restored = true;
+    if (_wanted || _requested || _busy) return;
+    try {
+      await initialize();
+      if (!mounted || _wanted || _requested) return;
+      // A native backend that never answers must not hold up the UI.
+      final raw = await _engine.getTunnelStatus().timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => null,
+      );
+      if (!mounted || _wanted || _requested) return;
+      final observed = VlessConnectionState.parse(raw);
+      if (observed != VlessConnectionState.connected &&
+          observed != VlessConnectionState.connecting) {
+        return;
+      }
+      _adopted = true;
+      await _restoreOptimalChoice();
+      if (!mounted) return;
+      ref.read(vpnTunnelAdoptedProvider.notifier).state = true;
+      ref.read(vpnTunnelMayBeActiveProvider.notifier).state = true;
+      _record('adopted existing tunnel ${observed.wireName}');
+      _onStatus(VlessStatus(state: observed.wireName));
+      if (observed == VlessConnectionState.connecting) {
+        // Native reports CONNECTING until its readiness probe answers. Confirm
+        // once so a missed status event cannot leave the UI on "connecting".
+        Timer(const Duration(seconds: 2), () async {
+          if (!mounted || !_adopted) return;
+          try {
+            final later = VlessConnectionState.parse(
+              await _engine.getTunnelStatus(),
+            );
+            if (!mounted || !_adopted || later == observed) return;
+            _onStatus(VlessStatus(state: later.wireName));
+          } catch (_) {
+            // Keep the state native already reported.
+          }
+        });
+      }
+    } catch (_) {
+      // A backend without the query keeps the plain disconnected start.
+    }
+  }
+
+  /// With Optimal selected, the live tunnel runs on the server Optimal picked
+  /// back then; show that one instead of re-guessing from fresh pings.
+  Future<void> _restoreOptimalChoice() async {
+    try {
+      if (ref.read(selectedServerProvider) != optimalServerId) return;
+      final saved = await ServerSelectionStore.readOptimal();
+      if (!mounted || saved == null) return;
+      if (ref.read(optimalServerProfileProvider) == null) {
+        ref.read(optimalServerProfileProvider.notifier).state = saved;
+      }
+    } catch (_) {
+      // Showing a guess is better than failing to adopt the tunnel.
+    }
+  }
+
+  void _clearAdopted() {
+    if (!_adopted) return;
+    _adopted = false;
+    if (mounted) ref.read(vpnTunnelAdoptedProvider.notifier).state = false;
   }
 
   /// Shared by the locations page and desktop tray. A switch never calls stop.
@@ -220,16 +313,32 @@ class VpnNotifier extends StateNotifier<VpnState> {
       }
       VpnProfile? profile;
       if (!dpiBypass) {
-        // Revalidate account status without downloading the subscription again.
+        // Revalidate account status without downloading the subscription again,
+        // and select the endpoint at the same time: the profiles are already
+        // known, so the latency probe does not have to wait for /api/user/me.
         // DPI Bypass is client-side and does not depend on a selected Oculve node.
+        final knownProfiles =
+            ref.read(sessionProvider).valueOrNull?.profiles ??
+            const <VpnProfile>[];
         final refreshTimer = Stopwatch()..start();
-        try {
-          await ref.read(sessionProvider.notifier).refreshAccount();
-        } finally {
-          _record(
-            'account refresh finished in ${refreshTimer.elapsedMilliseconds}ms',
-          );
-        }
+        final selectionTimer = Stopwatch()..start();
+        final refresh = ref.read(sessionProvider.notifier).refreshAccount();
+        final selection =
+            selected == optimalServerId && knownProfiles.isNotEmpty
+            ? _chooseOptimalProfile(knownProfiles, cancelled)
+            : Future<VpnProfile?>.value(null);
+        // eagerError keeps the original failure (for example an expired
+        // session) instead of wrapping it in a parallel-wait error.
+        final results = await Future.wait<Object?>([
+          refresh,
+          selection,
+        ], eagerError: true);
+        _record(
+          'account refresh finished in ${refreshTimer.elapsedMilliseconds}ms',
+        );
+        _record(
+          'Optimal server selection completed in ${selectionTimer.elapsedMilliseconds}ms',
+        );
         if (cancelled()) return;
         final account = ref.read(sessionProvider).valueOrNull;
         if (account == null || !account.canConnect) {
@@ -238,21 +347,27 @@ class VpnNotifier extends StateNotifier<VpnState> {
         if (account.profiles.isEmpty) {
           throw StateError('No compatible servers are available.');
         }
-        if (selected == optimalServerId) {
-          final selectionTimer = Stopwatch()..start();
+        var chosen = results[1] as VpnProfile?;
+        if (selected == optimalServerId && chosen == null) {
+          // No profile list was cached when the probe would have started, so
+          // the selection runs after the refresh instead of in parallel.
+          final lateTimer = Stopwatch()..start();
           try {
-            profile = await _chooseOptimalProfile(account.profiles, cancelled);
+            chosen = await _chooseOptimalProfile(account.profiles, cancelled);
           } finally {
             _record(
-              'Optimal server selection completed in ${selectionTimer.elapsedMilliseconds}ms',
+              'Optimal server selection completed in ${lateTimer.elapsedMilliseconds}ms',
             );
           }
-        } else {
-          profile = account.profiles.firstWhere(
-            (p) => p.id == selected,
-            orElse: () => account.profiles.first,
-          );
+          if (cancelled()) return;
         }
+        // The refresh can replace the profile list; resolve the selection
+        // against the refreshed list so a removed server cannot be started.
+        final wantedId = selected == optimalServerId ? chosen?.id : selected;
+        profile = account.profiles.firstWhere(
+          (p) => p.id == wantedId,
+          orElse: () => account.profiles.first,
+        );
       }
       if (cancelled()) return;
       await initialize();
@@ -275,15 +390,29 @@ class VpnNotifier extends StateNotifier<VpnState> {
         );
       }
       _requested = true;
-      final logLevel = await XrayPreferences.logLevel();
-      final dnsSettings = await XrayPreferences.userDnsSettings();
-      final bypassDomains = await XrayPreferences.bypassDomains();
-      final vpnOnlyDomains = await XrayPreferences.vpnOnlyDomainsEnabled();
-      final routingRules = await XrayPreferences.routingRules();
-      final blockedApps = Platform.isAndroid
-          ? await XrayPreferences.blockedApps()
-          : const <String>[];
-      final dpiStrategy = await DpiPreferences.read();
+      // Independent preference reads: run them together so the tunnel start is
+      // not delayed by a serial chain of SharedPreferences round trips.
+      final (
+        logLevel,
+        dnsSettings,
+        bypassDomains,
+        vpnOnlyDomains,
+        routingRules,
+        blockedApps,
+        dpiStrategy,
+        options,
+      ) = await (
+        XrayPreferences.logLevel(),
+        XrayPreferences.userDnsSettings(),
+        XrayPreferences.bypassDomains(),
+        XrayPreferences.vpnOnlyDomainsEnabled(),
+        XrayPreferences.routingRules(),
+        Platform.isAndroid
+            ? XrayPreferences.blockedApps()
+            : Future<List<String>>.value(const <String>[]),
+        DpiPreferences.read(),
+        ConnectionPreferences.read(),
+      ).wait;
       var config = dpiBypass
           ? XrayPreferences.configureDpiBypass(
               localProxyPort: 65535,
@@ -300,7 +429,6 @@ class VpnNotifier extends StateNotifier<VpnState> {
               vpnOnlyDomains,
               logLevel,
             );
-      final options = await ConnectionPreferences.read();
       _sessionLanConfigured = Platform.isMacOS && options.shareLan;
       if (_sessionLanConfigured) {
         // Replies to LAN proxy clients use protected Xray direct routing rather
@@ -325,6 +453,14 @@ class VpnNotifier extends StateNotifier<VpnState> {
         config = jsonEncode(root);
       }
       if (cancelled()) return;
+      if (!dpiBypass) {
+        // The account can lapse while the config is prepared; never arm the
+        // native tunnel for a subscription that can no longer connect.
+        final current = ref.read(sessionProvider).valueOrNull;
+        if (current == null || !current.canConnect) {
+          throw StateError('Your subscription is not active.');
+        }
+      }
       ref.read(vpnTunnelMayBeActiveProvider.notifier).state = true;
       final start = replacing ? _engine.replaceVless : _engine.startVless;
       final nativeStartTimer = Stopwatch()..start();
@@ -635,6 +771,7 @@ class VpnNotifier extends StateNotifier<VpnState> {
     ++_connectAttempt;
     _wanted = false;
     _switchAwaitingNative = false;
+    _clearAdopted();
     _retryCount = 0;
     _retry?.cancel();
     ++_lanAttempt;

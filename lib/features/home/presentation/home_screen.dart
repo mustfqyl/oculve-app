@@ -21,7 +21,8 @@ class HomeScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     ref.listen<String?>(vpnErrorProvider, (previous, next) {
-      if (next != null && next != previous) {
+      // With in-place feedback the connect button itself shows the failure.
+      if (!kInlineFeedback && next != null && next != previous) {
         AppFeedback.showError(
           context,
           next,
@@ -33,59 +34,60 @@ class HomeScreen extends ConsumerWidget {
     final desktop = Platform.isMacOS || Platform.isWindows || Platform.isLinux;
 
     return Scaffold(
+      // Transparent page over the one shared backdrop; only the content moves
+      // during a route transition.
+      backgroundColor: Colors.transparent,
       extendBodyBehindAppBar: true,
-      body: PremiumBackground(
-        child: SafeArea(
-          child: Column(
-            children: [
-              AnimatedEntry(
-                index: 0,
-                child: Padding(
-                  padding: EdgeInsets.only(
-                    left: 24,
-                    right: 24,
-                    top: desktop ? 24 : 16,
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      OculveWordmark(
-                        color: isDark
-                            ? AppTheme.foreground
-                            : AppTheme.lightForeground,
-                      ),
-                      Row(
-                        children: [
-                          _HeaderAction(
-                            icon: Icons.person_outline,
-                            semanticLabel: context.tr('Account'),
-                            onTap: () => Navigator.push(
-                              context,
-                              appRoute(const AccountScreen()),
-                            ),
+      body: SafeArea(
+        child: Column(
+          children: [
+            AnimatedEntry(
+              index: 0,
+              child: Padding(
+                padding: EdgeInsets.only(
+                  left: 24,
+                  right: 24,
+                  top: desktop ? 24 : 16,
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    OculveWordmark(
+                      color: isDark
+                          ? AppTheme.foreground
+                          : AppTheme.lightForeground,
+                    ),
+                    Row(
+                      children: [
+                        _HeaderAction(
+                          icon: Icons.person_outline,
+                          semanticLabel: context.tr('Account'),
+                          onTap: () => Navigator.push(
+                            context,
+                            appRoute(const AccountScreen()),
                           ),
-                          const SizedBox(width: 8),
-                          _HeaderAction(
-                            icon: Icons.settings_outlined,
-                            semanticLabel: context.tr('Settings'),
-                            onTap: () => Navigator.push(
-                              context,
-                              appRoute(const SettingsScreen()),
-                            ),
+                        ),
+                        const SizedBox(width: 8),
+                        _HeaderAction(
+                          icon: Icons.settings_outlined,
+                          semanticLabel: context.tr('Settings'),
+                          onTap: () => Navigator.push(
+                            context,
+                            appRoute(const SettingsScreen()),
                           ),
-                        ],
-                      ),
-                    ],
-                  ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
-              const Spacer(flex: 2),
-              const AnimatedEntry(index: 1, child: ConnectButton()),
-              const SizedBox(height: 18),
-              AnimatedEntry(index: 2, child: const ServerCard()),
-              const Spacer(flex: 2),
-            ],
-          ),
+            ),
+            const Spacer(flex: 2),
+            const AnimatedEntry(index: 1, child: ConnectButton()),
+            const SizedBox(height: 18),
+            AnimatedEntry(index: 2, child: const ServerCard()),
+            const Spacer(flex: 2),
+          ],
         ),
       ),
     );

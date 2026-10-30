@@ -182,6 +182,21 @@ struct params {
 
 extern struct params params;
 
+/* Per-group outcome counters of the automatic chain, implemented by engine.c
+ * and read back through byedpi_engine_group_stats. They record only a group
+ * id, never a destination, so the app can learn which automatic strategy
+ * actually carried traffic. Safe to call from the engine thread.
+ * The standalone ciadpi binary has no engine, so it counts nothing. */
+#ifdef BYEDPI_LIBRARY
+void byedpi_group_note_ok(int id);
+void byedpi_group_note_fail(int id);
+void byedpi_group_note_exhausted(void);
+#else
+static inline void byedpi_group_note_ok(int id) { (void)id; }
+static inline void byedpi_group_note_fail(int id) { (void)id; }
+static inline void byedpi_group_note_exhausted(void) { }
+#endif
+
 extern struct packet fake_tls;
 extern struct packet fake_http;
 extern struct packet fake_udp;

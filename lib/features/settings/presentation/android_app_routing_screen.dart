@@ -8,6 +8,7 @@ import 'package:oculve/core/vpn/android_app_catalog.dart';
 import 'package:oculve/core/vpn/xray_preferences.dart';
 import 'package:oculve/core/widgets/app_page.dart';
 import 'package:oculve/core/widgets/app_feedback.dart';
+import 'package:oculve/core/widgets/inline_feedback.dart';
 
 class AndroidAppRoutingScreen extends StatefulWidget {
   const AndroidAppRoutingScreen({super.key});
@@ -23,6 +24,7 @@ class _AndroidAppRoutingScreenState extends State<AndroidAppRoutingScreen> {
   bool _loaded = false;
   Object? _loadError;
   bool _saving = false;
+  final _error = InlineErrorController();
 
   Future<void> _loadSelection() async {
     setState(() {
@@ -56,6 +58,7 @@ class _AndroidAppRoutingScreenState extends State<AndroidAppRoutingScreen> {
 
   Future<void> _save() async {
     if (_saving || !_loaded) return;
+    _error.clear();
     setState(() {
       _saving = true;
     });
@@ -63,21 +66,22 @@ class _AndroidAppRoutingScreenState extends State<AndroidAppRoutingScreen> {
       await XrayPreferences.setBlockedApps(_selected.toList());
       if (mounted) Navigator.of(context).pop(true);
     } catch (error) {
-      if (mounted) {
-        AppFeedback.showError(
-          context,
-          error,
-          placement: AppFeedbackPlacement.pageBottom,
-        );
-      }
+      if (mounted) _error.show(error);
     } finally {
       if (mounted) setState(() => _saving = false);
     }
   }
 
   @override
+  void dispose() {
+    _error.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) => AppPage(
     title: 'Apps outside the VPN',
+    feedback: _error,
     child: FutureBuilder<List<AndroidVpnApp>>(
       future: _apps,
       builder: (context, snapshot) {
@@ -166,14 +170,20 @@ class _AndroidAppRoutingScreenState extends State<AndroidAppRoutingScreen> {
               top: false,
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(18, 8, 18, 12),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: FilledButton(
-                    onPressed: _saving ? null : _save,
-                    child: CompactLabel(
-                      _saving ? 'Saving…' : context.saveApps(_selected.length),
+                child: Column(
+                  children: [
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton(
+                        onPressed: _saving ? null : _save,
+                        child: CompactLabel(
+                          _saving
+                              ? 'Saving…'
+                              : context.saveApps(_selected.length),
+                        ),
+                      ),
                     ),
-                  ),
+                  ],
                 ),
               ),
             ),

@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'package:oculve/core/localization/app_strings.dart';
 import 'dart:ui' as ui;
+import 'package:oculve/core/haptics/app_haptics.dart';
+import 'package:oculve/core/widgets/inline_feedback.dart';
 import 'package:flutter/material.dart' hide Text;
+import 'package:oculve/core/localization/app_strings.dart';
 import 'package:oculve/core/localization/localized_text.dart';
 import 'package:oculve/core/theme/app_theme.dart';
 
@@ -50,6 +52,7 @@ class SettingRow extends StatelessWidget {
     required this.title,
     this.subtitle,
     this.value,
+    this.valueChild,
     this.trailing,
     this.onTap,
     this.compact = false,
@@ -58,6 +61,9 @@ class SettingRow extends StatelessWidget {
   });
   final String title;
   final String? subtitle, value;
+
+  /// Custom value widget rendered in the same slot as [value].
+  final Widget? valueChild;
   final Widget? trailing;
   final VoidCallback? onTap;
   final bool compact, dense;
@@ -70,7 +76,7 @@ class SettingRow extends StatelessWidget {
     splashFactory: NoSplash.splashFactory,
     child: ConstrainedBox(
       constraints: BoxConstraints(
-        minHeight: onTap == null
+        minHeight: onTap == null && valueChild == null
             ? 0
             : dense
             ? 44
@@ -113,19 +119,21 @@ class SettingRow extends StatelessWidget {
                 ],
               ),
             ),
-            if (value != null) ...[
+            if (valueChild != null || value != null) ...[
               const SizedBox(width: 12),
               ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 116),
-                child: Text(
-                  value!,
-                  textAlign: TextAlign.end,
-                  style: TextStyle(
-                    color: settingsMuted(context),
-                    fontSize: 12,
-                    height: compact ? 1.25 : null,
-                  ),
-                ),
+                child:
+                    valueChild ??
+                    Text(
+                      value!,
+                      textAlign: TextAlign.end,
+                      style: TextStyle(
+                        color: settingsMuted(context),
+                        fontSize: 12,
+                        height: compact ? 1.25 : null,
+                      ),
+                    ),
               ),
             ],
             if (trailing != null)
@@ -151,24 +159,52 @@ class SettingsCaption extends StatelessWidget {
     super.key,
     this.compact = false,
     this.topPadding,
+    this.errors,
   });
   final String title;
   final bool compact;
   final double? topPadding;
+
+  /// When given, a failure of this group is shown in place of the heading.
+  final InlineErrorController? errors;
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: EdgeInsets.fromLTRB(0, topPadding ?? (compact ? 14 : 18), 0, 8),
-    child: Text(
-      title,
-      style: TextStyle(
-        fontSize: compact ? 9.5 : 10,
-        height: compact ? 1.25 : null,
-        letterSpacing: 1,
-        fontWeight: FontWeight.w600,
-        color: settingsMuted(context),
-      ),
-    ),
-  );
+  Widget build(BuildContext context) {
+    final style = TextStyle(
+      fontSize: compact ? 9.5 : 10,
+      height: compact ? 1.25 : null,
+      letterSpacing: 1,
+      fontWeight: FontWeight.w600,
+      color: settingsMuted(context),
+    );
+    return Padding(
+      padding: EdgeInsets.fromLTRB(0, topPadding ?? (compact ? 14 : 18), 0, 8),
+      child: errors == null
+          ? Text(title, style: style)
+          : InlineErrorCaption(
+              title: title,
+              controller: errors!,
+              titleStyle: style,
+            ),
+    );
+  }
+}
+
+/// Style of a row value. Also used to measure values so the slot can reserve a
+/// stable size instead of resizing while the value changes.
+TextStyle settingsValueStyle(BuildContext context) =>
+    DefaultTextStyle.of(context).style.merge(
+      TextStyle(fontSize: 12, height: 1.3, color: settingsMuted(context)),
+    );
+
+/// Clips the sliding value vertically but lets a glyph run a few pixels past
+/// the slot sideways, so a value measured slightly short is never cut.
+class _ValueClipper extends CustomClipper<Rect> {
+  const _ValueClipper();
+  @override
+  Rect getClip(Size size) =>
+      Rect.fromLTRB(-14, 0, size.width + 14, size.height);
+  @override
+  bool shouldReclip(covariant CustomClipper<Rect> oldClipper) => false;
 }
 
 class SettingsSlidingValue extends StatelessWidget {
@@ -177,42 +213,51 @@ class SettingsSlidingValue extends StatelessWidget {
     required this.label,
     this.maxLines = 2,
     this.alignment = Alignment.centerRight,
+    this.width,
+    this.height,
   });
   final String label;
   final int maxLines;
   final Alignment alignment;
+
+  /// When set, the value is laid out in a fixed slot so a new label can never
+  /// resize (and thereby shift) the row or the rows below it.
+  final double? width, height;
   @override
-  Widget build(BuildContext context) => ClipRect(
-    child: AnimatedSwitcher(
-      duration: MediaQuery.disableAnimationsOf(context)
-          ? Duration.zero
-          : const Duration(milliseconds: 240),
-      switchInCurve: Curves.easeOutCubic,
-      switchOutCurve: Curves.easeInCubic,
-      layoutBuilder: (current, previous) =>
-          Stack(alignment: alignment, children: [...previous, ?current]),
-      transitionBuilder: (child, animation) => SlideTransition(
-        position: Tween<Offset>(
-          begin: Offset(child.key == ValueKey(label) ? 1 : -1, 0),
-          end: Offset.zero,
-        ).animate(animation),
-        child: FadeTransition(opacity: animation, child: child),
-      ),
-      child: Align(
-        key: ValueKey(label),
-        alignment: alignment,
-        child: Text(
-          label,
-          maxLines: maxLines,
-          style: TextStyle(
-            fontSize: 12,
-            height: 1.3,
-            color: settingsMuted(context),
+  Widget build(BuildContext context) {
+    final content = ClipRect(
+      clipper: const _ValueClipper(),
+      child: AnimatedSwitcher(
+        duration: MediaQuery.disableAnimationsOf(context)
+            ? Duration.zero
+            : const Duration(milliseconds: 240),
+        switchInCurve: Curves.easeOutCubic,
+        switchOutCurve: Curves.easeInCubic,
+        layoutBuilder: (current, previous) =>
+            Stack(alignment: alignment, children: [...previous, ?current]),
+        transitionBuilder: (child, animation) => SlideTransition(
+          position: Tween<Offset>(
+            begin: Offset(child.key == ValueKey(label) ? 1 : -1, 0),
+            end: Offset.zero,
+          ).animate(animation),
+          child: FadeTransition(opacity: animation, child: child),
+        ),
+        child: Align(
+          key: ValueKey(label),
+          alignment: alignment,
+          widthFactor: width == null ? 1 : null,
+          child: Text(
+            label,
+            maxLines: maxLines,
+            textAlign: width == null ? null : TextAlign.end,
+            style: settingsValueStyle(context),
           ),
         ),
       ),
-    ),
-  );
+    );
+    if (width == null && height == null) return content;
+    return SizedBox(width: width, height: height, child: content);
+  }
 }
 
 class SettingsCycleRow extends StatelessWidget {
@@ -226,45 +271,77 @@ class SettingsCycleRow extends StatelessWidget {
   final String title, label;
   final List<String> options;
   final VoidCallback? onTap;
-  @override
-  Widget build(BuildContext context) {
+
+  /// Measures every value this row can show, so the value slot keeps one width
+  /// and one height for all of them. The previous value used to wrap to two
+  /// lines while the next one fitted on one, which resized the row and pushed
+  /// the rows below it up and down on every tap.
+  ({double width, double height}) _valueSlot(BuildContext context) {
+    final style = settingsValueStyle(context);
     final scaler = MediaQuery.textScalerOf(context);
-    double width = 0;
-    for (final option in [...options, label]) {
+    final direction = Directionality.of(context);
+    final locale = Localizations.maybeLocaleOf(context);
+    final language = Localizations.localeOf(context).languageCode;
+    final values = {label, ...options};
+    double widest = 0;
+    for (final value in values) {
       final painter = TextPainter(
         text: TextSpan(
-          text: context.tr(option),
-          style: DefaultTextStyle.of(
-            context,
-          ).style.merge(const TextStyle(fontSize: 12, height: 1.3)),
+          text: AppStrings.translate(value, language),
+          style: style,
         ),
-        textDirection: Directionality.of(context),
         textScaler: scaler,
+        textDirection: direction,
+        locale: locale,
+        maxLines: 1,
       )..layout();
-      width = math.max(width, painter.width + 2);
+      widest = math.max(widest, painter.width);
       painter.dispose();
     }
-    final wrapped = width > 116 * scaler.scale(1);
-    width = math.min(width, 116 * scaler.scale(1));
+    // Measured text can come out a little narrower than what the device then
+    // paints (fonts, rounding), and a single long word cannot wrap. A margin
+    // keeps the last letter of a value from being cut off.
+    final width = math.min(128.0, widest * 1.1 + 8);
+    var height = 0.0;
+    for (final value in values) {
+      final painter = TextPainter(
+        text: TextSpan(
+          text: AppStrings.translate(value, language),
+          style: style,
+        ),
+        textScaler: scaler,
+        textDirection: direction,
+        locale: locale,
+        maxLines: 2,
+      )..layout(maxWidth: width);
+      height = math.max(height, painter.height);
+      painter.dispose();
+    }
+    return (width: width, height: height + .5);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final slot = _valueSlot(context);
     return SettingRow(
       title: title,
-      onTap: onTap,
+      onTap: onTap == null
+          ? null
+          : () {
+              AppHaptics.selection();
+              onTap!();
+            },
+      valueChild: SettingsSlidingValue(
+        label: label,
+        width: slot.width,
+        height: slot.height,
+      ),
       trailing: Padding(
         padding: const EdgeInsets.only(left: 5),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SizedBox(
-              width: width,
-              height: (wrapped ? 32 : 24) * scaler.scale(1),
-              child: SettingsSlidingValue(
-                label: label,
-                maxLines: wrapped ? 2 : 1,
-              ),
-            ),
-            const SizedBox(width: 5),
-            Icon(Icons.chevron_left, size: 18, color: settingsMuted(context)),
-          ],
+        child: Icon(
+          Icons.chevron_left,
+          size: 18,
+          color: settingsMuted(context),
         ),
       ),
     );

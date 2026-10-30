@@ -5,7 +5,7 @@ import 'package:oculve/core/localization/localized_text.dart';
 import 'package:oculve/core/localization/app_strings.dart';
 import 'package:oculve/core/theme/app_theme.dart';
 import 'package:oculve/core/widgets/app_page.dart';
-import 'package:oculve/core/widgets/app_feedback.dart';
+import 'package:oculve/core/widgets/inline_feedback.dart';
 import 'connection_settings_widgets.dart';
 
 /// The native tray remains platform-owned; app preference menus follow Oculve
@@ -19,6 +19,7 @@ class TrayPreferencesScreen extends ConsumerStatefulWidget {
 
 class _TrayPreferencesScreenState extends ConsumerState<TrayPreferencesScreen> {
   bool _busy = false;
+  final _error = InlineErrorController();
   Future<bool> _save(Future<void> Function() action) async {
     if (_busy) return false;
     setState(() => _busy = true);
@@ -27,8 +28,7 @@ class _TrayPreferencesScreenState extends ConsumerState<TrayPreferencesScreen> {
       return true;
     } catch (error) {
       if (mounted) {
-        AppFeedback.showError(
-          context,
+        _error.show(
           error,
           fallback: 'Could not save tray settings. Please try again.',
         );
@@ -46,6 +46,7 @@ class _TrayPreferencesScreenState extends ConsumerState<TrayPreferencesScreen> {
     final linux = Theme.of(context).platform == TargetPlatform.linux;
     return AppPage(
       title: 'Tray & Window',
+      feedback: _error,
       headerHeight: 52,
       child: Column(
         children: [
@@ -188,6 +189,12 @@ class _TrayPreferencesScreenState extends ConsumerState<TrayPreferencesScreen> {
         ],
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    _error.dispose();
+    super.dispose();
   }
 }
 

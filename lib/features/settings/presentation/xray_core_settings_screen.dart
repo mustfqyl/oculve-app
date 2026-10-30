@@ -12,7 +12,7 @@ import 'package:oculve/core/connection/connection_preferences.dart';
 import 'package:oculve/core/connection/lan_proxy_service.dart';
 import 'package:oculve/core/vpn/xray_preferences.dart';
 import 'package:oculve/core/widgets/app_page.dart';
-import 'package:oculve/core/widgets/app_feedback.dart';
+import 'package:oculve/core/widgets/inline_feedback.dart';
 import 'package:oculve/core/widgets/app_route.dart';
 import 'package:oculve/features/auth/data/auth_repository.dart';
 import 'connection_settings_widgets.dart';
@@ -47,6 +47,13 @@ class _XrayCoreSettingsScreenState
   List<String> _domains = [];
   int _dpiResetEpoch = 0;
   bool _fragment = false, _customMode = false, _busy = false;
+  String? _customError;
+  // One failure line per group, shown in place of that group's heading.
+  final _dnsErrors = InlineErrorController();
+  final _connectionErrors = InlineErrorController();
+  final _dpiErrors = InlineErrorController();
+  final _diagErrors = InlineErrorController();
+  final _restoreErrors = InlineErrorController();
   @override
   void initState() {
     super.initState();
@@ -59,14 +66,27 @@ class _XrayCoreSettingsScreenState
     if (_customDirty &&
         _customMode &&
         _dns != null &&
-        XrayPreferences.isUserDnsEndpoint(_custom.text.trim())) {
+        XrayPreferences.isUserDnsEndpoint(
+          XrayPreferences.normalizeUserDnsInput(_custom.text),
+        )) {
       unawaited(
         _persistCustomDns(
-          _dns!.copyWith(servers: [_custom.text.trim()]),
+          _dns!.copyWith(
+            servers: [XrayPreferences.normalizeUserDnsInput(_custom.text)],
+          ),
         ).catchError((Object _) {}),
       );
     }
     _custom.dispose();
+    for (final controller in [
+      _dnsErrors,
+      _connectionErrors,
+      _dpiErrors,
+      _diagErrors,
+      _restoreErrors,
+    ]) {
+      controller.dispose();
+    }
     super.dispose();
   }
 
@@ -93,6 +113,7 @@ class _XrayCoreSettingsScreenState
         _options = options;
         _customMode = !_presets.containsValue(dns.servers.single);
         _custom.text = _customMode ? dns.servers.single : '';
+        _customError = null;
       });
     } catch (error) {
       if (!mounted) return;
@@ -102,24 +123,34 @@ class _XrayCoreSettingsScreenState
           queryStrategy: DnsQueryStrategy.useSystem,
         ),
       );
-      AppFeedback.showError(
-        context,
-        error,
-        fallback: 'Could not load connection settings.',
-      );
+      _dnsErrors.show(error, fallback: 'Could not load connection settings.');
     }
   }
 
-  Future<bool> _save(Future<void> Function() action) async {
+  Future<bool> _saveDns(Future<void> Function() action) =>
+      _saveIn(_dnsErrors, action);
+  Future<bool> _saveConnection(Future<void> Function() action) =>
+      _saveIn(_connectionErrors, action);
+  Future<bool> _saveDiag(Future<void> Function() action) =>
+      _saveIn(_diagErrors, action);
+  Future<bool> _saveRestore(Future<void> Function() action) =>
+      _saveIn(_restoreErrors, action);
+
+  /// Runs [action]; a failure is shown by [errors], next to the group that
+  /// owns the setting, instead of in a banner.
+  Future<bool> _saveIn(
+    InlineErrorController errors,
+    Future<void> Function() action,
+  ) async {
     if (_busy) return false;
+    errors.clear();
     setState(() => _busy = true);
     try {
       await action();
       return true;
     } catch (error) {
       if (mounted) {
-        AppFeedback.showError(
-          context,
+        errors.show(
           error,
           fallback:
               'Could not save connection settings. Check your input and try again.',
@@ -135,13 +166,14 @@ class _XrayCoreSettingsScreenState
     _customSaveTimer?.cancel();
     _customDirty = true;
     final revision = ++_customRevision;
-    if (!XrayPreferences.isUserDnsEndpoint(value.trim())) return;
     _customSaveTimer = Timer(
       const Duration(milliseconds: 400),
       () => _commitCustomDns(revision),
     );
   }
 
+  /// Autosaves a valid custom endpoint. An invalid one is never written: the
+  /// previously saved value stays active and the field shows a calm hint.
   Future<void> _commitCustomDns(int revision) async {
     if (!mounted ||
         !_customMode ||
@@ -149,10 +181,19 @@ class _XrayCoreSettingsScreenState
         _dns == null) {
       return;
     }
-    final endpoint = _custom.text.trim();
+    final typed = _custom.text.trim();
+    final endpoint = XrayPreferences.normalizeUserDnsInput(typed);
     if (!XrayPreferences.isUserDnsEndpoint(endpoint)) {
+      _setCustomError(
+        typed.isEmpty
+            ? null
+            : context.tr(
+                'Enter a DNS address, such as dns.adguard.com or 94.140.14.14.',
+              ),
+      );
       return;
     }
+    _setCustomError(null);
     if (_busy) {
       _customSaveTimer = Timer(
         const Duration(milliseconds: 100),
@@ -160,7 +201,7 @@ class _XrayCoreSettingsScreenState
       );
       return;
     }
-    await _save(() async {
+    await _saveDns(() async {
       final next = _dns!.copyWith(servers: [endpoint]);
       await _persistCustomDns(next);
       if (mounted && revision == _customRevision && _customMode) {
@@ -168,6 +209,11 @@ class _XrayCoreSettingsScreenState
         setState(() => _dns = next);
       }
     });
+  }
+
+  void _setCustomError(String? message) {
+    if (!mounted || message == _customError) return;
+    setState(() => _customError = message);
   }
 
   Future<void> _persistCustomDns(XrayDnsSettings next) {
@@ -190,11 +236,14 @@ class _XrayCoreSettingsScreenState
     final value =
         providers[(providers.indexOf(selected) + 1) % providers.length];
     if (value == 'Custom') {
-      setState(() => _customMode = true);
+      setState(() {
+        _customMode = true;
+        _customError = null;
+      });
       _queueCustomDns(_custom.text);
       return;
     }
-    await _save(() async {
+    await _saveDns(() async {
       await _customWrites.catchError((Object _) {});
       final next = _dns!.copyWith(servers: [_presets[value]!]);
       await XrayPreferences.setUserDnsSettings(next);
@@ -202,6 +251,7 @@ class _XrayCoreSettingsScreenState
         setState(() {
           _dns = next;
           _customMode = false;
+          _customError = null;
         });
       }
     });
@@ -217,7 +267,7 @@ class _XrayCoreSettingsScreenState
     final modes = DnsQueryStrategy.values;
     final value =
         modes[(modes.indexOf(_dns!.queryStrategy) + 1) % modes.length];
-    await _save(() async {
+    await _saveDns(() async {
       final next = _dns!.copyWith(queryStrategy: value);
       await XrayPreferences.setUserDnsSettings(next);
       if (mounted) setState(() => _dns = next);
@@ -271,7 +321,7 @@ class _XrayCoreSettingsScreenState
     _customSaveTimer?.cancel();
     _customRevision++;
     _customDirty = false;
-    return _save(() async {
+    return _saveRestore(() async {
       await _customWrites.catchError((Object _) {});
       await XrayPreferences.setUserDnsSettings(
         const XrayDnsSettings(
@@ -316,7 +366,7 @@ class _XrayCoreSettingsScreenState
           : ListView(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
               children: [
-                const SettingsCaption('DNS'),
+                SettingsCaption('DNS', errors: _dnsErrors),
                 SettingsGroup(
                   children: [
                     SettingsCycleRow(
@@ -368,6 +418,13 @@ class _XrayCoreSettingsScreenState
                                 hintStyle: TextStyle(
                                   fontSize: 11,
                                   color: settingsMuted(context),
+                                ),
+                                errorText: _customError,
+                                errorMaxLines: 3,
+                                errorStyle: TextStyle(
+                                  fontSize: 10.5,
+                                  height: 1.35,
+                                  color: Theme.of(context).colorScheme.error,
                                 ),
                                 border: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(10),
@@ -431,7 +488,7 @@ class _XrayCoreSettingsScreenState
                       ),
                   ],
                 ),
-                const SettingsCaption('CONNECTION'),
+                SettingsCaption('CONNECTION', errors: _connectionErrors),
                 SettingsGroup(
                   children: [
                     SettingRow(
@@ -448,7 +505,7 @@ class _XrayCoreSettingsScreenState
                         overlayColor: quietOverlay(context),
                         onChanged: _busy
                             ? null
-                            : (value) => _save(() async {
+                            : (value) => _saveConnection(() async {
                                 await ConnectionPreferences.setReconnect(value);
                                 final next = await ConnectionPreferences.read();
                                 if (mounted) setState(() => _options = next);
@@ -458,7 +515,7 @@ class _XrayCoreSettingsScreenState
                     if (Platform.isMacOS ||
                         Platform.isWindows ||
                         Platform.isLinux)
-                      const StartupSetting(),
+                      StartupSetting(errors: _connectionErrors),
                     SettingRow(
                       title: 'Kill switch',
                       value: switch (Theme.of(context).platform) {
@@ -485,7 +542,7 @@ class _XrayCoreSettingsScreenState
                         overlayColor: quietOverlay(context),
                         onChanged: _busy || !supportsFragment
                             ? null
-                            : (value) => _save(() async {
+                            : (value) => _saveConnection(() async {
                                 await XrayPreferences.setTlsHelloFragmentation(
                                   value,
                                 );
@@ -503,8 +560,8 @@ class _XrayCoreSettingsScreenState
                       ),
                   ],
                 ),
-                const SettingsCaption('DPI BYPASS'),
-                DpiSettings(key: ValueKey(_dpiResetEpoch)),
+                SettingsCaption('DPI BYPASS', errors: _dpiErrors),
+                DpiSettings(key: ValueKey(_dpiResetEpoch), errors: _dpiErrors),
                 if (Platform.isMacOS) ...[
                   const SettingsCaption('LOCAL NETWORK'),
                   SettingsGroup(
@@ -527,7 +584,7 @@ class _XrayCoreSettingsScreenState
                     ],
                   ),
                 ],
-                const SettingsCaption('DIAGNOSTICS'),
+                SettingsCaption('DIAGNOSTICS', errors: _diagErrors),
                 SettingsGroup(
                   children: [
                     SettingsCycleRow(
@@ -550,7 +607,7 @@ class _XrayCoreSettingsScreenState
                                   levels[(levels.indexOf(_log) + 1) %
                                       levels.length];
                               if (mounted) {
-                                await _save(() async {
+                                await _saveDiag(() async {
                                   await XrayPreferences.setLogLevel(level);
                                   if (mounted) setState(() => _log = level);
                                 });
@@ -569,6 +626,7 @@ class _XrayCoreSettingsScreenState
                 ),
                 const SizedBox(height: 16),
                 SettingsRestoreButton(enabled: !_busy, onRestore: _reset),
+                InlineErrorOf(_restoreErrors, height: 28),
               ],
             ),
     );
@@ -586,6 +644,8 @@ class _SplitTunnelingScreenState extends State<SplitTunnelingScreen> {
   List<String> _domains = [];
   bool _vpnOnlyDomains = false;
   bool _busy = false;
+  final _modeErrors = InlineErrorController();
+  final _domainErrors = InlineErrorController();
   @override
   void initState() {
     super.initState();
@@ -605,6 +665,7 @@ class _SplitTunnelingScreenState extends State<SplitTunnelingScreen> {
 
   Future<void> _toggleMode() async {
     if (_busy) return;
+    _modeErrors.clear();
     final next = !_vpnOnlyDomains;
     setState(() => _busy = true);
     try {
@@ -612,11 +673,7 @@ class _SplitTunnelingScreenState extends State<SplitTunnelingScreen> {
       if (mounted) setState(() => _vpnOnlyDomains = next);
     } catch (error) {
       if (mounted) {
-        AppFeedback.showError(
-          context,
-          error,
-          fallback: 'Could not save settings.',
-        );
+        _modeErrors.show(error, fallback: 'Could not save settings.');
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -625,6 +682,7 @@ class _SplitTunnelingScreenState extends State<SplitTunnelingScreen> {
 
   Future<void> _save(List<String> domains) async {
     if (_busy) return;
+    _domainErrors.clear();
     setState(() => _busy = true);
     try {
       await XrayPreferences.setBypassDomains(domains);
@@ -632,8 +690,7 @@ class _SplitTunnelingScreenState extends State<SplitTunnelingScreen> {
       _input.clear();
     } catch (error) {
       if (mounted) {
-        AppFeedback.showError(
-          context,
+        _domainErrors.show(
           error,
           fallback: 'Enter valid website domains, such as example.com.',
         );
@@ -646,6 +703,8 @@ class _SplitTunnelingScreenState extends State<SplitTunnelingScreen> {
   @override
   void dispose() {
     _input.dispose();
+    _modeErrors.dispose();
+    _domainErrors.dispose();
     super.dispose();
   }
 
@@ -663,12 +722,16 @@ class _SplitTunnelingScreenState extends State<SplitTunnelingScreen> {
               label: context.tr(
                 _vpnOnlyDomains ? 'Only selected' : 'Except selected',
               ),
-              options: const ['Except selected', 'Only selected'],
+              options: [
+                context.tr('Except selected'),
+                context.tr('Only selected'),
+              ],
               onTap: _busy ? null : _toggleMode,
             ),
           ],
         ),
-        const SizedBox(height: 16),
+        // The failure of the mode switch above fades in here.
+        InlineErrorOf(_modeErrors, height: 28),
         TextField(
           key: const ValueKey('bypass-domains-field'),
           controller: _input,
@@ -680,7 +743,8 @@ class _SplitTunnelingScreenState extends State<SplitTunnelingScreen> {
           ),
           onSubmitted: _busy ? null : (_) => _save([..._domains, _input.text]),
         ),
-        const SizedBox(height: 12),
+        // The failure of saving a domain fades in here.
+        InlineErrorOf(_domainErrors, height: 28),
         if (_domains.isNotEmpty)
           SettingsGroup(
             children: [

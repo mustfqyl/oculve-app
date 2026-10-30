@@ -56,6 +56,12 @@ class TestPlatform extends VlessPlatform {
   bool lastDpiBypass = false;
   int lastDpiProfile = -1;
   String? lastAndroidDnsProxyOutboundTag;
+
+  /// Native answer for the startup tunnel-state query; null means the backend
+  /// cannot report a tunnel (the pre-adoption behaviour).
+  String? tunnelStatus;
+  @override
+  Future<String?> getTunnelStatus() async => tunnelStatus;
   @override
   Future<void> initializeVless({
     required void Function(VlessStatus) onStatusChanged,
@@ -722,23 +728,30 @@ void main() {
       expect(outbounds[1]['protocol'], 'freedom');
       expect(outbounds[2]['protocol'], 'blackhole');
       expect(outbounds.any((item) => item['protocol'] == 'vless'), isFalse);
-      expect(config['dns']['servers'], [
-        'https://cloudflare-dns.com/dns-query',
-      ]);
+      // ByeDPI rejects hostname targets (--no-domain), so the saved
+      // Cloudflare DoH server is addressed by IP in the DPI config.
+      expect(config['dns']['servers'], ['https://1.1.1.1/dns-query']);
       final rules = config['routing']['rules'] as List;
-      expect(rules[0]['domain'], ['full:www.gstatic.com']);
-      expect(rules[0]['outboundTag'], 'byedpi');
-      expect(rules[1]['domain'], ['full:cp.cloudflare.com']);
+      // rules[0] rejects QUIC (UDP 443) before any domain rule.
+      expect(rules[0], {
+        'type': 'field',
+        'network': 'udp',
+        'port': '443',
+        'outboundTag': 'block',
+      });
+      expect(rules[1]['domain'], ['full:www.gstatic.com']);
       expect(rules[1]['outboundTag'], 'byedpi');
-      expect(rules[2]['domain'], ['domain:example.org']);
+      expect(rules[2]['domain'], ['full:cp.cloudflare.com']);
       expect(rules[2]['outboundTag'], 'byedpi');
-      expect(rules[3]['domain'], [
+      expect(rules[3]['domain'], ['domain:example.org']);
+      expect(rules[3]['outboundTag'], 'byedpi');
+      expect(rules[4]['domain'], [
         'domain:gstatic.com',
         'domain:direct.example',
       ]);
-      expect(rules[3]['outboundTag'], 'direct');
-      expect(rules[4]['domain'], ['domain:blocked.example']);
-      expect(rules[4]['outboundTag'], 'block');
+      expect(rules[4]['outboundTag'], 'direct');
+      expect(rules[5]['domain'], ['domain:blocked.example']);
+      expect(rules[5]['outboundTag'], 'block');
     },
   );
 

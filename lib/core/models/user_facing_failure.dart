@@ -69,7 +69,7 @@ class UserFacingFailure {
     'Choose a place to save your code before continuing.',
     'Your account was created, but server setup is still finishing. Sign in again shortly.',
     'Choose a supported DNS provider.',
-    'Enter a valid HTTPS DNS URL without credentials or a fragment.',
+    'Enter a valid DNS address without credentials or a fragment.',
     'Enter valid numeric ranges for fragment length, delay and splits.',
     'Add at most 32 bypass domains.',
     'Choose at most 100 apps to bypass.',

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -16,6 +17,13 @@ class _LoadingScreenState extends State<LoadingScreen>
     with SingleTickerProviderStateMixin {
   late final AnimationController _artworkAnimation;
 
+  /// The native launch screen follows the phone's appearance, not the theme
+  /// chosen in the app. The first frames follow the phone too, so nothing jumps
+  /// when Flutter takes over; then the screen eases over to the app's theme.
+  bool _followsApp = false;
+  bool _artworkFollowsApp = false;
+  Timer? _settle, _settleArtwork;
+
   @override
   void initState() {
     super.initState();
@@ -24,6 +32,15 @@ class _LoadingScreenState extends State<LoadingScreen>
       value: .5,
       duration: const Duration(seconds: 8),
     );
+    _settle = Timer(const Duration(milliseconds: 350), () {
+      if (!mounted) return;
+      setState(() => _followsApp = true);
+      // The artwork switches halfway through the background's fade, when the
+      // backdrop is mid-tone and the change reads as part of the same move.
+      _settleArtwork = Timer(const Duration(milliseconds: 260), () {
+        if (mounted) setState(() => _artworkFollowsApp = true);
+      });
+    });
   }
 
   @override
@@ -39,20 +56,31 @@ class _LoadingScreenState extends State<LoadingScreen>
 
   @override
   void dispose() {
+    _settle?.cancel();
+    _settleArtwork?.cancel();
     _artworkAnimation.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final appDark = Theme.of(context).brightness == Brightness.dark;
+    final systemDark =
+        MediaQuery.platformBrightnessOf(context) == Brightness.dark;
+    final isDark = _followsApp ? appDark : systemDark;
+    final artworkDark = _artworkFollowsApp ? appDark : systemDark;
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    final fade = reduceMotion
+        ? Duration.zero
+        : const Duration(milliseconds: 520);
 
     return Scaffold(
       backgroundColor: isDark
           ? AppTheme.backgroundColor
           : AppTheme.lightBackground,
-      body: DecoratedBox(
+      body: AnimatedContainer(
+        duration: fade,
+        curve: Curves.easeInOut,
         decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
@@ -105,7 +133,7 @@ class _LoadingScreenState extends State<LoadingScreen>
                               progress: reduceMotion
                                   ? const AlwaysStoppedAnimation<double>(.5)
                                   : _artworkAnimation,
-                              dark: isDark,
+                              dark: artworkDark,
                             ),
                           ),
                         ),

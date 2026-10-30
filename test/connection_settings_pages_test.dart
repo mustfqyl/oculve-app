@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:oculve/core/theme/app_theme.dart';
+import 'package:oculve/core/widgets/inline_feedback.dart';
 import 'package:oculve/core/desktop/startup_service.dart';
 import 'package:oculve/features/settings/presentation/startup_setting.dart';
 import 'package:oculve/features/settings/presentation/lan_sharing_screen.dart';
@@ -29,7 +30,11 @@ void main() {
           ],
           child: MaterialApp(
             theme: AppTheme.darkTheme,
-            home: Scaffold(body: ListView(children: const [StartupSetting()])),
+            home: Scaffold(
+              body: ListView(
+                children: [StartupSetting(errors: InlineErrorController())],
+              ),
+            ),
           ),
         ),
       );
@@ -89,7 +94,11 @@ void main() {
   }
   for (final locale in ['en', 'tr', 'es']) {
     for (final screen in [
-      Scaffold(body: ListView(children: const [StartupSetting()])),
+      Scaffold(
+        body: ListView(
+          children: [StartupSetting(errors: InlineErrorController())],
+        ),
+      ),
       const LanSharingScreen(),
       const FragmentationSettingsScreen(),
       const SplitTunnelingScreen(),

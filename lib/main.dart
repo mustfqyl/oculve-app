@@ -12,12 +12,18 @@ import 'package:window_manager/window_manager.dart';
 
 import 'core/desktop/desktop_tray_controller.dart';
 import 'core/desktop/startup_service.dart';
+import 'core/connection/server_latency_store.dart';
+import 'core/providers/server_latency_persistence.dart';
+import 'core/providers/server_selection_persistence.dart';
 import 'core/providers/vpn_provider.dart';
+import 'core/vpn/server_latency.dart';
 import 'core/navigation/app_navigator.dart';
 import 'core/providers/locale_provider.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/app_scroll_behavior.dart';
+import 'core/widgets/app_backdrop.dart';
 import 'core/widgets/app_feedback.dart';
+import 'core/widgets/app_route.dart';
 import 'core/providers/theme_provider.dart';
 import 'core/vpn/linux_platform.dart';
 import 'features/auth/data/auth_repository.dart';
@@ -29,6 +35,8 @@ import 'features/splash/presentation/loading_screen.dart';
 void main(List<String> arguments) async {
   WidgetsFlutterBinding.ensureInitialized();
   final initialThemeMode = await ThemeNotifier.loadInitialMode();
+  final initialServer = await loadInitialServerSelection();
+  final rememberedPings = await ServerLatencyStore.read();
   if (Platform.isLinux) VlessPlatform.instance = LinuxXrayPlatform();
   var loginLaunch = false;
   if (Platform.isMacOS || Platform.isWindows || Platform.isLinux) {
@@ -41,6 +49,13 @@ void main(List<String> arguments) async {
   final container = ProviderContainer(
     overrides: [
       loginLaunchProvider.overrideWithValue(loginLaunch),
+      selectedServerProvider.overrideWith((ref) => initialServer),
+      serverLatencyLastKnownProvider.overrideWith(
+        (ref) => rememberedPings.latency,
+      ),
+      serverLatencyLastMeasuredAtProvider.overrideWith(
+        (ref) => rememberedPings.measuredAt,
+      ),
       themeProvider.overrideWith(
         (ref) => ThemeNotifier(
           initialMode: initialThemeMode,
@@ -49,6 +64,8 @@ void main(List<String> arguments) async {
       ),
     ],
   );
+  persistServerSelection(container);
+  persistServerLatencies(container);
 
   if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
     await windowManager.ensureInitialized();
@@ -123,6 +140,9 @@ class _MyAppState extends ConsumerState<MyApp> {
   @override
   void initState() {
     super.initState();
+    // Leaving the app does not stop the tunnel. Ask native once at startup so
+    // a still-running tunnel is shown and can be disconnected.
+    unawaited(ref.read(vpnProvider.notifier).restoreTunnel());
     _themeClock = Timer.periodic(const Duration(minutes: 1), (_) {
       if (mounted && ref.read(themeProvider) == AppThemeMode.auto) {
         setState(() {});
@@ -145,7 +165,7 @@ class _MyAppState extends ConsumerState<MyApp> {
     return MaterialApp(
       navigatorKey: appNavigatorKey,
       navigatorObservers: [appFeedbackNavigatorObserver],
-      title: 'Oculve',
+      title: 'oculve',
       debugShowCheckedModeBanner: false,
       locale: locale,
       supportedLocales: supportedAppLocales,
@@ -164,10 +184,16 @@ class _MyAppState extends ConsumerState<MyApp> {
           data: MediaQuery.of(
             context,
           ).copyWith(disableAnimations: systemDisablesAnimations),
-          child: child ?? const SizedBox.shrink(),
+          // One backdrop for the whole app, behind the navigator. Pages are
+          // transparent, so a push or a back swipe moves only content over a
+          // still backdrop instead of sliding two backdrops side by side.
+          child: AppBackdrop(child: child ?? const SizedBox.shrink()),
         );
       },
-      home: const SessionGate(),
+      // The first page must be the same route family as every page pushed on
+      // it: a MaterialPageRoute cannot transition to a Cupertino route, so it
+      // would get no secondary animation and never fade out under a push.
+      onGenerateRoute: (_) => appRoute(const SessionGate()),
     );
   }
 }
@@ -224,8 +250,8 @@ class _SessionGateState extends ConsumerState<SessionGate> {
             );
       } catch (error) {
         if (mounted) {
-          AppFeedback.showError(
-            context,
+          // Shown by the connect button itself, where the user is looking.
+          ref.read(vpnErrorProvider.notifier).state = AppFeedback.errorMessage(
             error,
             fallback: 'Could not connect at startup.',
           );
@@ -240,19 +266,18 @@ class _SessionGateState extends ConsumerState<SessionGate> {
       .when(
         loading: () => const LoadingScreen(),
         error: (error, _) => Scaffold(
-          body: PremiumBackground(
-            child: Center(
-              child: AppErrorState(
-                title: 'Unable to load your account',
-                message: AppFeedback.errorMessage(error),
-                primaryLabel: 'Retry',
-                onPrimary: () => ref.read(sessionProvider.notifier).restore(),
-                secondaryLabel: 'Sign in again',
-                onSecondary: () async {
-                  await ref.read(apiProvider).clear();
-                  await ref.read(sessionProvider.notifier).restore();
-                },
-              ),
+          backgroundColor: Colors.transparent,
+          body: Center(
+            child: AppErrorState(
+              title: 'Unable to load your account',
+              message: AppFeedback.errorMessage(error),
+              primaryLabel: 'Retry',
+              onPrimary: () => ref.read(sessionProvider.notifier).restore(),
+              secondaryLabel: 'Sign in again',
+              onSecondary: () async {
+                await ref.read(apiProvider).clear();
+                await ref.read(sessionProvider.notifier).restore();
+              },
             ),
           ),
         ),

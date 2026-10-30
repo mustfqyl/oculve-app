@@ -397,6 +397,8 @@ int on_trigger(int type, struct poolhd *pool, struct eval *val, bool client_aliv
         return -1;
     }
     lav->dp->fail_count++;
+    // Only the automatic chain has alternative groups to learn from.
+    if (params.auto_reconnect) byedpi_group_note_fail(lav->dp->id);
     lav->dp_mask |= lav->dp->bit;
     lav->detect = type;
     
@@ -426,6 +428,7 @@ int on_trigger(int type, struct poolhd *pool, struct eval *val, bool client_aliv
         lav->dp->pri++;
     }
     if (!next) {
+        if (params.auto_reconnect) byedpi_group_note_exhausted();
         LOG(LOG_S, "unreach ip: %s\n", ADDR_STR);
         cache->dp_mask = 0;
         cache->detect = 0;
@@ -783,9 +786,17 @@ ssize_t tcp_recv_hook(struct poolhd *pool,
         uniperror("recv");
         return handle_err(pool, val, get_e());
     }
-    if (val->flag == FLAG_CONN && val->waiting_for_response) {
-        val->waiting_for_response = 0;
-        remove_timer(pool, val);
+    if (val->flag == FLAG_CONN) {
+        // The first byte from the destination proves this attempt reached it.
+        // Count one success per connection, before any retry clears the flag.
+        if (!val->response_seen) {
+            val->response_seen = 1;
+            if (val->pair && val->pair->dp) byedpi_group_note_ok(val->pair->dp->id);
+        }
+        if (val->waiting_for_response) {
+            val->waiting_for_response = 0;
+            remove_timer(pool, val);
+        }
     }
     val->recv_count += n;
     
